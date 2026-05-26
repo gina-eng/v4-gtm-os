@@ -15,9 +15,13 @@ import {
   CARGOS_COMERCIAIS,
   METRICAS_OPERACIONAIS_DEFAULT,
   type MetricaOperacional,
+  type TimeComercialMembro,
 } from "@/lib/premissas/matriz-defaults";
+import type { PremissaBlockPatch, PremissasBlocks } from "@/db/repositories/premissas";
 import { FieldHelp } from "@/components/ui/field-help";
 import { CargoSelect } from "@/components/iniciar/cargo-select";
+
+type PersistBlock = (patch: PremissaBlockPatch) => Promise<boolean>;
 
 type CacContext = {
   investido: number;
@@ -29,12 +33,21 @@ type Props = {
   canEdit: boolean;
   actingAsMatriz: boolean;
   cacContext: CacContext;
+  blocks: PremissasBlocks;
+  persist: PersistBlock;
 };
 
-export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext }: Props) {
+/** Mapeia o membro simplificado da tela pro shape completo do bloco (template da matriz). */
+function toMembroBlock(m: Membro): TimeComercialMembro {
+  return { email: "", cargo: m.cargo, salario: m.salario, comissaoPct: m.comissaoPct, capacidadePct: 100 };
+}
+
+export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks, persist }: Props) {
   // Estado do TIME COMERCIAL fica aqui pra alimentar P17 com os mesmos cargos.
   // Cada cargo cadastrado no TIME vira uma linha na Capacidade Operacional.
-  const [team, setTeam] = useState<Membro[]>(TIME_SEED);
+  const [team, setTeam] = useState<Membro[]>(() =>
+    blocks.timeComercial.map((m) => ({ cargo: m.cargo, salario: m.salario, comissaoPct: m.comissaoPct })),
+  );
   const cargos = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -52,27 +65,60 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext }: Prop
       {/* Linha unificada — TIME COMERCIAL (CAC dinâmico) + P7 (derivado, read-only).
           Ambas seções têm conteúdo estreito; lado-a-lado economiza espaço vertical. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <TimeComercialSection canEdit={canEdit} team={team} onTeamChange={setTeam} cacContext={cacContext} />
+        <TimeComercialSection
+          canEdit={canEdit}
+          team={team}
+          onTeamChange={setTeam}
+          cacContext={cacContext}
+          onPersist={(rows) => persist({ block: "timeComercial", data: rows.map(toMembroBlock) })}
+        />
         <CplTcvPondSection />
       </div>
 
       {/* P17 — capacidade / operação */}
-      <CapacidadeSection canEdit={canEdit} cargos={cargos} />
+      <CapacidadeSection
+        canEdit={canEdit}
+        cargos={cargos}
+        initial={blocks.metricasOperacionais}
+        onPersist={(rows) => persist({ block: "metricasOperacionais", data: rows })}
+      />
 
       {/* P1 — horizontes */}
-      <HorizontesSection canEdit={canEdit} actingAsMatriz={actingAsMatriz} />
+      <HorizontesSection
+        canEdit={canEdit}
+        actingAsMatriz={actingAsMatriz}
+        initial={blocks.horizontes}
+        onPersist={(rows) => persist({ block: "horizontes", data: rows })}
+      />
 
       {/* P6 — investimento em mídia */}
-      <InvestimentoMidiaSection canEdit={canEdit} actingAsMatriz={actingAsMatriz} />
+      <InvestimentoMidiaSection
+        canEdit={canEdit}
+        actingAsMatriz={actingAsMatriz}
+        initial={blocks.investimentoMidia}
+        onPersist={(rows) => persist({ block: "investimentoMidia", data: rows })}
+      />
 
       {/* P2 — tiers de cliente */}
-      <TiersClienteSection canEdit={canEdit} />
+      <TiersClienteSection
+        canEdit={canEdit}
+        initial={blocks.tiersCliente}
+        onPersist={(rows) => persist({ block: "tiersCliente", data: rows })}
+      />
 
       {/* P3 — receita por produto / tier */}
-      <ReceitaProdutoSection canEdit={canEdit} />
+      <ReceitaProdutoSection
+        canEdit={canEdit}
+        initial={blocks.receitaProduto}
+        onPersist={(rows) => persist({ block: "receitaProduto", data: rows })}
+      />
 
       {/* P4 — distribuição de leads por tier */}
-      <DistribuicaoLeadsSection canEdit={canEdit} />
+      <DistribuicaoLeadsSection
+        canEdit={canEdit}
+        initial={blocks.distMercado}
+        onPersist={(rows) => persist({ block: "distMercado", data: rows })}
+      />
     </>
   );
 }
@@ -82,13 +128,6 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext }: Prop
 // ============================================================
 
 type Membro = { cargo: string; salario: number; comissaoPct: number };
-const TIME_SEED: Membro[] = [
-  { cargo: "LDR", salario: 2_800, comissaoPct: 2.5 },
-  { cargo: "BDR", salario: 3_500, comissaoPct: 4.0 },
-  { cargo: "SDR", salario: 3_200, comissaoPct: 3.0 },
-  { cargo: "CLOSER", salario: 5_000, comissaoPct: 6.0 },
-  { cargo: "KAM", salario: 7_500, comissaoPct: 8.0 },
-];
 
 function custoMes(m: Membro): number {
   return m.salario * (1 + m.comissaoPct / 100);
@@ -99,11 +138,13 @@ function TimeComercialSection({
   team,
   onTeamChange,
   cacContext,
+  onPersist,
 }: {
   canEdit: boolean;
   team: Membro[];
   onTeamChange: (next: Membro[]) => void;
   cacContext: CacContext;
+  onPersist: (rows: Membro[]) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<Membro[]>(team);
   const [isEditing, setIsEditing] = useState(false);
@@ -132,6 +173,7 @@ function TimeComercialSection({
       onSave={() => {
         onTeamChange(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(team);
@@ -330,15 +372,19 @@ function defaultMetricFor(cargo: string): MetricaOperacional {
 function CapacidadeSection({
   canEdit,
   cargos,
+  initial,
+  onPersist,
 }: {
   canEdit: boolean;
   cargos: string[];
+  initial: MetricaOperacional[];
+  onPersist: (rows: MetricaOperacional[]) => Promise<boolean>;
 }) {
   // Métricas guardadas por cargo. Linhas exibidas vêm de `cargos` (TIME COMERCIAL);
   // cargos novos aparecem com defaults; cargos removidos somem da tabela.
   const [savedMap, setSavedMap] = useState<Record<string, MetricaOperacional>>(() => {
     const m: Record<string, MetricaOperacional> = {};
-    for (const def of METRICAS_OPERACIONAIS_DEFAULT) m[def.cargo] = { ...def };
+    for (const def of initial) m[def.cargo] = { ...def };
     return m;
   });
   const [draftMap, setDraftMap] = useState<Record<string, MetricaOperacional>>(savedMap);
@@ -376,6 +422,7 @@ function CapacidadeSection({
       onSave={() => {
         setSavedMap(draftMap);
         setIsEditing(false);
+        void onPersist(cargos.map((c) => draftMap[c] ?? defaultMetricFor(c)));
       }}
       onCancel={() => {
         setDraftMap(savedMap);
@@ -516,23 +563,19 @@ type Horizonte = {
   crescMensalPct: number;
 };
 
-const HORIZ_SEED: Horizonte[] = [
-  { h: "H1", faixaMin: 0, faixaMax: 60_000, tempoMaxMeses: 3, crescMensalPct: 40 },
-  { h: "H2", faixaMin: 60_000, faixaMax: 150_000, tempoMaxMeses: 6, crescMensalPct: 30 },
-  { h: "H3", faixaMin: 150_000, faixaMax: 450_000, tempoMaxMeses: 12, crescMensalPct: 20 },
-  { h: "H4", faixaMin: 450_000, faixaMax: 900_000, tempoMaxMeses: 18, crescMensalPct: 7 },
-  { h: "H5", faixaMin: 900_000, faixaMax: null, tempoMaxMeses: null, crescMensalPct: 2.5 },
-];
-
 function HorizontesSection({
   canEdit,
   actingAsMatriz,
+  initial,
+  onPersist,
 }: {
   canEdit: boolean;
   actingAsMatriz: boolean;
+  initial: Horizonte[];
+  onPersist: (rows: Horizonte[]) => Promise<boolean>;
 }) {
-  const [saved, setSaved] = useState<Horizonte[]>(HORIZ_SEED);
-  const [draft, setDraft] = useState<Horizonte[]>(HORIZ_SEED);
+  const [saved, setSaved] = useState<Horizonte[]>(initial);
+  const [draft, setDraft] = useState<Horizonte[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
   const horizonteAtual: Horizonte["h"] | null = actingAsMatriz ? null : "H4";
@@ -554,6 +597,7 @@ function HorizontesSection({
       onSave={() => {
         setSaved(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(saved);
@@ -655,23 +699,19 @@ type Investimento = {
   regra: string;
 };
 
-const INVEST_SEED: Investimento[] = [
-  { h: "H1", pctProducao: 16.8, splitLb: 100, splitBb: 0, bbPiso: 0, regra: "Max inbound, out complementa" },
-  { h: "H2", pctProducao: 17.0, splitLb: 100, splitBb: 0, bbPiso: 0, regra: "" },
-  { h: "H3", pctProducao: 15.5, splitLb: 80, splitBb: 20, bbPiso: 30_000, regra: "BB entra" },
-  { h: "H4", pctProducao: 15.6, splitLb: 75, splitBb: 25, bbPiso: 30_000, regra: "" },
-  { h: "H5", pctProducao: 17.5, splitLb: 62.5, splitBb: 37.5, bbPiso: 30_000, regra: "Ent: 10% budget → MeetingBroker" },
-];
-
 function InvestimentoMidiaSection({
   canEdit,
   actingAsMatriz,
+  initial,
+  onPersist,
 }: {
   canEdit: boolean;
   actingAsMatriz: boolean;
+  initial: Investimento[];
+  onPersist: (rows: Investimento[]) => Promise<boolean>;
 }) {
-  const [saved, setSaved] = useState<Investimento[]>(INVEST_SEED);
-  const [draft, setDraft] = useState<Investimento[]>(INVEST_SEED);
+  const [saved, setSaved] = useState<Investimento[]>(initial);
+  const [draft, setDraft] = useState<Investimento[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
   // Quando a sessão é matriz (visão consolidada), nenhuma unidade está sendo
@@ -695,6 +735,7 @@ function InvestimentoMidiaSection({
       onSave={() => {
         setSaved(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(saved);
@@ -836,17 +877,17 @@ type TierCliente = {
   cplBb: number;
 };
 
-const TIERS_SEED: TierCliente[] = [
-  { tier: "Tiny", faturamentoMin: 600_000, faturamentoMax: 1_200_000, tcvBooking: 25_500, tcvProdCom: 17_500, cplLb: 421, cplBb: 700 },
-  { tier: "Small", faturamentoMin: 1_200_000, faturamentoMax: 2_500_000, tcvBooking: 40_300, tcvProdCom: 26_300, cplLb: 810, cplBb: 700 },
-  { tier: "Medium", faturamentoMin: 2_500_000, faturamentoMax: 50_000_000, tcvBooking: 62_500, tcvProdCom: 34_500, cplLb: 1_152, cplBb: 700 },
-  { tier: "Large", faturamentoMin: 50_000_000, faturamentoMax: 500_000_000, tcvBooking: 80_800, tcvProdCom: 49_500, cplLb: 1_608, cplBb: 700 },
-  { tier: "Enterprise", faturamentoMin: 500_000_000, faturamentoMax: null, tcvBooking: 153_160, tcvProdCom: 64_660, cplLb: 1_683, cplBb: 700 },
-];
-
-function TiersClienteSection({ canEdit }: { canEdit: boolean }) {
-  const [saved, setSaved] = useState<TierCliente[]>(TIERS_SEED);
-  const [draft, setDraft] = useState<TierCliente[]>(TIERS_SEED);
+function TiersClienteSection({
+  canEdit,
+  initial,
+  onPersist,
+}: {
+  canEdit: boolean;
+  initial: TierCliente[];
+  onPersist: (rows: TierCliente[]) => Promise<boolean>;
+}) {
+  const [saved, setSaved] = useState<TierCliente[]>(initial);
+  const [draft, setDraft] = useState<TierCliente[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
 
@@ -867,6 +908,7 @@ function TiersClienteSection({ canEdit }: { canEdit: boolean }) {
       onSave={() => {
         setSaved(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(saved);
@@ -947,14 +989,6 @@ type Produto = {
   execAt: number;
 };
 
-const PRODUTO_SEED: Produto[] = [
-  { tier: "Tiny", saberPct: 80, saberAt: 20_000, terPct: 20, terAt: 7_500, execPct: 0, execAt: 0 },
-  { tier: "Small", saberPct: 80, saberAt: 30_000, terPct: 20, terAt: 11_500, execPct: 0, execAt: 0 },
-  { tier: "Medium", saberPct: 60, saberAt: 30_000, terPct: 10, terAt: 15_000, execPct: 30, execAt: 50_000 },
-  { tier: "Large", saberPct: 60, saberAt: 30_000, terPct: 10, terAt: 18_000, execPct: 30, execAt: 99_000 },
-  { tier: "Enterprise", saberPct: 60, saberAt: 30_000, terPct: 10, terAt: 31_600, execPct: 30, execAt: 145_000 },
-];
-
 function tcvPonderado(p: Produto): number {
   return (
     (p.saberPct / 100) * p.saberAt +
@@ -963,9 +997,17 @@ function tcvPonderado(p: Produto): number {
   );
 }
 
-function ReceitaProdutoSection({ canEdit }: { canEdit: boolean }) {
-  const [saved, setSaved] = useState<Produto[]>(PRODUTO_SEED);
-  const [draft, setDraft] = useState<Produto[]>(PRODUTO_SEED);
+function ReceitaProdutoSection({
+  canEdit,
+  initial,
+  onPersist,
+}: {
+  canEdit: boolean;
+  initial: Produto[];
+  onPersist: (rows: Produto[]) => Promise<boolean>;
+}) {
+  const [saved, setSaved] = useState<Produto[]>(initial);
+  const [draft, setDraft] = useState<Produto[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
 
@@ -986,6 +1028,7 @@ function ReceitaProdutoSection({ canEdit }: { canEdit: boolean }) {
       onSave={() => {
         setSaved(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(saved);
@@ -1059,13 +1102,6 @@ type HorizonteName = (typeof HORIZ_LIST)[number];
 // "Entra em" é a chave-mestra: define a partir de qual horizonte o tier aparece
 // na tabela de split à direita. Editar aqui libera/oculta a célula correspondente.
 type DistMercado = { tier: TierName; pctMercado: number; entraHorizonte: HorizonteName };
-const DIST_MERCADO_SEED: DistMercado[] = [
-  { tier: "Tiny", pctMercado: 20, entraHorizonte: "H1" },
-  { tier: "Small", pctMercado: 25, entraHorizonte: "H1" },
-  { tier: "Medium", pctMercado: 30, entraHorizonte: "H3" },
-  { tier: "Large", pctMercado: 15, entraHorizonte: "H4" },
-  { tier: "Enterprise", pctMercado: 10, entraHorizonte: "H5" },
-];
 
 type SplitHoriz = {
   h: HorizonteName;
@@ -1082,9 +1118,17 @@ const SPLIT_SEED: SplitHoriz[] = [
   { h: "H5", pcts: { Tiny: 20, Small: 25, Medium: 30, Large: 15, Enterprise: 10 } },
 ];
 
-function DistribuicaoLeadsSection({ canEdit }: { canEdit: boolean }) {
-  const [savedMercado, setSavedMercado] = useState<DistMercado[]>(DIST_MERCADO_SEED);
-  const [draftMercado, setDraftMercado] = useState<DistMercado[]>(DIST_MERCADO_SEED);
+function DistribuicaoLeadsSection({
+  canEdit,
+  initial,
+  onPersist,
+}: {
+  canEdit: boolean;
+  initial: DistMercado[];
+  onPersist: (rows: DistMercado[]) => Promise<boolean>;
+}) {
+  const [savedMercado, setSavedMercado] = useState<DistMercado[]>(initial);
+  const [draftMercado, setDraftMercado] = useState<DistMercado[]>(initial);
   const [savedSplit, setSavedSplit] = useState<SplitHoriz[]>(SPLIT_SEED);
   const [draftSplit, setDraftSplit] = useState<SplitHoriz[]>(SPLIT_SEED);
   const [isEditing, setIsEditing] = useState(false);
@@ -1130,6 +1174,7 @@ function DistribuicaoLeadsSection({ canEdit }: { canEdit: boolean }) {
         setSavedMercado(draftMercado);
         setSavedSplit(draftSplit);
         setIsEditing(false);
+        void onPersist(draftMercado);
       }}
       onCancel={() => {
         setDraftMercado(savedMercado);

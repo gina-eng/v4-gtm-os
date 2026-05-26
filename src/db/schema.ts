@@ -16,9 +16,12 @@ import {
   pgTable,
   uuid,
   varchar,
+  text,
   timestamp,
   date,
   jsonb,
+  integer,
+  doublePrecision,
   index,
   uniqueIndex,
   unique,
@@ -32,6 +35,19 @@ import {
 export const orgTypeEnum = pgEnum("org_type", ["matriz", "unidade"]);
 export const orgStatusEnum = pgEnum("org_status", ["active", "inactive", "pending"]);
 export const horizonteEnum = pgEnum("horizonte", ["H1", "H2", "H3", "H4", "H5"]);
+
+// Dimensões das premissas (Fase 2 — tabelas normalizadas)
+export const tierEnum = pgEnum("tier", ["Tiny", "Small", "Medium", "Large", "Enterprise"]);
+// `cargo` NÃO é enum: a unidade/matriz pode cadastrar cargos customizados além
+// dos 5 principais (LDR/BDR/SDR/CLOSER/KAM). Fica como varchar livre.
+export const canalInboundEnum = pgEnum("canal_inbound", ["lead_broker", "black_box"]);
+export const subcanalOutboundEnum = pgEnum("subcanal_outbound", [
+  "indicacao",
+  "eventos",
+  "recovery",
+  "recomendacao",
+  "prospeccao",
+]);
 
 export const userStatusEnum = pgEnum("user_status", ["pending", "active", "inactive"]);
 export const roleEnum = pgEnum("role", ["admin", "gerente", "coordenador"]);
@@ -237,3 +253,196 @@ export const unitSetups = pgTable("unit_setups", {
 
 export type UnitSetupRow = typeof unitSetups.$inferSelect;
 export type NewUnitSetupRow = typeof unitSetups.$inferInsert;
+
+// ============================================================
+// premissas — Fase 2 (premissas normalizadas)
+//
+// 1 linha por entidade (matriz OU unidade) na `premissas`; cada bloco de
+// premissa vira uma tabela-filha onde CADA métrica é coluna e cada item de
+// dimensão (tier, horizonte, cargo, canal, subcanal) é uma linha. Substitui
+// as colunas jsonb de `unit_setups` (que ficam só com realizado + progresso).
+//
+// `entidade_id` é o id da organization (matriz ou unidade) — referência SOLTA
+// (sem FK), só indexada/UNIQUE, pra cruzar com `organizations` sem amarrar.
+// ============================================================
+
+export const premissas = pgTable(
+  "premissas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entidadeId: uuid("entidade_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("idx_premissas_entidade").on(table.entidadeId)],
+);
+
+export type PremissasRow = typeof premissas.$inferSelect;
+export type NewPremissasRow = typeof premissas.$inferInsert;
+
+// Time Comercial — grão: pessoa (N membros). Sem unique por cargo: pode haver
+// 2 SDRs. Métricas do cargo (P17) ficam em `premissa_cargo`, à parte.
+export const premissaTimeComercial = pgTable(
+  "premissa_time_comercial",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    ord: integer("ord").notNull().default(0),
+    email: varchar("email", { length: 255 }).notNull().default(""),
+    cargo: varchar("cargo", { length: 60 }).notNull(),
+    salario: doublePrecision("salario").notNull(),
+    comissaoPct: doublePrecision("comissao_pct").notNull(),
+    capacidadePct: integer("capacidade_pct").notNull(),
+  },
+  (table) => [index("idx_prem_time_comercial_premissa").on(table.premissaId)],
+);
+
+// P17 — Capacidade Operacional. Grão: cargo (5 cargos).
+export const premissaCargo = pgTable(
+  "premissa_cargo",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    cargo: varchar("cargo", { length: 60 }).notNull(),
+    wipLimit: integer("wip_limit").notNull(),
+    contratacao: integer("contratacao").notNull(),
+    onboarding: integer("onboarding").notNull(),
+    rampagem: integer("rampagem").notNull(),
+    atingimentoMes: integer("atingimento_mes").notNull(),
+    permanencia: integer("permanencia").notNull(),
+    turnoverMesPct: doublePrecision("turnover_mes_pct").notNull(),
+    ligacoesMes: integer("ligacoes_mes").notNull(),
+    conexaoPct: doublePrecision("conexao_pct").notNull(),
+    extra: text("extra").notNull().default(""),
+  },
+  (table) => [uniqueIndex("idx_prem_cargo_unique").on(table.premissaId, table.cargo)],
+);
+
+// P1 (Horizontes) + P6 (Investimento Mídia) + P16 (Mix Subcanais). Grão: horizonte (5).
+export const premissaHorizonte = pgTable(
+  "premissa_horizonte",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    h: horizonteEnum("h").notNull(),
+    // P1 — Horizontes de Crescimento
+    faixaMin: doublePrecision("faixa_min").notNull(),
+    faixaMax: doublePrecision("faixa_max"),
+    tempoMaxMeses: integer("tempo_max_meses"),
+    crescMensalPct: doublePrecision("cresc_mensal_pct").notNull(),
+    // P6 — Investimento em Mídia
+    pctProducao: doublePrecision("pct_producao").notNull(),
+    splitLb: doublePrecision("split_lb").notNull(),
+    splitBb: doublePrecision("split_bb").notNull(),
+    bbPiso: doublePrecision("bb_piso").notNull(),
+    regra: text("regra").notNull().default(""),
+    // P16 — Mix Subcanais Outbound (% por horizonte)
+    mixIndicacao: doublePrecision("mix_indicacao").notNull(),
+    mixEventos: doublePrecision("mix_eventos").notNull(),
+    mixRecovery: doublePrecision("mix_recovery").notNull(),
+    mixRecomendacao: doublePrecision("mix_recomendacao").notNull(),
+    mixProspeccao: doublePrecision("mix_prospeccao").notNull(),
+  },
+  (table) => [uniqueIndex("idx_prem_horizonte_unique").on(table.premissaId, table.h)],
+);
+
+// P2 (Tiers) + P3 (Receita/Produto) + P4 (Distribuição). Grão: tier (5).
+export const premissaTier = pgTable(
+  "premissa_tier",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    tier: tierEnum("tier").notNull(),
+    // P2 — Tiers de Cliente
+    faturamentoMin: doublePrecision("faturamento_min").notNull(),
+    faturamentoMax: doublePrecision("faturamento_max"),
+    tcvBooking: doublePrecision("tcv_booking").notNull(),
+    tcvProdCom: doublePrecision("tcv_prod_com").notNull(),
+    cplLb: doublePrecision("cpl_lb").notNull(),
+    cplBb: doublePrecision("cpl_bb").notNull(),
+    // P3 — Receita por Produto/Tier
+    saberPct: doublePrecision("saber_pct").notNull(),
+    saberAt: doublePrecision("saber_at").notNull(),
+    terPct: doublePrecision("ter_pct").notNull(),
+    terAt: doublePrecision("ter_at").notNull(),
+    execPct: doublePrecision("exec_pct").notNull(),
+    execAt: doublePrecision("exec_at").notNull(),
+    // P4 — Distribuição de Leads por Tier
+    pctMercado: doublePrecision("pct_mercado").notNull(),
+    entraHorizonte: horizonteEnum("entra_horizonte").notNull(),
+  },
+  (table) => [uniqueIndex("idx_prem_tier_unique").on(table.premissaId, table.tier)],
+);
+
+// P8 (Lead Broker) + P9 (Black Box). Grão: canal × tier (10). Funil longo (cr1–cr7).
+export const premissaConversaoInbound = pgTable(
+  "premissa_conversao_inbound",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    canal: canalInboundEnum("canal").notNull(),
+    tier: tierEnum("tier").notNull(),
+    cr1: doublePrecision("cr1").notNull(),
+    cr2: doublePrecision("cr2").notNull(),
+    cr3: doublePrecision("cr3").notNull(),
+    cr4: doublePrecision("cr4").notNull(),
+    cr5: doublePrecision("cr5").notNull(),
+    cr6: doublePrecision("cr6").notNull(),
+    cr7: doublePrecision("cr7").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_prem_conv_inbound_unique").on(table.premissaId, table.canal, table.tier),
+  ],
+);
+
+// P11–P15 (5 subcanais outbound). Grão: subcanal × tier (25). Funil curto (cr1,3,4,6,7).
+export const premissaConversaoOutbound = pgTable(
+  "premissa_conversao_outbound",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    subcanal: subcanalOutboundEnum("subcanal").notNull(),
+    tier: tierEnum("tier").notNull(),
+    cr1: doublePrecision("cr1").notNull(),
+    cr3: doublePrecision("cr3").notNull(),
+    cr4: doublePrecision("cr4").notNull(),
+    cr6: doublePrecision("cr6").notNull(),
+    cr7: doublePrecision("cr7").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_prem_conv_outbound_unique").on(
+      table.premissaId,
+      table.subcanal,
+      table.tier,
+    ),
+  ],
+);
+
+// P10 — Meeting Broker (Enterprise-only). Singleton: 1 linha por preenchimento.
+export const premissaMeetingBroker = pgTable(
+  "premissa_meeting_broker",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    custoSql: doublePrecision("custo_sql").notNull(),
+    cr3: doublePrecision("cr3").notNull(),
+    cr4: doublePrecision("cr4").notNull(),
+    meta: text("meta").notNull().default(""),
+    pipeline: text("pipeline").notNull().default(""),
+  },
+  (table) => [uniqueIndex("idx_prem_meeting_broker_unique").on(table.premissaId)],
+);

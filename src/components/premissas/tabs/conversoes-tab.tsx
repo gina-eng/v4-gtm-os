@@ -6,75 +6,86 @@ import { CurrencyCell, PercentCell } from "../editable-cell";
 import { formatBRL, formatPercent } from "../format";
 import { FieldHelp } from "@/components/ui/field-help";
 import {
-  CONVERSAO_BLACK_BOX_DEFAULT,
-  CONVERSAO_LEAD_BROKER_DEFAULT,
-  CONVERSAO_MEETING_BROKER_DEFAULT,
-  CONVERSAO_OUTBOUND_EVENTOS_DEFAULT,
-  CONVERSAO_OUTBOUND_INDICACAO_DEFAULT,
-  CONVERSAO_OUTBOUND_PROSPECCAO_DEFAULT,
-  CONVERSAO_OUTBOUND_RECOMENDACAO_DEFAULT,
-  CONVERSAO_OUTBOUND_RECOVERY_DEFAULT,
-  MIX_OUTBOUND_DEFAULT,
   type ConversaoInbound,
   type ConversaoMeetingBroker,
   type ConversaoOutbound,
   type MixOutboundHorizonte,
 } from "@/lib/premissas/matriz-defaults";
+import type { PremissaBlockPatch, PremissasBlocks } from "@/db/repositories/premissas";
 
-type Props = { canEdit: boolean };
+type PersistBlock = (patch: PremissaBlockPatch) => Promise<boolean>;
 
-export function ConversoesTab({ canEdit }: Props) {
+type Props = { canEdit: boolean; blocks: PremissasBlocks; persist: PersistBlock };
+
+export function ConversoesTab({ canEdit, blocks, persist }: Props) {
+  const inbound = blocks.conversoesInbound;
+  const outbound = blocks.conversoesOutbound;
   return (
     <>
       {/* INBOUND — canais que iniciam em Lead/MQL */}
       <InboundCRSection
         title="P8 — CRs Lead Broker por Tier"
         badge={<SectionBadge>Premissa 08</SectionBadge>}
-        seed={CONVERSAO_LEAD_BROKER_DEFAULT}
+        seed={inbound.leadBroker}
         canEdit={canEdit}
+        onPersist={(data) => persist({ block: "conversaoInbound", canal: "lead_broker", data })}
       />
       <InboundCRSection
         title="P9 — CRs Black Box por Tier"
         badge={<SectionBadge>Premissa 09</SectionBadge>}
-        seed={CONVERSAO_BLACK_BOX_DEFAULT}
+        seed={inbound.blackBox}
         canEdit={canEdit}
+        onPersist={(data) => persist({ block: "conversaoInbound", canal: "black_box", data })}
       />
-      <MeetingBrokerSection canEdit={canEdit} />
+      <MeetingBrokerSection
+        canEdit={canEdit}
+        seed={inbound.meetingBroker}
+        onPersist={(data) => persist({ block: "meetingBroker", data })}
+      />
 
       {/* OUTBOUND — canais que iniciam em Lead → SQL (sem etapa MQL) */}
       <OutboundCRSection
         title="P11 — Outbound: Indicação"
         badge={<SectionBadge>Premissa 11</SectionBadge>}
-        seed={CONVERSAO_OUTBOUND_INDICACAO_DEFAULT}
+        seed={outbound.indicacao}
         canEdit={canEdit}
+        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "indicacao", data })}
       />
       <OutboundCRSection
         title="P12 — Outbound: Eventos"
         badge={<SectionBadge>Premissa 12</SectionBadge>}
-        seed={CONVERSAO_OUTBOUND_EVENTOS_DEFAULT}
+        seed={outbound.eventos}
         canEdit={canEdit}
+        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "eventos", data })}
       />
       <OutboundCRSection
         title="P13 — Outbound: Recovery"
         badge={<SectionBadge>Premissa 13</SectionBadge>}
-        seed={CONVERSAO_OUTBOUND_RECOVERY_DEFAULT}
+        seed={outbound.recovery}
         canEdit={canEdit}
+        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recovery", data })}
       />
       <OutboundCRSection
         title="P14 — Outbound: Recomendação"
         badge={<SectionBadge>Premissa 14</SectionBadge>}
-        seed={CONVERSAO_OUTBOUND_RECOMENDACAO_DEFAULT}
+        seed={outbound.recomendacao}
         canEdit={canEdit}
+        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recomendacao", data })}
       />
       <OutboundCRSection
         title="P15 — Outbound: Prospecção Ativa"
         badge={<SectionBadge>Premissa 15</SectionBadge>}
-        seed={CONVERSAO_OUTBOUND_PROSPECCAO_DEFAULT}
+        seed={outbound.prospeccao}
         canEdit={canEdit}
+        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "prospeccao", data })}
       />
 
       {/* MIX */}
-      <MixSubcanaisSection canEdit={canEdit} />
+      <MixSubcanaisSection
+        canEdit={canEdit}
+        seed={blocks.mixSubcanais}
+        onPersist={(data) => persist({ block: "mixSubcanais", data })}
+      />
     </>
   );
 }
@@ -88,11 +99,13 @@ function InboundCRSection({
   badge,
   seed,
   canEdit,
+  onPersist,
 }: {
   title: string;
   badge: React.ReactNode;
   seed: ConversaoInbound[];
   canEdit: boolean;
+  onPersist: (data: ConversaoInbound[]) => Promise<boolean>;
 }) {
   const [saved, setSaved] = useState<ConversaoInbound[]>(seed);
   const [draft, setDraft] = useState<ConversaoInbound[]>(seed);
@@ -116,6 +129,7 @@ function InboundCRSection({
       onSave={() => {
         setSaved(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(saved);
@@ -184,9 +198,17 @@ function InboundCRSection({
 // P10 — MEETING BROKER (Enterprise only — SQL → SAL → Won)
 // ============================================================
 
-function MeetingBrokerSection({ canEdit }: { canEdit: boolean }) {
-  const [saved, setSaved] = useState<ConversaoMeetingBroker>(CONVERSAO_MEETING_BROKER_DEFAULT);
-  const [draft, setDraft] = useState<ConversaoMeetingBroker>(CONVERSAO_MEETING_BROKER_DEFAULT);
+function MeetingBrokerSection({
+  canEdit,
+  seed,
+  onPersist,
+}: {
+  canEdit: boolean;
+  seed: ConversaoMeetingBroker;
+  onPersist: (data: ConversaoMeetingBroker) => Promise<boolean>;
+}) {
+  const [saved, setSaved] = useState<ConversaoMeetingBroker>(seed);
+  const [draft, setDraft] = useState<ConversaoMeetingBroker>(seed);
   const [isEditing, setIsEditing] = useState(false);
   const r = isEditing ? draft : saved;
 
@@ -207,6 +229,7 @@ function MeetingBrokerSection({ canEdit }: { canEdit: boolean }) {
       onSave={() => {
         setSaved(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(saved);
@@ -259,11 +282,13 @@ function OutboundCRSection({
   badge,
   seed,
   canEdit,
+  onPersist,
 }: {
   title: string;
   badge: React.ReactNode;
   seed: ConversaoOutbound[];
   canEdit: boolean;
+  onPersist: (data: ConversaoOutbound[]) => Promise<boolean>;
 }) {
   const [saved, setSaved] = useState<ConversaoOutbound[]>(seed);
   const [draft, setDraft] = useState<ConversaoOutbound[]>(seed);
@@ -287,6 +312,7 @@ function OutboundCRSection({
       onSave={() => {
         setSaved(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(saved);
@@ -349,9 +375,17 @@ function mixTotal(r: MixOutboundHorizonte): number {
   return r.indicacao + r.eventos + r.recovery + r.recomendacao + r.prospeccao;
 }
 
-function MixSubcanaisSection({ canEdit }: { canEdit: boolean }) {
-  const [saved, setSaved] = useState<MixOutboundHorizonte[]>(MIX_OUTBOUND_DEFAULT);
-  const [draft, setDraft] = useState<MixOutboundHorizonte[]>(MIX_OUTBOUND_DEFAULT);
+function MixSubcanaisSection({
+  canEdit,
+  seed,
+  onPersist,
+}: {
+  canEdit: boolean;
+  seed: MixOutboundHorizonte[];
+  onPersist: (data: MixOutboundHorizonte[]) => Promise<boolean>;
+}) {
+  const [saved, setSaved] = useState<MixOutboundHorizonte[]>(seed);
+  const [draft, setDraft] = useState<MixOutboundHorizonte[]>(seed);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
 
@@ -372,6 +406,7 @@ function MixSubcanaisSection({ canEdit }: { canEdit: boolean }) {
       onSave={() => {
         setSaved(draft);
         setIsEditing(false);
+        void onPersist(draft);
       }}
       onCancel={() => {
         setDraft(saved);
