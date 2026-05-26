@@ -24,7 +24,7 @@ export function RealizadoEmpty({ mode }: Props) {
           {eyebrow}
         </div>
         <h1 className="text-2xl font-semibold text-foreground">
-          Realizado vs Projetado
+          Forecast
         </h1>
       </div>
 

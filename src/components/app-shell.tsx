@@ -28,7 +28,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { href: "/", label: "Início", icon: LayoutDashboard },
-  { href: "/realizado", label: "Realizado vs Projetado", icon: LineChart },
+  { href: "/realizado", label: "Forecast", icon: LineChart },
   { href: "/unidades", label: "Unidades", icon: Building2 },
   { href: "/usuarios", label: "Usuários", icon: Users },
   { href: "/premissas", label: "Premissas", icon: SlidersHorizontal },
