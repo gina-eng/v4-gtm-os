@@ -101,7 +101,7 @@ export function PremissasClient({ cacContext, blocks }: ClientProps) {
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Premissas do Modelo</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Ajuste os valores do modelo · O realizado da unidade vive em <em>Realizado vs Projetado</em>
+              Ajuste os valores do modelo · O realizado da unidade vive em <em>Forecast</em>
             </p>
           </div>
           <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">

@@ -269,7 +269,7 @@ function TimeComercialSection({
             <>
               <div className="text-xl font-bold text-muted-foreground tabular-nums">—</div>
               <div className="text-[10px] text-muted-foreground mt-0.5">
-                Sem realizado preenchido. Custo time {formatBRL(custoTimeTotal)} · preencha investido + won em <em>Realizado vs Projetado</em>.
+                Sem realizado preenchido. Custo time {formatBRL(custoTimeTotal)} · preencha investido + won em <em>Forecast</em>.
               </div>
             </>
           ) : (

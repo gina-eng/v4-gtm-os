@@ -117,7 +117,7 @@ export function StepRealizadoHistorico({
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-foreground">9 · Realizado Histórico</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Preencha os números reais da unidade nos meses já fechados de 2026. Esses valores são a base para o cálculo de <strong>Realizado vs Projetado</strong>.
+          Preencha os números reais da unidade nos meses já fechados de 2026. Esses valores são a base para o cálculo de <strong>Forecast</strong>.
         </p>
       </div>
 
@@ -127,7 +127,7 @@ export function StepRealizadoHistorico({
           A trajetória <strong>Projetada</strong> do ano inteiro parte do <strong>faturamento de Janeiro/2026</strong> (âncora)
           e capitaliza pela taxa do horizonte <strong>{horizonteAtual}</strong> (
           {formatPercent(horizontes.find((h) => h.h === horizonteAtual)?.crescMensalPct ?? 0, 1)}/mês).
-          Os demais meses fechados servem como comparação na aba <em>Realizado vs Projetado</em> — não recalibram a curva.
+          Os demais meses fechados servem como comparação na aba <em>Forecast</em> — não recalibram a curva.
         </span>
       </div>
 

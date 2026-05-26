@@ -21,11 +21,15 @@ export async function getCurrentSession(): Promise<AuthSession | null> {
   const userId = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   if (!userId) return null;
 
-  const user = await getUserById(userId);
+  // As três queries são independentes (listMembershipsByUser/listOrganizations
+  // não dependem do resultado de getUserById, só do userId do cookie), então
+  // rodamos em paralelo. Roda a cada request por causa do layout force-dynamic.
+  const [user, rawMemberships, allOrgs] = await Promise.all([
+    getUserById(userId),
+    listMembershipsByUser(userId),
+    listOrganizations(),
+  ]);
   if (!user || user.status !== "active") return null;
-
-  const rawMemberships = await listMembershipsByUser(user.id);
-  const allOrgs = await listOrganizations();
   const memberships: MembershipWithOrg[] = [];
   for (const m of rawMemberships) {
     if (m.organizationId) {

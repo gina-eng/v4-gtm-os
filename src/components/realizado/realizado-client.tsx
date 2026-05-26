@@ -156,7 +156,7 @@ export function RealizadoClient(props: Props) {
         <div className="flex items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">
-              Realizado vs Projetado
+              Forecast
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {isMatriz
@@ -207,7 +207,7 @@ export function RealizadoClient(props: Props) {
 
       {/* TABELA PRINCIPAL */}
       <EditableSection
-        title={isMatriz ? "CONSOLIDADO — REALIZADO × PROJETADO" : "INPUT UNIDADE — REALIZADO × PROJETADO"}
+        title={isMatriz ? "CONSOLIDADO — FORECAST" : "INPUT UNIDADE — FORECAST"}
         badge={
           <SectionBadge>
             {isMatriz ? "Proxy · Soma das unidades" : "Edição contínua"}
