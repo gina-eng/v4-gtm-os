@@ -233,6 +233,22 @@ export const DIST_MERCADO_DEFAULT: DistMercado[] = [
   { tier: "Enterprise", pctMercado: 10, entraHorizonte: "H5" },
 ];
 
+// Split normalizado de leads por horizonte × tier (renormalizado a 100% entre
+// os tiers ativos do horizonte). É a tabela à direita do P4 na tela /premissas.
+export type DistSplitHorizonte = {
+  h: Horizonte;
+  /** % por tier; só os tiers ativos no horizonte aparecem. */
+  pcts: Partial<Record<Tier, number>>;
+};
+
+export const DIST_SPLIT_DEFAULT: DistSplitHorizonte[] = [
+  { h: "H1", pcts: { Tiny: 44.4, Small: 55.6 } },
+  { h: "H2", pcts: { Tiny: 44.4, Small: 55.6 } },
+  { h: "H3", pcts: { Tiny: 26.7, Small: 33.3, Medium: 40 } },
+  { h: "H4", pcts: { Tiny: 22.2, Small: 27.8, Medium: 33.3, Large: 16.7 } },
+  { h: "H5", pcts: { Tiny: 20, Small: 25, Medium: 30, Large: 15, Enterprise: 10 } },
+];
+
 // ============================================================
 // Investimento em Mídia por Horizonte (P6)
 // ============================================================

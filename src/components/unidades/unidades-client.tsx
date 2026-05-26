@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Pencil } from "lucide-react";
 import type { Organization } from "@/db/schema";
 import {
   HORIZONTES,
@@ -15,6 +15,7 @@ import {
 import { PermissionGate } from "@/components/permission-gate";
 import { FieldHelp } from "@/components/ui/field-help";
 import { AddUnitModal } from "./add-unit-modal";
+import { EditUnitModal } from "./edit-unit-modal";
 import { HorizonteBadge, StatusBadge } from "./badges";
 
 type Props = {
@@ -35,6 +36,7 @@ export function UnidadesClient({ initialUnits, setupCompletionByOrgId }: Props) 
   const [regionalFilter, setRegionalFilter] = useState<RegionalSigla | "all">("all");
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [editUnit, setEditUnit] = useState<Organization | null>(null);
 
   const filtered = useMemo(() => {
     return initialUnits.filter((u) => {
@@ -154,10 +156,15 @@ export function UnidadesClient({ initialUnits, setupCompletionByOrgId }: Props) 
       ) : noResults ? (
         <NoResults />
       ) : (
-        <UnitsTable units={filtered} setupCompletionByOrgId={setupCompletionByOrgId} />
+        <UnitsTable
+          units={filtered}
+          setupCompletionByOrgId={setupCompletionByOrgId}
+          onEdit={setEditUnit}
+        />
       )}
 
       <AddUnitModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <EditUnitModal unit={editUnit} onClose={() => setEditUnit(null)} />
     </>
   );
 }
@@ -165,9 +172,11 @@ export function UnidadesClient({ initialUnits, setupCompletionByOrgId }: Props) 
 function UnitsTable({
   units,
   setupCompletionByOrgId,
+  onEdit,
 }: {
   units: Organization[];
   setupCompletionByOrgId: Record<string, number>;
+  onEdit: (unit: Organization) => void;
 }) {
   return (
     <div className="rounded border border-border overflow-auto">
@@ -215,6 +224,9 @@ function UnitsTable({
                 Status
                 <FieldHelp text="Estado da unidade no sistema: ativo, inativo ou pendente de ativação." position="bottom" />
               </span>
+            </th>
+            <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-3 py-1.5 text-[10px] uppercase tracking-wider">
+              Ações
             </th>
           </tr>
         </thead>
@@ -274,6 +286,23 @@ function UnitsTable({
               </td>
               <td className="px-3 py-1.5 text-xs">
                 <StatusBadge status={u.status} />
+              </td>
+              <td className="px-3 py-1.5 text-xs text-right">
+                {u.type === "matriz" ? (
+                  <span className="text-muted-foreground/40">—</span>
+                ) : (
+                  <PermissionGate action="organization.update">
+                    <button
+                      type="button"
+                      onClick={() => onEdit(u)}
+                      className="inline-flex items-center gap-1 px-2 h-7 rounded text-[11px] border border-border hover:bg-muted"
+                      title="Editar dados da unidade"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Editar
+                    </button>
+                  </PermissionGate>
+                )}
               </td>
             </tr>
           ))}

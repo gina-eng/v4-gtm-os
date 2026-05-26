@@ -30,6 +30,20 @@ export const premissaBlockBodySchema = z.discriminatedUnion("block", [
   z.object({ block: z.literal("tiersCliente"), data: z.array(tierClienteSchema).min(1) }),
   z.object({ block: z.literal("receitaProduto"), data: z.array(receitaProdutoSchema).min(1) }),
   z.object({ block: z.literal("distMercado"), data: z.array(distMercadoBlockRow()).min(1) }),
+  z.object({
+    block: z.literal("distSplit"),
+    data: z
+      .array(
+        z.object({
+          h: z.enum(["H1", "H2", "H3", "H4", "H5"]),
+          pcts: z.record(
+            z.enum(["Tiny", "Small", "Medium", "Large", "Enterprise"]),
+            z.number().min(0).max(100),
+          ),
+        }),
+      )
+      .min(1),
+  }),
   z.object({ block: z.literal("metricasOperacionais"), data: metricasOperacionaisSchema }),
   z.object({ block: z.literal("timeComercial"), data: z.array(timeComercialMembroSchema).min(1) }),
   z.object({

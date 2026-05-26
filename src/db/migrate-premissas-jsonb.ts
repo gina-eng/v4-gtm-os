@@ -59,6 +59,7 @@ async function main() {
       tiersCliente: (row.tiersCliente as TierCliente[] | null) ?? base.tiersCliente,
       receitaProduto: (row.receitaProduto as ReceitaProduto[] | null) ?? base.receitaProduto,
       distMercado: (row.distMercado as DistMercado[] | null) ?? base.distMercado,
+      distSplit: base.distSplit, // não existia em jsonb — usa default da matriz
       investimentoMidia:
         (row.investimentoMidia as InvestimentoMidia[] | null) ?? base.investimentoMidia,
       conversoesInbound:

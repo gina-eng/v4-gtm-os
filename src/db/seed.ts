@@ -3,9 +3,10 @@
 // imports são hoisted, então qualquer require de @/lib/env rodaria antes do dotenv.
 
 import { db } from "./index";
-import { organizations, users, memberships, premissas } from "./schema";
+import { organizations, users, memberships, premissas, premissaDistSplit } from "./schema";
 import { eq } from "drizzle-orm";
-import { matrizDefaultBlocks, savePremissas } from "./repositories/premissas";
+import { matrizDefaultBlocks, savePremissas, savePremissasBlock } from "./repositories/premissas";
+import { DIST_SPLIT_DEFAULT } from "@/lib/premissas/matriz-defaults";
 
 /**
  * Seed do banco V4 OS.
@@ -107,7 +108,19 @@ async function main() {
     await savePremissas(matriz.id, matrizDefaultBlocks());
     console.log(`[seed] semeadas premissas da Matriz (entidade ${matriz.id})`);
   } else {
-    console.log(`[seed] premissas da Matriz já existem`);
+    // Backfill do split de distribuição (P4 direita) — tabela nova; preenche
+    // só se ainda não houver linhas pra não sobrescrever edições.
+    const [split] = await db
+      .select({ id: premissaDistSplit.id })
+      .from(premissaDistSplit)
+      .where(eq(premissaDistSplit.premissaId, premissaMatriz.id))
+      .limit(1);
+    if (!split) {
+      await savePremissasBlock(matriz.id, { block: "distSplit", data: DIST_SPLIT_DEFAULT });
+      console.log(`[seed] backfill do split P4 da Matriz`);
+    } else {
+      console.log(`[seed] premissas da Matriz já existem (split ok)`);
+    }
   }
 
   console.log("[seed] concluído.");

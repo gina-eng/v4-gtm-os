@@ -118,6 +118,8 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks
         canEdit={canEdit}
         initial={blocks.distMercado}
         onPersist={(rows) => persist({ block: "distMercado", data: rows })}
+        initialSplit={blocks.distSplit}
+        onPersistSplit={(rows) => persist({ block: "distSplit", data: rows })}
       />
     </>
   );
@@ -1110,27 +1112,23 @@ type SplitHoriz = {
   pcts: Partial<Record<TierName, number>>;
 };
 
-const SPLIT_SEED: SplitHoriz[] = [
-  { h: "H1", pcts: { Tiny: 44.4, Small: 55.6 } },
-  { h: "H2", pcts: { Tiny: 44.4, Small: 55.6 } },
-  { h: "H3", pcts: { Tiny: 26.7, Small: 33.3, Medium: 40 } },
-  { h: "H4", pcts: { Tiny: 22.2, Small: 27.8, Medium: 33.3, Large: 16.7 } },
-  { h: "H5", pcts: { Tiny: 20, Small: 25, Medium: 30, Large: 15, Enterprise: 10 } },
-];
-
 function DistribuicaoLeadsSection({
   canEdit,
   initial,
   onPersist,
+  initialSplit,
+  onPersistSplit,
 }: {
   canEdit: boolean;
   initial: DistMercado[];
   onPersist: (rows: DistMercado[]) => Promise<boolean>;
+  initialSplit: SplitHoriz[];
+  onPersistSplit: (rows: SplitHoriz[]) => Promise<boolean>;
 }) {
   const [savedMercado, setSavedMercado] = useState<DistMercado[]>(initial);
   const [draftMercado, setDraftMercado] = useState<DistMercado[]>(initial);
-  const [savedSplit, setSavedSplit] = useState<SplitHoriz[]>(SPLIT_SEED);
-  const [draftSplit, setDraftSplit] = useState<SplitHoriz[]>(SPLIT_SEED);
+  const [savedSplit, setSavedSplit] = useState<SplitHoriz[]>(initialSplit);
+  const [draftSplit, setDraftSplit] = useState<SplitHoriz[]>(initialSplit);
   const [isEditing, setIsEditing] = useState(false);
 
   const mercado = isEditing ? draftMercado : savedMercado;
@@ -1175,6 +1173,7 @@ function DistribuicaoLeadsSection({
         setSavedSplit(draftSplit);
         setIsEditing(false);
         void onPersist(draftMercado);
+        void onPersistSplit(draftSplit);
       }}
       onCancel={() => {
         setDraftMercado(savedMercado);
