@@ -16,6 +16,7 @@ import {
   calcularRealizadoVsProjetado,
   formatMesPt,
   getMesAncora,
+  MESES_ANO_2026,
   ULTIMO_MES_FECHADO,
 } from "@/lib/realizado/projecao";
 
@@ -47,13 +48,25 @@ export function StepRealizadoHistorico({
   // Mantém apenas os meses fechados a partir do mês-âncora da unidade (inaugurada
   // antes ou em jan → âncora jan; abriu no meio do ano → âncora = mês de início).
   const mesAncora = useMemo(() => getMesAncora(dataInicio), [dataInicio]);
-  const fechados = useMemo(
-    () =>
-      initialValues.filter(
-        (r) => r.mes <= ULTIMO_MES_FECHADO && r.mes >= mesAncora,
-      ),
-    [initialValues, mesAncora],
-  );
+  // Gera o esqueleto de TODOS os meses fechados no intervalo [âncora, último
+  // fechado] mesmo quando a unidade ainda não salvou nada (initialValues vazio).
+  // Cada mês reaproveita o valor salvo, ou entra zerado para preenchimento manual.
+  const fechados = useMemo(() => {
+    const byMes = new Map(initialValues.map((r) => [r.mes, r]));
+    return MESES_ANO_2026.filter(
+      (mes) => mes <= ULTIMO_MES_FECHADO && mes >= mesAncora,
+    ).map(
+      (mes): RealizadoMensal =>
+        byMes.get(mes) ?? {
+          mes,
+          faturamento: 0,
+          investido: 0,
+          leadsIb: 0,
+          leadsOb: 0,
+          won: 0,
+        },
+    );
+  }, [initialValues, mesAncora]);
   const [rows, setRows] = useState<RealizadoMensal[]>(fechados);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
