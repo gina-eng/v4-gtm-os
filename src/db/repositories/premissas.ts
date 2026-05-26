@@ -31,6 +31,7 @@ import {
   premissaConversaoInbound,
   premissaConversaoOutbound,
   premissaMeetingBroker,
+  premissaDistSplit,
 } from "@/db/schema";
 import {
   CONVERSAO_BLACK_BOX_DEFAULT,
@@ -52,7 +53,9 @@ import {
   type ConversaoInbound,
   type ConversaoMeetingBroker,
   type ConversaoOutbound,
+  DIST_SPLIT_DEFAULT,
   type DistMercado,
+  type DistSplitHorizonte,
   type Horizonte,
   type HorizonteCrescimento,
   type InvestimentoMidia,
@@ -77,6 +80,7 @@ export type PremissasBlocks = {
   tiersCliente: TierCliente[];
   receitaProduto: ReceitaProduto[];
   distMercado: DistMercado[];
+  distSplit: DistSplitHorizonte[];
   investimentoMidia: InvestimentoMidia[];
   conversoesInbound: ConversoesInboundData;
   conversoesOutbound: ConversoesOutboundData;
@@ -101,6 +105,7 @@ export function matrizDefaultBlocks(): PremissasBlocks {
     tiersCliente: TIERS_CLIENTE_DEFAULT,
     receitaProduto: RECEITA_PRODUTO_DEFAULT,
     distMercado: DIST_MERCADO_DEFAULT,
+    distSplit: DIST_SPLIT_DEFAULT,
     investimentoMidia: INVESTIMENTO_MIDIA_DEFAULT,
     conversoesInbound: {
       leadBroker: CONVERSAO_LEAD_BROKER_DEFAULT,
@@ -164,7 +169,7 @@ export async function getPremissasByEntityIds(
 async function loadBlocksForPremissaIds(
   premissaIds: string[],
 ): Promise<Map<string, PremissasBlocks>> {
-  const [time, cargos, horiz, tiers, inbound, outbound, mb] = await Promise.all([
+  const [time, cargos, horiz, tiers, inbound, outbound, mb, split] = await Promise.all([
     db.select().from(premissaTimeComercial).where(inArray(premissaTimeComercial.premissaId, premissaIds)),
     db.select().from(premissaCargo).where(inArray(premissaCargo.premissaId, premissaIds)),
     db.select().from(premissaHorizonte).where(inArray(premissaHorizonte.premissaId, premissaIds)),
@@ -172,6 +177,7 @@ async function loadBlocksForPremissaIds(
     db.select().from(premissaConversaoInbound).where(inArray(premissaConversaoInbound.premissaId, premissaIds)),
     db.select().from(premissaConversaoOutbound).where(inArray(premissaConversaoOutbound.premissaId, premissaIds)),
     db.select().from(premissaMeetingBroker).where(inArray(premissaMeetingBroker.premissaId, premissaIds)),
+    db.select().from(premissaDistSplit).where(inArray(premissaDistSplit.premissaId, premissaIds)),
   ]);
 
   const group = <T extends { premissaId: string }>(rows: T[]): Map<string, T[]> => {
@@ -190,6 +196,7 @@ async function loadBlocksForPremissaIds(
   const inboundBy = group(inbound);
   const outboundBy = group(outbound);
   const mbBy = group(mb);
+  const splitBy = group(split);
 
   const result = new Map<string, PremissasBlocks>();
   for (const pid of premissaIds) {
@@ -264,6 +271,13 @@ async function loadBlocksForPremissaIds(
         pctMercado: r.pctMercado,
         entraHorizonte: r.entraHorizonte,
       })),
+      distSplit: HORIZONTE_ORDER.map((h) => {
+        const pcts: Partial<Record<Tier, number>> = {};
+        for (const r of splitBy.get(pid) ?? []) {
+          if (r.h === h) pcts[r.tier] = r.pct;
+        }
+        return { h, pcts };
+      }),
       conversoesInbound: {
         leadBroker: orderBy(
           (inboundBy.get(pid) ?? []).filter((r) => r.canal === "lead_broker"),
@@ -349,6 +363,7 @@ export async function savePremissas(
       tx.delete(premissaConversaoInbound).where(eq(premissaConversaoInbound.premissaId, pid)),
       tx.delete(premissaConversaoOutbound).where(eq(premissaConversaoOutbound.premissaId, pid)),
       tx.delete(premissaMeetingBroker).where(eq(premissaMeetingBroker.premissaId, pid)),
+      tx.delete(premissaDistSplit).where(eq(premissaDistSplit.premissaId, pid)),
     ]);
 
     // Time comercial (grão: pessoa) — preserva ordem via `ord`.
@@ -441,6 +456,16 @@ export async function savePremissas(
         };
       }),
     );
+
+    // P4 — split normalizado (horizonte × tier), só os tiers presentes em pcts
+    const splitRows = blocks.distSplit.flatMap((s) =>
+      (Object.entries(s.pcts) as [Tier, number][])
+        .filter(([, pct]) => typeof pct === "number")
+        .map(([tier, pct]) => ({ premissaId: pid, h: s.h, tier, pct })),
+    );
+    if (splitRows.length > 0) {
+      await tx.insert(premissaDistSplit).values(splitRows);
+    }
 
     // P8 + P9 — conversões inbound (canal × tier)
     const inboundRows = [
@@ -558,6 +583,7 @@ export type PremissaBlockPatch =
   | { block: "tiersCliente"; data: TierCliente[] }
   | { block: "receitaProduto"; data: ReceitaProduto[] }
   | { block: "distMercado"; data: DistMercado[] }
+  | { block: "distSplit"; data: DistSplitHorizonte[] }
   | { block: "metricasOperacionais"; data: MetricaOperacional[] }
   | { block: "timeComercial"; data: TimeComercialMembro[] }
   | { block: "conversaoInbound"; canal: "lead_broker" | "black_box"; data: ConversaoInbound[] }
@@ -578,6 +604,8 @@ function applyBlockPatch(base: PremissasBlocks, patch: PremissaBlockPatch): Prem
       return { ...base, receitaProduto: patch.data };
     case "distMercado":
       return { ...base, distMercado: patch.data };
+    case "distSplit":
+      return { ...base, distSplit: patch.data };
     case "metricasOperacionais":
       return { ...base, metricasOperacionais: patch.data };
     case "timeComercial":

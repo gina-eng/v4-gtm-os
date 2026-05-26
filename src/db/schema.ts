@@ -382,6 +382,22 @@ export const premissaTier = pgTable(
   (table) => [uniqueIndex("idx_prem_tier_unique").on(table.premissaId, table.tier)],
 );
 
+// P4 — Split normalizado de leads por horizonte × tier (tabela direita do P4).
+// Grão: horizonte × tier (esparso — só tiers ativos no horizonte).
+export const premissaDistSplit = pgTable(
+  "premissa_dist_split",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    h: horizonteEnum("h").notNull(),
+    tier: tierEnum("tier").notNull(),
+    pct: doublePrecision("pct").notNull(),
+  },
+  (table) => [uniqueIndex("idx_prem_dist_split_unique").on(table.premissaId, table.h, table.tier)],
+);
+
 // P8 (Lead Broker) + P9 (Black Box). Grão: canal × tier (10). Funil longo (cr1–cr7).
 export const premissaConversaoInbound = pgTable(
   "premissa_conversao_inbound",
