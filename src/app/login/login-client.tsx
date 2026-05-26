@@ -117,11 +117,9 @@ export function LoginClient() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                required
                 className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Em modo dev, a senha é ignorada — qualquer valor funciona.
-              </p>
             </div>
 
             {error && (
@@ -161,8 +159,9 @@ export function LoginClient() {
                 <li key={u.id}>
                   <button
                     type="button"
-                    onClick={() => submitLogin(u.email)}
+                    onClick={() => setEmail(u.email)}
                     disabled={submitting}
+                    title="Clique pra preencher o email; a senha ainda é obrigatória"
                     className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-muted disabled:opacity-50"
                   >
                     <div className="flex-1 min-w-0">

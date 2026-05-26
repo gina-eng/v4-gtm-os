@@ -15,9 +15,7 @@ export const loginSchema = z.object({
     .refine((v) => v.endsWith(`@${ALLOWED_EMAIL_DOMAIN}`), {
       message: `Use seu e-mail corporativo @${ALLOWED_EMAIL_DOMAIN}`,
     }),
-  /** Em dev a senha é ignorada — qualquer string vale. Aceitamos opcional para
-   *  permitir login via lista de "test users" sem digitar senha. */
-  password: z.string().optional(),
+  password: z.string().min(1, "Senha obrigatória"),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

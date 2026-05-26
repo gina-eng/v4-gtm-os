@@ -2,20 +2,28 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ZodError } from "zod";
 import { getUserByEmail, updateUserLastLogin } from "@/db/repositories/users";
 import { AUTH_COOKIE_NAME } from "@/lib/auth/types";
+import { verifyPassword } from "@/lib/auth/password";
 import { loginSchema } from "@/lib/validations/auth";
 
 /**
  * POST /api/auth/login
- * Body: { email, password? }
+ * Body: { email, password }
  *
- * ⚠️ Mock para dev: a senha é IGNORADA. Login bem-sucedido se o e-mail bate
- * com algum user seedado e o user está ativo. Quando a auth real entrar
- * (adendo §11), validar bcrypt.compare(password, user.passwordHash).
+ * Valida senha via bcrypt.compare(password, user.passwordHash).
+ * Para um user logar, três condições precisam ser verdadeiras:
+ *   1. user existe na tabela `users` (provisionamento manual via admin)
+ *   2. user.status === "active"
+ *   3. user.passwordHash existe e bcrypt.compare bate
+ * Usuários sem `passwordHash` (criados por seed/invite e ainda não ativados)
+ * recebem 401 — não há como logar até o admin definir a senha.
+ *
+ * Resposta de erro é genérica ("E-mail ou senha inválidos") em todos os casos
+ * de falha de credencial pra não permitir user enumeration.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email } = loginSchema.parse(body);
+    const { email, password } = loginSchema.parse(body);
 
     const user = await getUserByEmail(email);
     if (!user) {
@@ -28,6 +36,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Conta inativa. Procure o administrador da sua organização." },
         { status: 403 },
+      );
+    }
+    if (!user.passwordHash) {
+      return NextResponse.json(
+        { error: "E-mail ou senha inválidos" },
+        { status: 401 },
+      );
+    }
+    const ok = await verifyPassword(password, user.passwordHash);
+    if (!ok) {
+      return NextResponse.json(
+        { error: "E-mail ou senha inválidos" },
+        { status: 401 },
       );
     }
 

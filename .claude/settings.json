@@ -30,7 +30,12 @@
       "Bash(git config *)",
       "Bash(gh auth *)",
       "Bash(git init *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(gh repo *)",
+      "Bash(vercel whoami *)",
+      "Bash(vercel link *)",
+      "Bash(vercel --prod --yes)"
     ],
     "additionalDirectories": [
       "/Users/rafaelcorazza/.claude/projects/-Users-rafaelcorazza-Documents-Antigravity-V4-GTM-Os"
