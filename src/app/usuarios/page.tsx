@@ -1,9 +1,5 @@
 import { redirect } from "next/navigation";
-import {
-  listAllUsersForDev,
-  listMembershipsByUser,
-  listUsers,
-} from "@/db/repositories/users";
+import { listMembershipsByUser, listUsers } from "@/db/repositories/users";
 import { getOrganizationById, listOrganizations } from "@/db/repositories/organizations";
 import { requireAuth } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -82,9 +78,6 @@ export default async function UsuariosPage() {
   } else {
     organizationsForInvite = session.availableOrganizations;
   }
-
-  // Garantir que devUserSwitcher continue funcionando
-  void listAllUsersForDev;
 
   return (
     <UsuariosClient

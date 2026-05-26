@@ -423,11 +423,11 @@ export function InviteUserModal({
           </div>
 
           {!isEdit && (
-            <div className="rounded border border-warning/30 bg-warning/10 p-2 flex items-start gap-2">
-              <ShieldAlert className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
+            <div className="rounded border border-border bg-muted/40 p-2 flex items-start gap-2">
+              <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-[11px] text-foreground/80 leading-snug">
-                <strong>Modo dev:</strong> o usuário é criado e ativado imediatamente,
-                sem envio de e-mail. Em produção, será enviado um link de ativação.
+                O usuário é criado já ativo, mas <strong>sem senha</strong>.
+                Um admin precisa definir uma senha inicial e enviar ao usuário.
               </p>
             </div>
           )}

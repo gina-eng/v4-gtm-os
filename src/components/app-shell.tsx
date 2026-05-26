@@ -11,7 +11,6 @@ import {
   LogOut,
   Network,
   PanelLeft,
-  ShieldAlert,
   SlidersHorizontal,
   Target,
   Users,
@@ -231,15 +230,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
           <div className="flex items-center gap-3">
-            {/* Banner de modo dev */}
-            <div
-              className="hidden md:inline-flex items-center gap-1.5 px-2 h-7 rounded border border-warning/40 bg-warning/10 text-warning-foreground text-[10px] font-medium uppercase tracking-wider"
-              title="Autenticação mockada — senha é ignorada em dev"
-            >
-              <ShieldAlert className="h-3 w-3" />
-              Modo dev
-            </div>
-
             {/* Switcher de organização ativa */}
             <OrgSwitcher />
 

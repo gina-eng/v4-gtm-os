@@ -1,17 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, Loader2, Network, ShieldAlert } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { V4Logo } from "@/design-system/components/V4Logo";
 import { ALLOWED_EMAIL_DOMAIN } from "@/lib/validations/auth";
-
-type DevUser = {
-  id: string;
-  name: string;
-  email: string;
-  memberships: Array<{ role: string; orgName: string; orgType: "matriz" | "unidade" }>;
-};
 
 export function LoginClient() {
   const router = useRouter();
@@ -19,28 +12,18 @@ export function LoginClient() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [devUsers, setDevUsers] = useState<DevUser[]>([]);
 
-  // Carrega lista de users de teste (apenas em dev)
-  useEffect(() => {
-    fetch("/api/dev/users")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body) => {
-        if (body?.data) setDevUsers(body.data);
-      })
-      .catch(() => {
-        /* ignore — em prod o endpoint não existe */
-      });
-  }, []);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim() || !password || submitting) return;
 
-  async function submitLogin(loginEmail: string, loginPassword?: string) {
     setSubmitting(true);
     setError(null);
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -54,12 +37,6 @@ export function LoginClient() {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email.trim() || submitting) return;
-    await submitLogin(email.trim(), password);
   }
 
   return (
@@ -144,57 +121,6 @@ export function LoginClient() {
             </button>
           </form>
         </div>
-
-        {/* Painel de logins de teste (apenas dev) */}
-        {devUsers.length > 0 && (
-          <div className="mt-4 bg-card border border-border rounded">
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-muted/50">
-              <ShieldAlert className="h-3.5 w-3.5 text-warning" />
-              <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-                Logins de teste (apenas em dev)
-              </span>
-            </div>
-            <ul className="divide-y divide-border max-h-[320px] overflow-auto">
-              {devUsers.map((u) => (
-                <li key={u.id}>
-                  <button
-                    type="button"
-                    onClick={() => setEmail(u.email)}
-                    disabled={submitting}
-                    title="Clique pra preencher o email; a senha ainda é obrigatória"
-                    className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-muted disabled:opacity-50"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-foreground truncate">
-                        {u.name}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground font-mono truncate">
-                        {u.email}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-0.5 items-end shrink-0">
-                      {u.memberships.map((m, idx) => (
-                        <div
-                          key={idx}
-                          className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
-                        >
-                          {m.orgType === "matriz" ? (
-                            <Network className="h-3 w-3" />
-                          ) : (
-                            <Building2 className="h-3 w-3" />
-                          )}
-                          <span>
-                            <span className="capitalize">{m.role}</span> · {m.orgName}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
     </div>
   );

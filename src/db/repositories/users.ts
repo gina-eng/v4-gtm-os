@@ -35,10 +35,6 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   return row ?? null;
 }
 
-export async function listAllUsersForDev(): Promise<User[]> {
-  return db.select().from(users).orderBy(users.name);
-}
-
 export async function listUsers(filters?: {
   organizationId?: string;
   status?: User["status"];
