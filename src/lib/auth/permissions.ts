@@ -30,6 +30,8 @@ export const PERMISSIONS = {
   "user.invite": { matriz: ["admin", "gerente"], unidade: ["admin"] },
   "user.update": { matriz: ["admin"], unidade: ["admin"] },
   "user.deactivate": { matriz: ["admin"], unidade: ["admin"] },
+  // Hard delete: remove user + todos os memberships (mesmo inativos). Só Matriz.
+  "user.delete": { matriz: ["admin"] },
 
   // Memberships
   "membership.create": { matriz: ["admin"], unidade: ["admin"] },

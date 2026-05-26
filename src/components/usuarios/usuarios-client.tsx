@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Pencil, Plus, Search, UserX } from "lucide-react";
+import { Mail, Pencil, Plus, Search, Trash2, UserX } from "lucide-react";
 import type { Membership, Organization, User } from "@/db/schema";
 import { PermissionGate } from "@/components/permission-gate";
 import { useSession } from "@/lib/auth/auth-context";
@@ -13,7 +13,7 @@ import {
   type Role,
   type UserStatus,
 } from "@/lib/validations/users";
-import { regionalLabel } from "@/lib/validations/organizations";
+import { regionalLabel, type RegionalSigla } from "@/lib/validations/organizations";
 import { RoleBadge, UserStatusBadge } from "./badges";
 import { InviteUserModal, type EditUserTarget } from "./invite-user-modal";
 
@@ -43,6 +43,7 @@ export function UsuariosClient({
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<EditUserTarget | null>(null);
   const [deactivating, setDeactivating] = useState<string | null>(null);
+  const [deletingUser, setDeletingUser] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     return initialUsers.filter((u) => {
@@ -75,6 +76,28 @@ export function UsuariosClient({
       router.refresh();
     } finally {
       setDeactivating(null);
+    }
+  }
+
+  async function handleDeleteUser(userId: string, userName: string) {
+    if (
+      !confirm(
+        `Excluir permanentemente o usuário ${userName}? Essa ação é irreversível e apaga todo o histórico de vínculos.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingUser(userId);
+    try {
+      const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error ?? "Não foi possível excluir o usuário.");
+        return;
+      }
+      router.refresh();
+    } finally {
+      setDeletingUser(null);
     }
   }
 
@@ -179,7 +202,9 @@ export function UsuariosClient({
           users={filtered}
           onEditRole={setEditTarget}
           onDeactivate={handleDeactivate}
+          onDeleteUser={handleDeleteUser}
           deactivating={deactivating}
+          deletingUser={deletingUser}
         />
       )}
 
@@ -202,12 +227,16 @@ function UsersTable({
   users,
   onEditRole,
   onDeactivate,
+  onDeleteUser,
   deactivating,
+  deletingUser,
 }: {
   users: UserRow[];
   onEditRole: (t: EditUserTarget) => void;
   onDeactivate: (membershipId: string, userName: string) => void;
+  onDeleteUser: (userId: string, userName: string) => void;
   deactivating: string | null;
+  deletingUser: string | null;
 }) {
   return (
     <div className="rounded border border-border overflow-auto">
@@ -293,7 +322,7 @@ function UsersTable({
                       : "—"}
                   </td>
                   <td className="px-3 py-1.5 text-xs text-right">
-                    {m && (
+                    {m ? (
                       <div className="inline-flex items-center gap-1">
                         <PermissionGate action="membership.update" organizationId={m.organizationId ?? undefined}>
                           <button
@@ -305,9 +334,9 @@ function UsersTable({
                                 email: u.email,
                                 name: u.name,
                                 role: m.role,
-                                scopeLabel: m.regional
-                                  ? `Regional ${m.regional} — ${regionalLabel(m.regional)}`
-                                  : m.organization.name,
+                                initialScope: m.regional ? "regional" : "unidade",
+                                initialOrganizationId: m.organizationId,
+                                initialRegional: m.regional as RegionalSigla | null,
                               })
                             }
                             className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
@@ -325,6 +354,43 @@ function UsersTable({
                             title="Revogar vínculo"
                           >
                             <UserX className="h-3.5 w-3.5" />
+                          </button>
+                        </PermissionGate>
+                      </div>
+                    ) : (
+                      // User fantasma (sem nenhum membership ativo): permite
+                      // re-vincular ou excluir permanentemente.
+                      <div className="inline-flex items-center gap-1">
+                        <PermissionGate action="membership.create">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onEditRole({
+                                userId: u.id,
+                                membershipId: null,
+                                email: u.email,
+                                name: u.name,
+                                role: "coordenador",
+                                initialScope: "unidade",
+                                initialOrganizationId: null,
+                                initialRegional: null,
+                              })
+                            }
+                            className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                            title="Adicionar vínculo"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </PermissionGate>
+                        <PermissionGate action="user.delete">
+                          <button
+                            type="button"
+                            onClick={() => onDeleteUser(u.id, u.name)}
+                            disabled={deletingUser === u.id}
+                            className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-muted text-muted-foreground hover:text-destructive disabled:opacity-50"
+                            title="Excluir usuário"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </PermissionGate>
                       </div>

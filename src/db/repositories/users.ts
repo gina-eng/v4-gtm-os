@@ -263,22 +263,39 @@ export async function updateUser(
   return row ?? null;
 }
 
+/**
+ * Hard delete: remove user + todos os memberships (ativos e inativos).
+ * Operação irreversível — usar com confirmação na UI. Indicado pra users
+ * criados por engano ou que nunca completaram o primeiro acesso.
+ */
+export async function deleteUser(id: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    await tx.delete(memberships).where(eq(memberships.userId, id));
+    const deleted = await tx.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+    return deleted.length > 0;
+  });
+}
+
 export async function createMembership(
   input: {
     userId: string;
     role: Membership["role"];
   } & InviteUserScope,
 ): Promise<Membership> {
-  // Checa duplicidade no escopo correspondente.
+  // Checa duplicidade no escopo correspondente, considerando apenas memberships
+  // ATIVOS. Memberships revogados (status='inactive') ficam como histórico e
+  // não bloqueiam recriar o vínculo no mesmo escopo.
   const dupCond =
     input.scope === "unidade"
       ? and(
           eq(memberships.userId, input.userId),
           eq(memberships.organizationId, input.organizationId),
+          eq(memberships.status, "active"),
         )
       : and(
           eq(memberships.userId, input.userId),
           eq(memberships.regional, input.regional),
+          eq(memberships.status, "active"),
         );
 
   const [dup] = await db.select({ id: memberships.id }).from(memberships).where(dupCond).limit(1);

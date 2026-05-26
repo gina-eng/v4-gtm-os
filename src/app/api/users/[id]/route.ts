@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ZodError } from "zod";
 import {
+  deleteUser,
   getUserById,
   listMembershipsByUser,
   updateUser,
@@ -119,6 +120,47 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
       return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
     }
     console.error("[PATCH /api/users/:id]", err);
+    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/users/:id
+ *
+ * Hard delete: remove o user e todos os memberships (ativos e inativos).
+ * Operação irreversível, restrita a Admin Matriz. Não permite auto-exclusão.
+ */
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<Params> }) {
+  try {
+    const session = await requireAuth();
+    await requirePermission(session, "user.delete");
+
+    const { id } = await ctx.params;
+    if (id === session.user.id) {
+      return NextResponse.json(
+        { error: "Você não pode excluir seu próprio usuário." },
+        { status: 422 },
+      );
+    }
+
+    const target = await getUserById(id);
+    if (!target) {
+      return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
+    }
+
+    const ok = await deleteUser(id);
+    if (!ok) {
+      return NextResponse.json({ error: "Falha ao excluir usuário" }, { status: 500 });
+    }
+    return NextResponse.json({ data: { id } });
+  } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      return NextResponse.json({ error: err.message }, { status: 401 });
+    }
+    if (err instanceof ForbiddenError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    console.error("[DELETE /api/users/:id]", err);
     return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 });
   }
 }

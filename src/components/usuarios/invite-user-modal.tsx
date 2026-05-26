@@ -17,12 +17,21 @@ type Scope = "unidade" | "regional";
 
 export type EditUserTarget = {
   userId: string;
-  membershipId: string;
+  /**
+   * ID do membership atual. `null` significa que o user está "fantasma"
+   * (sem nenhum membership ativo) — o submit vai apenas CRIAR um vínculo
+   * novo, sem revogar nada antes.
+   */
+  membershipId: string | null;
   email: string;
   name: string;
   role: Role;
-  /** Texto exibido como organização/regional (imutável em edição). */
-  scopeLabel: string;
+  /** Escopo atual do vínculo. Em modo ghost, usa "unidade" como default. */
+  initialScope: Scope;
+  /** Org atual quando initialScope === "unidade". */
+  initialOrganizationId: string | null;
+  /** Regional atual quando initialScope === "regional". */
+  initialRegional: RegionalSigla | null;
 };
 
 type FormState = {
@@ -100,9 +109,9 @@ export function InviteUserModal({
       setForm({
         email: target.email,
         name: target.name,
-        scope: "unidade",
-        organizationId: "",
-        regional: "",
+        scope: target.initialScope,
+        organizationId: target.initialOrganizationId ?? "",
+        regional: target.initialRegional ?? "",
         role: target.role,
       });
     } else {
@@ -125,12 +134,22 @@ export function InviteUserModal({
   const scopeValid =
     form.scope === "unidade" ? !!form.organizationId : !!form.regional;
 
+  const scopeChanged = isEdit
+    ? form.scope !== target!.initialScope ||
+      (form.scope === "unidade" && form.organizationId !== (target!.initialOrganizationId ?? "")) ||
+      (form.scope === "regional" && form.regional !== (target!.initialRegional ?? ""))
+    : false;
+
   const dirty = isEdit
-    ? form.name.trim() !== target!.name || form.role !== target!.role
+    ? form.name.trim() !== target!.name ||
+      form.role !== target!.role ||
+      scopeChanged ||
+      // Ghost re-link: sempre dirty se o user não tinha membership ativo.
+      target!.membershipId === null
     : true;
 
   const valid = isEdit
-    ? nameValid && dirty
+    ? nameValid && scopeValid && dirty
     : emailValid && nameValid && scopeValid;
 
   async function handleInviteSubmit() {
@@ -166,6 +185,7 @@ export function InviteUserModal({
   async function handleEditSubmit() {
     const nameChanged = form.name.trim() !== target!.name;
     const roleChanged = form.role !== target!.role;
+    const isGhost = target!.membershipId === null;
 
     if (nameChanged) {
       const res = await fetch(`/api/users/${target!.userId}`, {
@@ -180,7 +200,48 @@ export function InviteUserModal({
       }
     }
 
-    if (roleChanged) {
+    // Caminhos pra mexer no vínculo:
+    // - Ghost (sem membership ativo): só CRIA um novo via POST.
+    // - Scope/org/regional mudaram: REVOGA o atual + CRIA novo (papel já vai junto).
+    // - Apenas o papel mudou: PATCH no membership existente.
+    if (isGhost || scopeChanged) {
+      const createPayload =
+        form.scope === "unidade"
+          ? {
+              scope: "unidade" as const,
+              userId: target!.userId,
+              organizationId: form.organizationId,
+              role: form.role,
+            }
+          : {
+              scope: "regional" as const,
+              userId: target!.userId,
+              regional: form.regional,
+              role: form.role,
+            };
+
+      if (!isGhost) {
+        const revokeRes = await fetch(`/api/memberships/${target!.membershipId}`, {
+          method: "DELETE",
+        });
+        if (!revokeRes.ok) {
+          const body = await revokeRes.json().catch(() => ({}));
+          setError(body.error ?? "Não foi possível revogar o vínculo anterior.");
+          return false;
+        }
+      }
+
+      const createRes = await fetch("/api/memberships", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(createPayload),
+      });
+      if (!createRes.ok) {
+        const body = await createRes.json().catch(() => ({}));
+        setError(body.error ?? "Não foi possível criar o novo vínculo.");
+        return false;
+      }
+    } else if (roleChanged) {
       const res = await fetch(`/api/memberships/${target!.membershipId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -288,18 +349,10 @@ export function InviteUserModal({
             />
           </div>
 
-          {isEdit ? (
-            <div>
-              <label className="text-xs font-medium mb-1 flex items-center gap-1">
-                Organização
-                <FieldHelp text="Escopo do vínculo. Imutável aqui — pra mover a pessoa, revogue o vínculo atual e crie um novo." position="bottom" />
-              </label>
-              <div className="w-full h-9 rounded border border-input bg-muted/40 px-3 text-sm flex items-center text-muted-foreground">
-                {target!.scopeLabel}
-              </div>
-            </div>
-          ) : (
-            <>
+          {/* Escopo (unidade/regional + org/regional). Tanto em invite quanto
+              em edit, permite escolher. Em edit, trocar o escopo dispara
+              "revogar vínculo atual + criar novo" na submissão. */}
+          <>
               {canInviteRegional && (
                 <div>
                   <label className="text-xs font-medium mb-1 flex items-center gap-1">
@@ -399,7 +452,6 @@ export function InviteUserModal({
                 </div>
               )}
             </>
-          )}
 
           <div>
             <label htmlFor="invite-role" className="text-xs font-medium mb-1 flex items-center gap-1">
