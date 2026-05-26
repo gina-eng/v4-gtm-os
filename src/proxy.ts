@@ -14,7 +14,12 @@ export function proxy(req: NextRequest) {
   const isAuthed = !!req.cookies.get(AUTH_COOKIE_NAME);
 
   // Rotas que NÃO exigem autenticação
-  const publicPaths = ["/login", "/api/auth/login"];
+  const publicPaths = [
+    "/login",
+    "/api/auth/login",
+    "/api/auth/check-email",
+    "/api/auth/setup-password",
+  ];
   const isPublic = publicPaths.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );

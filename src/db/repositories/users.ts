@@ -5,7 +5,7 @@
  * As assinaturas públicas são idênticas ao mock para não quebrar callers.
  */
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   memberships,
@@ -95,6 +95,27 @@ export async function updateUserActiveOrg(id: string, orgId: string | null): Pro
     .update(users)
     .set({ activeOrganizationId: orgId, updatedAt: new Date() })
     .where(eq(users.id, id));
+}
+
+/**
+ * Define a senha inicial de um user. Só grava se `passwordHash IS NULL` —
+ * a checagem é atômica (acontece no WHERE do UPDATE), evitando race onde
+ * dois requests veem NULL e ambos gravam.
+ *
+ * Retorna o user atualizado, ou null se: user não existe, está inativo, ou
+ * já tem senha definida (qualquer um dos casos cai no mesmo branch porque
+ * o UPDATE não acha linha — front trata como "primeiro acesso indisponível").
+ */
+export async function setInitialPasswordHash(
+  userId: string,
+  passwordHash: string,
+): Promise<User | null> {
+  const [row] = await db
+    .update(users)
+    .set({ passwordHash, updatedAt: new Date() })
+    .where(and(eq(users.id, userId), isNull(users.passwordHash)))
+    .returning();
+  return row ?? null;
 }
 
 // ============================================================

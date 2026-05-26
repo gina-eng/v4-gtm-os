@@ -426,8 +426,8 @@ export function InviteUserModal({
             <div className="rounded border border-border bg-muted/40 p-2 flex items-start gap-2">
               <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-[11px] text-foreground/80 leading-snug">
-                O usuário é criado já ativo, mas <strong>sem senha</strong>.
-                Um admin precisa definir uma senha inicial e enviar ao usuário.
+                O usuário será criado já ativo. No primeiro acesso ele mesmo
+                define a senha — basta avisar que pode entrar com este e-mail.
               </p>
             </div>
           )}
