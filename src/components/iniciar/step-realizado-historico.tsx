@@ -16,6 +16,7 @@ import {
   calcularRealizadoVsProjetado,
   formatMesPt,
   getMesAncora,
+  getMesBaseForecast,
   MESES_ANO_2026,
   ULTIMO_MES_FECHADO,
 } from "@/lib/realizado/projecao";
@@ -103,8 +104,8 @@ export function StepRealizadoHistorico({
     }
   }
 
-  // Preview do projetado: parte do faturamento do mês-âncora e capitaliza pela
-  // taxa fixa do horizonte atual da unidade até dez/2026.
+  // Preview do projetado: parte do mês fechado mais recente preenchido (mês-base)
+  // e capitaliza pela taxa fixa do horizonte atual da unidade até dez/2026.
   const preview = useMemo(
     () =>
       calcularRealizadoVsProjetado(rows, horizontes, horizonteAtual, {
@@ -115,15 +116,12 @@ export function StepRealizadoHistorico({
   const futuros = preview.filter((p) => p.mes > ULTIMO_MES_FECHADO);
 
   const totalRealizado = rows.reduce((acc, r) => acc + r.faturamento, 0);
-  const ancoraFaturamento =
-    rows.find((r) => r.mes === mesAncora)?.faturamento ?? 0;
-  const ancoraPreenchida = ancoraFaturamento > 0;
-  // Caso "estranho": preencheu outros meses mas deixou o mês-âncora em branco.
-  // A projeção fica zerada sem a âncora — vale avisar pra unidade não achar que é bug.
-  const outrosMesesPreenchidos = rows.some(
-    (r) => r.mes !== mesAncora && r.faturamento > 0,
+  // Mês-base = fechado mais recente com faturamento. Sem ele não há projeção.
+  const mesBase = useMemo(
+    () => getMesBaseForecast(rows, { dataInicio }),
+    [rows, dataInicio],
   );
-  const faltaAncora = !ancoraPreenchida && outrosMesesPreenchidos;
+  const temBase = mesBase !== null;
 
   return (
     <>
@@ -137,19 +135,19 @@ export function StepRealizadoHistorico({
       <div className="mb-4 rounded border border-info/30 bg-info/5 px-3 py-2 flex items-center gap-2 text-xs text-foreground">
         <Info className="h-3.5 w-3.5 text-info shrink-0" />
         <span>
-          A trajetória <strong>Projetada</strong> do ano inteiro parte do <strong>faturamento de Janeiro/2026</strong> (âncora)
-          e capitaliza pela taxa do horizonte <strong>{horizonteAtual}</strong> (
-          {formatPercent(horizontes.find((h) => h.h === horizonteAtual)?.crescMensalPct ?? 0, 1)}/mês).
-          Os demais meses fechados servem como comparação na aba <em>Forecast</em> — não recalibram a curva.
+          A trajetória <strong>Projetada</strong> parte do <strong>mês fechado mais recente preenchido</strong>
+          {temBase ? <> (<strong>{formatMesPt(mesBase!)}</strong>)</> : null}
+          {" "}e capitaliza pela taxa do horizonte <strong>{horizonteAtual}</strong> (
+          {formatPercent(horizontes.find((h) => h.h === horizonteAtual)?.crescMensalPct ?? 0, 1)}/mês)
+          até dez/2026. Atualize um mês mais recente para a curva re-ancorar nele.
         </span>
       </div>
 
-      {faltaAncora && (
+      {!temBase && (
         <div className="mb-4 rounded border border-warning/40 bg-warning/10 px-3 py-2 flex items-center gap-2 text-xs text-foreground">
           <Info className="h-3.5 w-3.5 text-warning shrink-0" />
           <span>
-            Você preencheu outros meses, mas <strong>{formatMesPt(mesAncora)}</strong> ainda está vazio.
-            Sem a âncora, a trajetória projetada fica zerada — preencha o faturamento desse mês para ver a curva.
+            Preencha o faturamento de pelo menos um mês fechado para ver a trajetória projetada.
           </span>
         </div>
       )}
@@ -227,16 +225,16 @@ export function StepRealizadoHistorico({
         </div>
       </section>
 
-      {/* Preview da trajetória projetada — só aparece quando a âncora (jan/2026) foi preenchida */}
-      {ancoraPreenchida && (
+      {/* Preview da trajetória projetada — aparece quando há um mês-base preenchido */}
+      {temBase && (
         <section className="mt-4 rounded border border-border bg-card overflow-hidden">
           <header className="flex items-center gap-2 px-4 h-10 border-b border-border bg-muted/30">
             <span aria-hidden className="inline-block w-0.5 h-3.5 bg-accent rounded-sm" />
             <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-              Trajetória projetada · mai-dez 2026
+              Trajetória projetada · até dez 2026
             </h3>
             <FieldHelp
-              text="Projeção do ano partindo do faturamento de Janeiro/2026 (âncora) e capitalizando pela taxa do horizonte atual da unidade (P1). Independente do realizado dos demais meses."
+              text="Projeção partindo do mês fechado mais recente preenchido e capitalizando pela taxa do horizonte atual da unidade (P1). Re-ancora sempre no último mês fechado com faturamento."
               position="bottom"
             />
           </header>

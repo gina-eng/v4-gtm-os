@@ -99,17 +99,17 @@ export type LinhaRealizadoProjetado = {
   /** Valor que a unidade digitou para este mês. Pode ser 0 (ainda não preenchido). */
   realizado: number;
   /**
-   * Trajetória projetada para o ano. Curva 100% independente do realizado dos
-   * meses subsequentes — vem da âncora (jan/2026) capitalizada à taxa fixa do
-   * horizonte atual da unidade.
-   * - mes "2026-01": igual à âncora (faturamento de janeiro).
-   * - mes "2026-02" em diante: ancora × (1 + crescMensalPct/100)^n.
-   * - 0 quando a âncora não foi preenchida.
+   * Forecast mês-a-mês (rolling):
+   * - meses **fechados**: igual ao realizado (o número efetivo é o próprio forecast).
+   * - meses **futuros**: projetados a partir do mês-base (o fechado mais recente
+   *   com faturamento) capitalizando à taxa fixa do horizonte atual —
+   *   base × (1 + crescMensalPct/100)^n.
+   * - 0 quando não há nenhum mês fechado preenchido (sem base pra projetar).
    */
   projetado: number;
   /** True para meses futuros (depois do último mês fechado). */
   isProjetado: boolean;
-  /** Horizonte usado para projetar o ano. Null quando ainda não há âncora. */
+  /** Horizonte usado para projetar o mês futuro. Null em meses fechados ou sem base. */
   horizonteAplicado: Horizonte | null;
 };
 
@@ -139,19 +139,40 @@ type ProjecaoOpts = {
 };
 
 /**
- * Monta a tabela mês-a-mês de Realizado vs Projetado para o ano modelado.
+ * Determina o mês-base do forecast: o mês **fechado mais recente** (dentro da
+ * operação da unidade) com faturamento preenchido. É a partir dele que a curva
+ * futura é projetada. Retorna `null` quando nenhum mês fechado foi preenchido.
+ */
+export function getMesBaseForecast(
+  realizadoMensal: RealizadoMensal[],
+  opts: ProjecaoOpts = {},
+): string | null {
+  const realizadoByMes = new Map<string, RealizadoMensal>();
+  for (const r of realizadoMensal) realizadoByMes.set(r.mes, r);
+  const mesAncora = getMesAncora(opts.dataInicio);
+  const ultimoMesFechado = getUltimoMesFechado();
+  let base: string | null = null;
+  for (const mes of MESES_ANO_2026) {
+    if (mes < mesAncora || mes > ultimoMesFechado) continue;
+    if ((realizadoByMes.get(mes)?.faturamento ?? 0) > 0) base = mes;
+  }
+  return base;
+}
+
+/**
+ * Monta a tabela mês-a-mês de forecast (rolling) para o ano modelado.
  *
  * Regra:
- * - **Âncora** = `realizadoMensal[getMesAncora(dataInicio)].faturamento`. Por
- *   padrão (sem dataInicio ou unidade antiga) é jan/2026. Para unidades novas
- *   inauguradas no meio do ano, a âncora é o mês de `dataInicio`.
+ * - **Mês-base** = mês fechado mais recente com faturamento (ver
+ *   `getMesBaseForecast`). A projeção dos meses futuros parte dele.
  * - **Taxa** = `crescMensalPct` do horizonte atual da unidade (P1). Fixa o ano
  *   inteiro — não troca quando ultrapassa `faixaMax`.
- * - **Projetado independente do Realizado** dos meses pós-âncora. O Realizado
- *   serve apenas como coluna de comparação (aderência).
- * - Meses **antes** da âncora ficam com `realizado=0`, `projetado=0` e
- *   `horizonteAplicado=null` — não fazem parte da história da unidade.
- * - Se a âncora não foi preenchida, todo o restante fica zerado.
+ * - Meses **fechados** (≥ mês de início da unidade): `projetado = realizado`,
+ *   pois o número efetivo é o próprio forecast realizado.
+ * - Meses **futuros**: `projetado = base × (1 + taxa/100)^n`, onde n é a
+ *   distância em meses até o mês-base.
+ * - Meses **antes** do início da unidade ficam zerados.
+ * - Sem nenhum mês fechado preenchido, não há base → tudo zerado.
  */
 export function calcularRealizadoVsProjetado(
   realizadoMensal: RealizadoMensal[],
@@ -163,21 +184,23 @@ export function calcularRealizadoVsProjetado(
   for (const r of realizadoMensal) realizadoByMes.set(r.mes, r);
 
   const mesAncora = getMesAncora(opts.dataInicio);
-  const ancora = realizadoByMes.get(mesAncora)?.faturamento ?? 0;
   const horizonte =
     horizontes.find((h) => h.h === horizonteAtual) ??
     horizontes[horizontes.length - 1];
   const taxa = horizonte?.crescMensalPct ?? 0;
   const ultimoMesFechado = getUltimoMesFechado();
 
-  const linhas: LinhaRealizadoProjetado[] = [];
-  // `projetadoAtual` só começa a contar no mês-âncora; nos meses anteriores
-  // a unidade nem operava (ou não há dado relevante).
-  let projetadoAtual = ancora;
+  const mesBase = getMesBaseForecast(realizadoMensal, opts);
+  const valorBase = mesBase
+    ? realizadoByMes.get(mesBase)?.faturamento ?? 0
+    : 0;
+  const idxBase = mesBase
+    ? (MESES_ANO_2026 as readonly string[]).indexOf(mesBase)
+    : -1;
 
+  const linhas: LinhaRealizadoProjetado[] = [];
   for (const mes of MESES_ANO_2026) {
-    const r = realizadoByMes.get(mes);
-    const realizado = r?.faturamento ?? 0;
+    const realizado = realizadoByMes.get(mes)?.faturamento ?? 0;
     const isAntesDaAncora = mes < mesAncora;
     const isMesFechado = mes <= ultimoMesFechado;
 
@@ -192,17 +215,37 @@ export function calcularRealizadoVsProjetado(
       continue;
     }
 
-    linhas.push({
-      mes,
-      realizado,
-      projetado: ancora > 0 ? Math.round(projetadoAtual) : 0,
-      isProjetado: !isMesFechado,
-      horizonteAplicado: ancora > 0 ? horizonteAtual : null,
-    });
+    if (isMesFechado) {
+      // Mês fechado: o forecast é o próprio realizado.
+      linhas.push({
+        mes,
+        realizado,
+        projetado: realizado,
+        isProjetado: false,
+        horizonteAplicado: null,
+      });
+      continue;
+    }
 
-    // Próximo mês: capitaliza sobre o valor projetado deste mês — independente
-    // do realizado, que é só coluna de comparação.
-    projetadoAtual = projetadoAtual * (1 + taxa / 100);
+    // Mês futuro: capitaliza a partir do mês-base pela taxa do horizonte.
+    if (mesBase) {
+      const n = (MESES_ANO_2026 as readonly string[]).indexOf(mes) - idxBase;
+      linhas.push({
+        mes,
+        realizado,
+        projetado: Math.round(valorBase * Math.pow(1 + taxa / 100, n)),
+        isProjetado: true,
+        horizonteAplicado: horizonteAtual,
+      });
+    } else {
+      linhas.push({
+        mes,
+        realizado,
+        projetado: 0,
+        isProjetado: true,
+        horizonteAplicado: null,
+      });
+    }
   }
 
   return linhas;

@@ -161,7 +161,7 @@ export function RealizadoClient(props: Props) {
             <p className="text-sm text-muted-foreground mt-0.5">
               {isMatriz
                 ? "Visão consolidada — soma do realizado e do projetado das unidades, sem input próprio da Matriz."
-                : `Projeção ancorada em Jan/2026 e capitalizada pela taxa do horizonte ${horizonteAtual} (${formatPercent(taxaHorizonte, 1)}/mês). Independente do realizado dos demais meses.`}
+                : `Projeção ancorada no mês fechado mais recente e capitalizada pela taxa do horizonte ${horizonteAtual} (${formatPercent(taxaHorizonte, 1)}/mês). Re-ancora a cada mês fechado.`}
             </p>
           </div>
           {!isMatriz && (
@@ -179,7 +179,7 @@ export function RealizadoClient(props: Props) {
           <Network className="h-3.5 w-3.5 text-info shrink-0" />
           <span>
             Proxy consolidada de <strong>{unitCount} {unitCount === 1 ? "unidade" : "unidades"}</strong>.
-            Cada unidade calcula sua projeção (âncora de Jan/2026 × taxa do horizonte próprio) e a Matriz soma mês a mês.
+            Cada unidade calcula sua projeção (a partir do mês fechado mais recente × taxa do horizonte próprio) e a Matriz soma mês a mês.
             Para editar, entre no contexto de uma unidade.
           </span>
         </div>
@@ -195,13 +195,13 @@ export function RealizadoClient(props: Props) {
         <SummaryCard
           label="Projetado acumulado"
           value={formatBRL(totalProjetado)}
-          help="Soma do projetado mês a mês — Jan/2026 capitalizado pela taxa do horizonte atual (P1)."
+          help="Forecast anual — realizado dos meses fechados + projeção dos futuros a partir do último mês fechado (taxa do horizonte, P1)."
         />
         <SummaryCard
           label="Aderência do ano"
           value={formatPercent(aderenciaAno, 1)}
           valueClassName={farolColorClass(aderenciaAno)}
-          help="Realizado acumulado ÷ Projetado acumulado. 100% = exatamente em linha com o modelo."
+          help="Realizado acumulado ÷ forecast anual. Quanto do forecast do ano já foi realizado."
         />
       </div>
 
@@ -233,7 +233,7 @@ export function RealizadoClient(props: Props) {
               <tr className="border-b border-border">
                 <Th help="Mês de referência (2026).">Mês</Th>
                 <Th align="right" help="Faturamento realizado pela unidade no mês. Editável apenas para meses fechados.">Realizado</Th>
-                <Th align="right" help="Janeiro = âncora preenchida pela unidade. Demais meses = âncora × (1 + cresc%)^n usando a taxa do horizonte atual.">Projetado</Th>
+                <Th align="right" help="Meses fechados = o próprio realizado. Meses futuros = último mês fechado × (1 + cresc%)^n usando a taxa do horizonte atual.">Projetado</Th>
                 <Th align="right" help="Aderência = Realizado ÷ Projetado. Verde acima de 100%, vermelho abaixo de 80%.">Aderência</Th>
                 {!isMatriz && (
                   <Th align="right" help="Horizonte da P1 aplicado para projetar o ano.">Horiz.</Th>
@@ -377,7 +377,7 @@ export function RealizadoClient(props: Props) {
           <p className="text-[10px] text-muted-foreground">
             {isMatriz
               ? `Consolidado de ${unitCount} ${unitCount === 1 ? "unidade" : "unidades"} · Realizado e Projetado vêm da soma das unidades, cada uma calculada com seu próprio horizonte.`
-              : `Edite os meses fechados · Âncora de Janeiro define toda a trajetória do ano · Aderência = Realizado ÷ Projetado`}
+              : `Edite os meses fechados · O mês fechado mais recente ancora a projeção dos meses futuros · Aderência = Realizado ÷ Projetado`}
           </p>
           {error && <span className="text-[10px] text-destructive">{error}</span>}
         </div>
