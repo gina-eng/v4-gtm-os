@@ -5,6 +5,26 @@ import { ChevronDown, Filter, Calendar, AlertCircle } from "lucide-react";
 import { useSession } from "@/lib/auth/auth-context";
 import { PremissasModeloTab } from "./tabs/premissas-modelo-tab";
 import { ConversoesTab } from "./tabs/conversoes-tab";
+import type { PremissasBlocks } from "@/db/repositories/premissas";
+import type { PremissaBlockPatch } from "@/db/repositories/premissas";
+
+export type PersistBlock = (patch: PremissaBlockPatch) => Promise<boolean>;
+
+/** PATCH granular por bloco na entidade ativa. Retorna true em caso de sucesso. */
+async function persistBlock(patch: PremissaBlockPatch): Promise<boolean> {
+  try {
+    const res = await fetch("/api/premissas", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) console.error("[premissas] falha ao salvar bloco", patch.block, await res.text());
+    return res.ok;
+  } catch (err) {
+    console.error("[premissas] erro de rede ao salvar bloco", patch.block, err);
+    return false;
+  }
+}
 
 type Tab = "premissas" | "conversoes";
 
@@ -21,9 +41,10 @@ type CacContext = {
 
 type ClientProps = {
   cacContext: CacContext;
+  blocks: PremissasBlocks;
 };
 
-export function PremissasClient({ cacContext }: ClientProps) {
+export function PremissasClient({ cacContext, blocks }: ClientProps) {
   const session = useSession();
   const [tab, setTab] = useState<Tab>("premissas");
   const [alertOpen, setAlertOpen] = useState(true);
@@ -145,8 +166,18 @@ export function PremissasClient({ cacContext }: ClientProps) {
       </div>
 
       {/* ========== CONTEÚDO DA TAB ========== */}
-      {tab === "premissas" && <PremissasModeloTab canEdit={canEditMatrizPremises} actingAsMatriz={actingAsMatriz} cacContext={cacContext} />}
-      {tab === "conversoes" && <ConversoesTab canEdit={canEditMatrizPremises} />}
+      {tab === "premissas" && (
+        <PremissasModeloTab
+          canEdit={canEditMatrizPremises}
+          actingAsMatriz={actingAsMatriz}
+          cacContext={cacContext}
+          blocks={blocks}
+          persist={persistBlock}
+        />
+      )}
+      {tab === "conversoes" && (
+        <ConversoesTab canEdit={canEditMatrizPremises} blocks={blocks} persist={persistBlock} />
+      )}
     </>
   );
 }

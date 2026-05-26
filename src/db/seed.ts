@@ -3,8 +3,9 @@
 // imports são hoisted, então qualquer require de @/lib/env rodaria antes do dotenv.
 
 import { db } from "./index";
-import { organizations, users, memberships } from "./schema";
+import { organizations, users, memberships, premissas } from "./schema";
 import { eq } from "drizzle-orm";
+import { matrizDefaultBlocks, savePremissas } from "./repositories/premissas";
 
 /**
  * Seed do banco V4 OS.
@@ -90,6 +91,23 @@ async function main() {
     console.log(`[seed] criada membership gina→Matriz role=admin (${m.id})`);
   } else {
     console.log(`[seed] membership gina já existe (${existingMembership.id})`);
+  }
+
+  // ---- Premissas da Matriz (defaults do modelo) --------------------------
+  // A matriz "vira uma entidade" na tabela premissas: 1 linha + filhas com os
+  // defaults. Idempotente: só semeia se ainda não existe (não sobrescreve
+  // edições feitas via /premissas).
+  const [premissaMatriz] = await db
+    .select({ id: premissas.id })
+    .from(premissas)
+    .where(eq(premissas.entidadeId, matriz.id))
+    .limit(1);
+
+  if (!premissaMatriz) {
+    await savePremissas(matriz.id, matrizDefaultBlocks());
+    console.log(`[seed] semeadas premissas da Matriz (entidade ${matriz.id})`);
+  } else {
+    console.log(`[seed] premissas da Matriz já existem`);
   }
 
   console.log("[seed] concluído.");

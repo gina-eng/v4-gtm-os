@@ -40,6 +40,9 @@ export const PERMISSIONS = {
 
   // Audit log
   "audit.view": { matriz: ["admin", "gerente"], unidade: ["admin"] },
+
+  // Premissas do modelo — defaults globais editados pela Matriz em /premissas.
+  "premissas.update": { matriz: ["admin", "gerente"] },
 } as const satisfies Record<string, ScopeRoles>;
 
 export type PermissionAction = keyof typeof PERMISSIONS;

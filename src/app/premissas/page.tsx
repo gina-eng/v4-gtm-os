@@ -1,5 +1,10 @@
 import { requireAuth } from "@/lib/auth/current-user";
-import { getUnitSetup } from "@/db/repositories/unit-setup";
+import { getUnitSetupsByOrgIds } from "@/db/repositories/unit-setup";
+import {
+  getPremissas,
+  matrizDefaultBlocks,
+  type PremissasBlocks,
+} from "@/db/repositories/premissas";
 import { PremissasClient } from "@/components/premissas/premissas-client";
 import { ULTIMO_MES_FECHADO } from "@/lib/realizado/projecao";
 
@@ -24,11 +29,11 @@ async function loadCacContext(
 ): Promise<{ investido: number; won: number; unidades: number } | null> {
   if (unitIds.length === 0) return null;
 
+  const setups = await getUnitSetupsByOrgIds(unitIds);
   let investido = 0;
   let won = 0;
   let temDado = false;
-  for (const id of unitIds) {
-    const setup = await getUnitSetup(id);
+  for (const setup of setups) {
     const linha = setup.realizadoHistorico?.find((r) => r.mes === ULTIMO_MES_FECHADO);
     if (!linha) continue;
     if (linha.investido > 0 || linha.won > 0) temDado = true;
@@ -53,5 +58,15 @@ export default async function PremissasPage() {
 
   const cacContext = await loadCacContext(isMatriz, unitIds);
 
-  return <PremissasClient cacContext={cacContext} />;
+  // Entidade editada na tela: matriz (modo matriz) ou a unidade ativa. Carrega
+  // o snapshot atual de premissas pra alimentar as seções (fallback: defaults
+  // da matriz, caso a entidade ainda não tenha linha).
+  const entidadeId = isMatriz
+    ? (session.availableOrganizations.find((o) => o.type === "matriz")?.id ?? null)
+    : (session.activeOrganization?.id ?? null);
+
+  const blocks: PremissasBlocks =
+    (entidadeId ? await getPremissas(entidadeId) : null) ?? matrizDefaultBlocks();
+
+  return <PremissasClient cacContext={cacContext} blocks={blocks} />;
 }
