@@ -1,0 +1,43 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { AUTH_COOKIE_NAME } from "@/lib/auth/types";
+
+/**
+ * Proxy Next 16 (anteriormente "middleware") — redireciona usuário
+ * não-autenticado para /login.
+ *
+ * Considera autenticado quem tem o cookie `v4_user_id`. A validação real
+ * (se o cookie aponta para um user existente e ativo) acontece nos handlers
+ * server-side via getCurrentSession(). O proxy só faz o redirect rápido.
+ */
+export function proxy(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  const isAuthed = !!req.cookies.get(AUTH_COOKIE_NAME);
+
+  // Rotas que NÃO exigem autenticação
+  const publicPaths = ["/login", "/api/auth/login", "/api/dev/users"];
+  const isPublic = publicPaths.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+
+  if (isPublic) {
+    // Se já está logado e tenta acessar /login, manda pra home
+    if (isAuthed && pathname === "/login") {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
+    return NextResponse.next();
+  }
+
+  if (!isAuthed) {
+    const loginUrl = new URL("/login", req.url);
+    // Preserva destino pós-login (futuro)
+    loginUrl.searchParams.set("next", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  // Aplica em tudo exceto assets estáticos e arquivos do _next
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|gif|webp)$).*)"],
+};

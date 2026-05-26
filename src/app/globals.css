@@ -1,0 +1,7 @@
+/* V4 Design System tokens — fonte canônica em /design-system/tokens.css
+   @import precisa vir ANTES de qualquer outra regra (incluindo @tailwind). */
+@import "../../design-system/tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

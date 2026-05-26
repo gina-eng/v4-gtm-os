@@ -1,0 +1,155 @@
+/* ============================================================
+   V4 Design Tokens
+   ------------------------------------------------------------
+   Importe este arquivo no entrypoint global de CSS do projeto:
+     - Next.js:   import "@/design-system/tokens.css" em app/layout.tsx
+     - Vite/CRA:  import "./design-system/tokens.css" em main.tsx
+     - HTML solto: <link rel="stylesheet" href="./design-system/tokens.css" />
+
+   Para alternar entre temas, adicione/remova a classe `dark` no <html>.
+   ============================================================ */
+
+:root {
+  /* Backgrounds e texto */
+  --background: 0 0% 99%;          /* quase branco */
+  --foreground: 0 0% 9%;           /* quase preto */
+  --card: 0 0% 100%;               /* branco puro */
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+
+  /* Primário (preto) */
+  --primary: 0 0% 9%;
+  --primary-foreground: 0 0% 99%;
+
+  /* Secundário (cinza claro) */
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 9%;
+
+  /* Muted (cinza claro, texto cinza) */
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45%;
+
+  /* Accent — VERMELHO V4 (bordô) — cor distintiva.
+     Usar SEMPRE o mesmo tom; destructive e table-header herdam daqui. */
+  --accent: 355 59% 26%;
+  --accent-foreground: 0 0% 100%;
+
+  /* Destructive — mesmo bordô do accent para manter um único vermelho no sistema. */
+  --destructive: 355 59% 26%;
+  --destructive-foreground: 0 0% 100%;
+
+  /* Borders e inputs */
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 9%;
+
+  /* Radius padrão (cantos discretos) */
+  --radius: 0.25rem;
+
+  /* Sidebar — tons ligeiramente distintos do background principal */
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 0 0% 9%;
+  --sidebar-primary: 0 0% 9%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 0 0% 94%;
+  --sidebar-accent-foreground: 0 0% 9%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 9%;
+
+  /* Sistema de farol (semáforo de metas) */
+  --success: 142 71% 25%;          /* verde escuro — ≥120% meta */
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;           /* amarelo/laranja — 80-99% */
+  --warning-foreground: 0 0% 10%;
+
+  /* Header de tabelas — mesmo bordô do accent. */
+  --table-header: 355 59% 26%;
+  --table-header-foreground: 0 0% 100%;
+}
+
+.dark {
+  --background: 0 0% 4%;
+  --foreground: 0 0% 93%;
+  --card: 0 0% 6%;
+  --card-foreground: 0 0% 93%;
+  --popover: 0 0% 6%;
+  --popover-foreground: 0 0% 93%;
+  --primary: 0 0% 93%;
+  --primary-foreground: 0 0% 4%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 0% 93%;
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 355 40% 40%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 355 40% 40%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 15%;
+  --input: 0 0% 15%;
+  --ring: 0 0% 93%;
+  --sidebar-background: 0 0% 4%;
+  --sidebar-foreground: 0 0% 93%;
+  --sidebar-primary: 0 0% 93%;
+  --sidebar-primary-foreground: 0 0% 4%;
+  --sidebar-accent: 0 0% 10%;
+  --sidebar-accent-foreground: 0 0% 93%;
+  --sidebar-border: 0 0% 15%;
+  --sidebar-ring: 0 0% 93%;
+  --table-header: 355 40% 40%;     /* mesmo bordô do accent (dark) */
+  --table-header-foreground: 0 0% 100%;
+}
+
+/* ============================================================
+   Base do body — fonte Inter e cores aplicadas
+   ============================================================ */
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================
+   Utilitários V4
+   ============================================================ */
+
+/* Números monoespaçados em colunas numéricas (tabelas, KPIs) */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Linha alternada em tabelas */
+.bg-muted\/30 {
+  background-color: hsl(var(--muted) / 0.3);
+}
+
+/* Switch (toggle) V4 — usa --accent quando ativo */
+.v4-switch {
+  appearance: none;
+  width: 36px;
+  height: 20px;
+  background: hsl(var(--muted));
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.v4-switch:checked {
+  background: hsl(var(--accent));
+}
+.v4-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.v4-switch:checked::after {
+  transform: translateX(16px);
+}

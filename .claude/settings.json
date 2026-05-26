@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import json,sys;d=json.load\\(sys.stdin\\);print\\(d['data']['actingMode']\\)\")",
+      "Bash(curl -sI \"http://localhost:3000/premissas\" -b \"v4_user_id=11111111-1111-1111-1111-111111111111\")",
+      "Bash(npm run *)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(curl -sS -o /dev/null -w \"HTTP %{http_code} • %{time_total}s\\\\n\" http://localhost:3000/)",
+      "Bash(curl -sS -L -o /dev/null -w \"HTTP %{http_code} • final=%{url_effective} • %{time_total}s\\\\n\" http://localhost:3000/)",
+      "Bash(gh --version)",
+      "Bash(vercel --version)",
+      "Bash(host db.wwmqvbtudxsyuipquzvb.supabase.co)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(NODE_OPTIONS=--dns-result-order=ipv6first node --input-type=module -e ' *)",
+      "Bash(host aws-0-sa-east-1.pooler.supabase.com)",
+      "Bash(host aws-1-sa-east-1.pooler.supabase.com)",
+      "Bash(npx drizzle-kit *)",
+      "Bash(rm -f cookies.txt)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} → %{redirect_url}\\\\n\" http://localhost:3000/)",
+      "Bash(curl -s -c cookies.txt -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"gina@v4company.com\",\"password\":\"qualquer\"}')",
+      "Bash(curl -s -b cookies.txt http://localhost:3000/api/auth/me)",
+      "Bash(curl -s -b cookies.txt http://localhost:3000/api/organizations)",
+      "Bash(curl -s -b cookies.txt http://localhost:3000/api/users)",
+      "Bash(curl -s -b cookies.txt \"http://localhost:3000/api/memberships?userId=72d92f5b-7099-4ad7-8aee-967caa3dc836\")",
+      "Bash(curl -s -b cookies.txt -X POST http://localhost:3000/api/organizations -H 'Content-Type: application/json' -d '{\"name\":\"Franquia Smoke Test\",\"horizonteAtual\":\"H1\",\"regional\":\"SP1\"}')",
+      "Bash(node --env-file=.env.local --input-type=module -e ' *)",
+      "Bash(brew --version)",
+      "Bash(brew install *)",
+      "Bash(awk '{print $NF}')",
+      "Bash(git config *)",
+      "Bash(gh auth *)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ],
+    "additionalDirectories": [
+      "/Users/rafaelcorazza/.claude/projects/-Users-rafaelcorazza-Documents-Antigravity-V4-GTM-Os"
+    ]
+  }
+}
