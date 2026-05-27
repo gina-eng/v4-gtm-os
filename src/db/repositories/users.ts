@@ -307,6 +307,37 @@ export async function createMembership(
     );
   }
 
+  // O unique index (memberships_user_org_unique / _user_regional_unique) cobre
+  // linhas de QUALQUER status. Se já existe um membership inativo no mesmo escopo
+  // (vínculo revogado no histórico), um INSERT novo violaria a constraint. Então
+  // reativamos a linha existente em vez de inserir uma duplicata.
+  const staleCond =
+    input.scope === "unidade"
+      ? and(
+          eq(memberships.userId, input.userId),
+          eq(memberships.organizationId, input.organizationId),
+          eq(memberships.status, "inactive"),
+        )
+      : and(
+          eq(memberships.userId, input.userId),
+          eq(memberships.regional, input.regional),
+          eq(memberships.status, "inactive"),
+        );
+
+  const [stale] = await db
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(staleCond)
+    .limit(1);
+  if (stale) {
+    const [reactivated] = await db
+      .update(memberships)
+      .set({ role: input.role, status: "active", updatedAt: new Date() })
+      .where(eq(memberships.id, stale.id))
+      .returning();
+    return reactivated!;
+  }
+
   const [m] = await db
     .insert(memberships)
     .values({
