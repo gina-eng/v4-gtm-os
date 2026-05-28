@@ -109,16 +109,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* ====================  SIDEBAR  ====================
           Wrapper externo reserva espaço no layout (w-14 quando colapsado, w-64
           quando expandido). O <aside> interno é absolute para poder virar overlay
-          em hover-expand sem empurrar o conteúdo. */}
+          em hover-expand sem empurrar o conteúdo.
+          z-[60] no wrapper + aside pra que o sidebar SEMPRE fique acima do
+          conteúdo da <main>, inclusive de elementos sticky com z-50 (corner
+          cell da tabela, header de meses, etc). z-[60] > qualquer z usado em
+          conteúdo de página. */}
       <div
-        className={`${collapsed ? "w-14" : "w-64"} shrink-0 relative transition-[width] duration-200 ease-in-out`}
+        className={`${collapsed ? "w-14" : "w-64"} shrink-0 relative z-[60] transition-[width] duration-200 ease-in-out`}
       >
         <aside
           onMouseEnter={() => collapsed && setHovering(true)}
           onMouseLeave={() => setHovering(false)}
-          className={`absolute inset-y-0 left-0 bg-sidebar border-r border-sidebar-border flex flex-col overflow-hidden transition-[width] duration-200 ease-in-out ${
+          className={`absolute inset-y-0 left-0 bg-sidebar border-r border-sidebar-border flex flex-col overflow-hidden transition-[width] duration-200 ease-in-out z-[60] ${
             showLabels ? "w-64" : "w-14"
-          } ${isOverlay ? "z-50 shadow-2xl" : ""}`}
+          } ${isOverlay ? "shadow-2xl" : ""}`}
         >
           {/* Logo header — V4Logo sempre visível, texto some no rail */}
           <div className={`h-12 flex items-center gap-2 border-b border-sidebar-border whitespace-nowrap shrink-0 ${showLabels ? "px-4" : "px-3 justify-center"}`}>

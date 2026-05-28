@@ -2,8 +2,8 @@
 
 > Inventário exaustivo de **todos os campos** do sistema, separando o que é input do usuário, default da Matriz e o que é calculado/derivado. Inclui tipos TypeScript, unidades, validações Zod, onde aparecem na UI e fórmulas.
 >
-> **Última atualização:** 2026-05-25
-> **Versão do schema mock:** `__v4UnitSetupsV5` (após adição do step `realizado-historico`)
+> **Última atualização:** 2026-05-27
+> **Estado do schema:** Fase 2 — premissas **normalizadas** em tabelas-filhas no Postgres (Drizzle). `unit_setups` guarda só progresso do wizard + realizado histórico. Persistência real (não mais mock in-memory).
 
 ---
 
@@ -34,12 +34,12 @@ Os campos se dividem em quatro grandes blocos:
 
 | Bloco | Tabela / Tipo | Persistido? | Quem preenche |
 |------|---------------|------------|---------------|
-| Entidades de cadastro | `organizations`, `users`, `memberships`, `sessions`, `audit_log` | Sim (Drizzle schema) | Matriz / admin |
-| Setup da unidade (premissas P1–P17 + time) | `UnitSetup` (mock in-memory) | Mock — vai para `unit_setups` JSONB | Unidade no `/iniciar` |
-| Realizado mensal | `RealizadoMensal[]` dentro de `UnitSetup.realizadoHistorico` | Mock | Unidade |
+| Entidades de cadastro | `organizations`, `users`, `memberships`, `sessions`, `audit_log` | Sim (Drizzle/Postgres) | Matriz / admin |
+| Premissas do modelo (P1–P17 + time) | `premissas` + tabelas-filhas normalizadas | Sim | **Matriz** edita os defaults em `/premissas`; **unidade** personaliza no `/iniciar` |
+| Progresso do setup + realizado mensal | `unit_setups` (`completedSteps`, `completedAt`, `realizadoHistorico`) | Sim | Unidade |
 | Calculados | Fórmulas em `src/lib/` e nos componentes | Não persiste — recomputa a cada render | — |
 
-Hoje **nada está em banco real**: tudo é mock em memória (`globalThis`). Quando `DATABASE_URL` conectar, este documento ainda serve de fonte: os tipos TS e os schemas Zod já estão prontos.
+A persistência é **real** (Drizzle ORM + Postgres). As premissas vivem na tabela `premissas` (1 linha por entidade — matriz **ou** unidade) com blocos espalhados em tabelas-filhas normalizadas (uma coluna por métrica, uma linha por item de dimensão). A `unit_setups` ficou só com o que **não** é premissa: progresso do wizard e `realizadoHistorico`. Quem decide "herdado da matriz vs. próprio da unidade" é o `completedSteps`, não a presença de linhas em `premissas`. Scripts: `db:generate`, `db:migrate`, `db:seed` (e o one-shot `migrate-premissas-jsonb.ts`, usado na virada jsonb→normalizado).
 
 ---
 
@@ -154,11 +154,42 @@ Vínculo usuário ↔ organização. Pode ser direto (`organizationId` setado) o
 | `ip` | varchar(45) \| null | request | — |
 | `userAgent` | varchar(255) \| null | request | — |
 
+### 3.6 `unit_setups`
+
+Uma linha por organization. Guarda **só** progresso do wizard + realizado — as premissas migraram para a tabela `premissas` (§3.7). As colunas jsonb de premissa (`horizontes`, `time_comercial`, …) ainda existem no schema mas **não são mais lidas/escritas** — dívida técnica a remover (§10).
+
+| Campo | Tipo | Origem | Notas |
+|------|------|-------|-------|
+| `organizationId` | uuid | — | PK; FK → `organizations`, cascade delete |
+| `completedSteps` | jsonb (`string[]`) | wizard | steps já salvos; default `[]` |
+| `completedAt` | timestamptz \| null | sistema | setado quando todos os 9 steps concluem |
+| `realizadoHistorico` | jsonb (`RealizadoMensal[]`) \| null | input unidade | série mensal (§5) |
+| `updatedAt` | timestamptz | auto | — |
+| *(colunas jsonb de premissa)* | jsonb \| null | — | **vestigiais** — não usadas desde a Fase 2 |
+
+### 3.7 `premissas` + tabelas-filhas (Fase 2)
+
+Premissas normalizadas. Repository em [src/db/repositories/premissas.ts](../src/db/repositories/premissas.ts). Uma linha-header por entidade na `premissas`, identificada por `entidadeId` (id da org — matriz **ou** unidade; referência **solta**, sem FK, só `UNIQUE`/index). Cada bloco é uma tabela-filha (FK `premissaId` → `premissas`, cascade). Escrita é **replace-set** numa transação: apaga as filhas e reinsere o snapshot completo (`savePremissas`).
+
+| Tabela | Grão (UNIQUE) | Premissas | Colunas-chave |
+|-------|---------------|-----------|---------------|
+| `premissas` | `entidadeId` | header | `id`, `entidadeId`, `createdAt`, `updatedAt` |
+| `premissa_time_comercial` | (sem unique — N por cargo) | Time Comercial | `ord`, `email`, `cargo`, `salario`, `comissaoPct`, `capacidadePct` |
+| `premissa_cargo` | `(premissaId, cargo)` | **P17** | `wipLimit`, `contratacao`, `onboarding`, `rampagem`, `atingimentoMes`, `permanencia`, `turnoverMesPct`, `ligacoesMes`, `conexaoPct`, `extra` |
+| `premissa_horizonte` | `(premissaId, h)` | **P1 + P6 + P16** | P1: `faixaMin/Max`, `tempoMaxMeses`, `crescMensalPct`; P6: `pctProducao`, `splitLb`, `splitBb`, `bbPiso`, `regra`; P16: `mixIndicacao/Eventos/Recovery/Recomendacao/Prospeccao` |
+| `premissa_tier` | `(premissaId, tier)` | **P2 + P3 + P4** | P2: `faturamentoMin/Max`, `tcvBooking`, `tcvProdCom`, `cplLb`, `cplBb`; P3: `saber/ter/exec` (`Pct`+`At`); P4: `pctMercado`, `entraHorizonte` |
+| `premissa_dist_split` | `(premissaId, h, tier)` | **P4** (split normalizado) | `pct` — esparso: só tiers ativos no horizonte |
+| `premissa_conversao_inbound` | `(premissaId, canal, tier)` | **P8 + P9** | `canal` (`lead_broker`/`black_box`), `cr1`–`cr7` |
+| `premissa_conversao_outbound` | `(premissaId, subcanal, tier)` | **P11–P15** | `subcanal` (5), `cr1`,`cr3`,`cr4`,`cr6`,`cr7` |
+| `premissa_meeting_broker` | `(premissaId)` singleton | **P10** | `custoSql`, `cr3`, `cr4`, `meta`, `pipeline` |
+
+> Métricas numéricas usam `doublePrecision`; contadores inteiros (`wipLimit`, dias, meses) usam `integer`. Os shapes lógicos (TS) de cada bloco estão em §4 — o repository remonta as filhas no tipo `PremissasBlocks` / `UnitSetup`.
+
 ---
 
 ## 4. Setup da unidade (`UnitSetup`)
 
-Mock in-memory em [src/db/repositories/unit-setup.ts](../src/db/repositories/unit-setup.ts). Cada unidade tem um `UnitSetup` próprio. Os campos abaixo viram colunas/JSONB quando a tabela `unit_setups` for criada.
+Tipos em [src/lib/unit-setup-types.ts](../src/lib/unit-setup-types.ts) (fora de `src/db` — bundleável no browser, sem driver). O repository [src/db/repositories/unit-setup.ts](../src/db/repositories/unit-setup.ts) monta o `UnitSetup` juntando duas fontes: o **meta** (progresso + realizado) da `unit_setups` e os **blocos de premissa** da `premissas` (§3.7), expondo cada bloco só se a unidade "possui" o step (senão cai no default da Matriz, lido do banco). Os shapes abaixo são a visão lógica desses blocos.
 
 ### 4.0 Controle de progresso
 
@@ -179,7 +210,9 @@ Mock in-memory em [src/db/repositories/unit-setup.ts](../src/db/repositories/uni
 6. `conversoes-inbound` — *Conversões Inbound* (P8 + P9 + P10)
 7. `conversoes-outbound` — *Conversões Outbound* (P11–P15)
 8. `mix-subcanais` — *Mix Subcanais* (P16)
-9. `realizado-historico` — *Realizado Histórico* (novo — alimenta `/realizado`)
+9. `realizado-historico` — *Realizado Histórico* (alimenta o Forecast em `/realizado`)
+
+Há também a página `/iniciar/resumo` — **não é um `SetupStep`**: é a tela final de revisão que lista os 9 steps com seu status (concluído / pendente) e atalhos de edição.
 
 ### 4.1 P1 — Horizontes de Crescimento (`HorizonteCrescimento`)
 
@@ -239,7 +272,14 @@ Distribui o TCV em três produtos (Saber/Ter/Exec). Editável na unidade.
 | `pctMercado` | number | % | `min(0)`, `max(100)` | participação do tier no mercado |
 | `entraHorizonte` | enum `"H1"–"H5"` | — | enum | em qual horizonte o tier começa a entrar |
 
-> **Regra:** a soma de `pctMercado` dos tiers **ativos no horizonte da unidade** deve totalizar 100% (renormaliza no `useState`).
+> **Regra:** a soma de `pctMercado` de **todos** os tiers deve totalizar 100% (validado via `superRefine`, tolerância 0,5).
+
+**Split normalizado por horizonte (`DistSplitHorizonte`)** — tabela à direita do P4 em `/premissas`. Renormaliza o `pctMercado` a 100% **entre os tiers ativos de cada horizonte**. Persistido em `premissa_dist_split` (esparso: só os tiers ativos aparecem).
+
+| Campo | Tipo | Unidade | Notas |
+|------|------|--------|-------|
+| `h` | enum horizonte | — | 1 entrada por horizonte |
+| `pcts` | `Partial<Record<Tier, number>>` | % | só tiers ativos no horizonte; soma 100% |
 
 ### 4.5 P6 — Investimento em Mídia (`InvestimentoMidia`)
 
@@ -341,7 +381,7 @@ Pessoas reais da unidade. Cada linha é um investidor.
 
 ## 5. Realizado Histórico Mensal
 
-Input da unidade — base da projeção em `/realizado`. Tipo `RealizadoMensal` em [matriz-defaults.ts](../src/lib/premissas/matriz-defaults.ts) e schema em [unit-setup.ts (validations)](../src/lib/validations/unit-setup.ts).
+Input da unidade — base do **Forecast** em `/realizado` (a tela mantém a rota `/realizado`, mas a seção foi renomeada para "Forecast" na UI). Tipo `RealizadoMensal` em [matriz-defaults.ts](../src/lib/premissas/matriz-defaults.ts) e schema em [unit-setup.ts (validations)](../src/lib/validations/unit-setup.ts).
 
 | Campo | Tipo | Unidade | Origem | Validação | Notas |
 |------|------|--------|-------|-----------|-------|
@@ -352,7 +392,7 @@ Input da unidade — base da projeção em `/realizado`. Tipo `RealizadoMensal` 
 | `leadsOb` | number | qtd | input unidade | `min(0)` | leads outbound |
 | `won` | number | qtd | input unidade | `min(0)` | deals fechados |
 
-**Janela atual:** Jan/2026 → Abr/2026 (`REALIZADO_HISTORICO_DEFAULT`). `ULTIMO_MES_FECHADO` está fixo em `"2026-04"` em [projecao.ts](../src/lib/realizado/projecao.ts). Quando o mês corrente avançar, atualizar essas duas constantes.
+**Janela:** o esqueleto dos meses fechados é gerado **dinamicamente** no step 9 (até `getUltimoMesFechado()`), não mais fixo. `REALIZADO_HISTORICO_DEFAULT` (Jan→Abr/2026) é só fallback. O mês de referência e o último fechado derivam de `new Date()` com clamp em 2026 — `getMesReferenciaAtual()` / `getUltimoMesFechado()` em [projecao.ts](../src/lib/realizado/projecao.ts).
 
 ---
 
@@ -360,35 +400,39 @@ Input da unidade — base da projeção em `/realizado`. Tipo `RealizadoMensal` 
 
 Não persistem em lugar nenhum — são recomputados a cada render. Mantemos as fórmulas centralizadas em `src/lib/` quando reutilizadas, e inline quando são derivações triviais de uma tela só.
 
-### 6.1 Projeção Realizado vs Projetado
+### 6.1 Forecast (Realizado vs Projetado)
 
 Definida em [src/lib/realizado/projecao.ts](../src/lib/realizado/projecao.ts).
 
-**Modelo:** o Projetado é uma curva **independente do Realizado** dos meses fev–dez. Parte de uma **âncora** (faturamento de Janeiro/2026, único valor do realizado que entra) e capitaliza pela taxa do **horizonte atual da unidade**, fixa o ano inteiro.
+**Modelo (rolling forecast — re-ancorado no mês fechado mais recente):** a curva não parte mais de Janeiro fixo. O **mês-base** é o mês **fechado mais recente** (dentro da operação da unidade) com `faturamento > 0` (`getMesBaseForecast`). A partir dele:
+
+- Meses **antes do início da unidade** (`< getMesAncora(dataInicio)`): zerados.
+- Meses **fechados** (`≤ getUltimoMesFechado()`): `projetado = realizado` — o número efetivo é o próprio forecast.
+- Meses **futuros**: `projetado = valorBase × (1 + taxa/100)^n`, onde `n` é a distância em meses até o mês-base e `taxa = crescMensalPct` do horizonte atual da unidade (fixa o ano todo).
+- Sem nenhum mês fechado preenchido → sem base → tudo zerado.
 
 ```
-ancora     = realizadoHistorico["2026-01"].faturamento
-taxa       = horizontes.find(h.h === horizonteAtual).crescMensalPct
-projetado[2026-01] = ancora
-projetado[2026-02] = ancora × (1 + taxa/100)
-projetado[2026-03] = projetado[2026-02] × (1 + taxa/100)
-...
-projetado[2026-12] = ancora × (1 + taxa/100)^11
+mesBase   = mês fechado mais recente com faturamento > 0   (getMesBaseForecast)
+valorBase = realizadoHistorico[mesBase].faturamento
+taxa      = horizontes.find(h.h === horizonteAtual).crescMensalPct
+projetado[mesFuturo] = round(valorBase × (1 + taxa/100)^(idx(mes) - idx(mesBase)))
 ```
 
-Se `ancora = 0`, todo o ano fica com `projetado = 0`. A curva **não troca de horizonte automaticamente** quando ultrapassa `faixaMax` — a unidade aparece "superando o horizonte", que é a leitura desejada.
+A curva **não troca de horizonte automaticamente** ao ultrapassar `faixaMax` — a unidade aparece "superando o horizonte", leitura desejada.
 
 | Campo / Label | Fórmula | Dependências | Onde aparece |
 |--------------|--------|--------------|-------------|
-| `Projetado[mes]` | âncora × `(1 + crescMensalPct/100)^n` | `realizadoHistorico["2026-01"].faturamento`, `horizontes` (P1), `organizations.horizonteAtual` | `/realizado` e preview no step 9 |
-| Horizonte aplicado | `organizations.horizonteAtual` (fixo) | `horizonteAtual` | coluna "Horiz." em `/realizado` |
-| `aderencia(linha)` | `(realizado ÷ projetado) × 100` | `realizado`, `projetado` | coluna "Aderência" |
+| `getMesBaseForecast(...)` | mês fechado mais recente com `faturamento > 0`, entre âncora e último fechado | `realizadoHistorico`, `dataInicio` | base da curva |
+| `Projetado[mesFuturo]` | `valorBase × (1 + crescMensalPct/100)^n` | mês-base, `horizontes` (P1), `organizations.horizonteAtual` | `/realizado` e preview no step 9 |
+| `Projetado[mesFechado]` | `= realizado` | `realizadoHistorico` | meses fechados |
+| Horizonte aplicado | `organizations.horizonteAtual` (só em meses futuros; `null` nos fechados/sem base) | `horizonteAtual` | coluna "Horiz." |
+| `aderencia(linha)` / `aderenciaPercentual(r, p)` | `(realizado ÷ projetado) × 100`; **0** se qualquer lado ≤ 0 | `realizado`, `projetado` | coluna "Aderência" |
 | `cacMes({investido, won})` | `investido ÷ won`, 0 quando `won ≤ 0` | `investido`, `won` | coluna "CAC" |
-| Realizado acumulado | `Σ linha.realizado` | linhas calculadas | card "Realizado acumulado" |
-| Projetado acumulado | `Σ linha.projetado` | linhas calculadas | card "Projetado acumulado" |
+| Realizado / Projetado acumulado | `Σ linha.realizado` / `Σ linha.projetado` | linhas calculadas | cards |
 | Aderência do ano | `(totalRealizado ÷ totalProjetado) × 100` | acumulados | card "Aderência do ano" |
 | `formatMesPt(mes)` | `"2026-03"` → `"Mar 2026"` | `mes` | render das colunas/cards |
-| `agregarLinhasMatriz(conjuntos)` | soma mês a mês `realizado` e `projetado` de cada unidade | `LinhaRealizadoProjetado[][]` | `/realizado` no modo Matriz — cada unidade calcula com seu próprio horizonte e a Matriz soma |
+| `getMesAncora(dataInicio)` | mês de início da unidade clampado em 2026 | `organizations.dataInicio` | define onde a curva começa |
+| `agregarLinhasMatriz(conjuntos)` | soma mês a mês `realizado` e `projetado` de cada unidade | `LinhaRealizadoProjetado[][]` | `/realizado` no modo Matriz — cada unidade calcula com seu próprio horizonte/base e a Matriz soma |
 
 **Regra de cor (farol)** — [src/components/premissas/format.ts](../src/components/premissas/format.ts):
 - `≥ 120%` → `text-success`
@@ -476,6 +520,26 @@ Se `ancora = 0`, todo o ano fica com `projetado = 0`. A curva **não troca de ho
 | `formatInt(n)` | `1.234` |
 | `farolColorClass(pct)` | classe Tailwind (regra acima) |
 
+### 6.10 Funil reverso — Forecast 2026 unificado
+
+[src/lib/premissas/funil-reverso.ts](../src/lib/premissas/funil-reverso.ts) — inverte o bow-tie (**Won → … → Leads → Investimento**) a partir das premissas. Funções puras; alimenta a tela unificada `/realizado` (Forecast 2026) com 4 seções: **Canal × Sub-canal · Investimento · Receita+Produto · Time necessário**. **Modelo limpo derivado das premissas** (não replica o jitter de deals inteiros das planilhas de referência). Janela: **12 meses de 2026** (Jan→Dez). Cada unidade aplica seu próprio `horizonteAtual` (fixo no ano) e ancora no realizado.
+
+| Campo / Função | Fórmula | Dependências |
+|---------------|--------|--------------|
+| `calcularCurvaTarget(horizontes, horizonteAtual, opts)` | Reusa `calcularRealizadoVsProjetado` (mesmo motor do Forecast). Meses fechados → `target = realizado`; meses futuros → `base × (1 + crescMensalPct/100)^n` a partir do mês fechado mais recente com `faturamento > 0`. **Sem realizado**: fallback ancora em `faixaMin` do `horizonteAtual` no mês de início. | P1, `realizadoHistorico`, `dataInicio` |
+| Horizonte do mês | sempre o `horizonteAtual` da unidade (fixo no ano) | — |
+| Investimento do mês | `target × pctProducao(horizonteAtual)` | P6 |
+| Split de canais | mídia divide LB/BB por `splitLb`/`splitBb` (BB só com `splitBb>0` e `bbPiso>0`); H5 reserva `MB_BUDGET_PCT` (10%) p/ Meeting Broker | P6, P10 |
+| Leads/won/receita inbound por tier | `leads = budget_tier ÷ CPL_tier`; `won = leads × Π(cr1..cr4)`; `receita = won × tcvProdCom`. Tiers ativos no horizonte vêm do split P4 (`distSplit[horizonteAtual]`). | P2, P8/P9, P4 |
+| Meeting Broker | `SQLs = budget ÷ custoSql`; `won = SQLs × cr3 × cr4` | P10 |
+| Outbound (resíduo) | `recOutbound = max(0, target − recInbound)`, distribuído por tier (split P4); leads revertidos pela conversão outbound ponderada pelo mix do horizonte | P11–P15, P16 |
+| Produto (Saber/Ter/Exec) | receita do tier × `saberPct/terPct/execPct` | P3 |
+| Headcount por cargo | `ceil(volume_do_estágio ÷ wipLimit)` — LDR=leads total, BDR=leads OB, SDR=SQLs, CLOSER/KAM=won | P17 |
+| `calcularRampUp(blocks, horizonteAtual, opts)` | 12 linhas (uma por mês de 2026): target, investimento, receita, produto, funil, HC. `pctInvest` = invest÷target. `isFechado` = vem do realizado. | todas |
+| `calcularCanalTier(blocks, horizonteAtual, opts)` | Detalhe por (mês × tier) com LB/BB/MB/Out — útil quando precisar do grão por tier. | todas |
+| `calcularPorSubCanal(blocks, horizonteAtual, opts)` | Agrega o detalhe por sub-canal (LB/BB/MB + 5 outbound), somando tiers. Para outbound, re-splitta o residual usando o mix P16 + CRs do subcanal × tier. Identidade preservada: Σ won_subcanal = won_outbound_total. | todas |
+| `agregarRampUpMatriz` / `agregarCanalTierMatriz` / `agregarPorSubCanalMatriz` | Modo Matriz: cada unidade calcula com seu próprio `horizonteAtual` + âncora, agregadores somam por mês ISO (`"2026-01"`..). | — |
+
 ---
 
 ## 7. Enums e tipos compartilhados
@@ -483,7 +547,9 @@ Se `ancora = 0`, todo o ano fica com `projetado = 0`. A curva **não troca de ho
 | Enum / Tipo | Valores | Onde aparece |
 |-------------|---------|--------------|
 | `Horizonte` | `"H1" \| "H2" \| "H3" \| "H4" \| "H5"` | `organizations.horizonteAtual`, P1, P4 (`entraHorizonte`), P6, P16 |
-| `Tier` | `"Tiny" \| "Small" \| "Medium" \| "Large" \| "Enterprise"` | P2, P3, P4, P8–P15 |
+| `Tier` | `"Tiny" \| "Small" \| "Medium" \| "Large" \| "Enterprise"` | P2, P3, P4, P8–P15; pgEnum `tier` |
+| `canal_inbound` (pgEnum) | `"lead_broker" \| "black_box"` | `premissa_conversao_inbound.canal` (P8/P9) |
+| `subcanal_outbound` (pgEnum) | `"indicacao" \| "eventos" \| "recovery" \| "recomendacao" \| "prospeccao"` | `premissa_conversao_outbound.subcanal` (P11–P15) |
 | `Cargo` (livre) | `LDR`, `BDR`, `SDR`, `CLOSER`, `KAM` (sugestões) | P17, Time Comercial |
 | `OrgType` | `"matriz" \| "unidade"` | `organizations.type` |
 | `OrgStatus` | `"active" \| "inactive" \| "pending"` | `organizations.status` |
@@ -558,12 +624,14 @@ Definidas em [src/lib/auth/permissions.ts](../src/lib/auth/permissions.ts). A fu
 | `user.invite` | admin, gerente | admin |
 | `user.update` | admin | admin |
 | `user.deactivate` | admin | admin |
+| `user.delete` | admin | — | (hard delete: remove user + todos os memberships) |
 | `membership.create` | admin | admin |
 | `membership.update` | admin | admin |
 | `membership.revoke` | admin | admin |
 | `audit.view` | admin, gerente | admin |
+| `premissas.update` | admin, gerente | — |
 
-> **Regra adicional (alinhada com PM, ainda não em código):** Matriz tem visibilidade total dos dados das unidades mas **não edita** dados operacionais (Reality Check, KRs, métricas). Restrição entrará como permissões `data.*` em fase futura.
+> `premissas.update` governa a edição dos defaults do modelo pela Matriz em `/premissas` (rota `PATCH /api/premissas`). A restrição mais ampla de dados operacionais (Matriz vê tudo mas não edita Reality Check/KRs/métricas) ainda virá como permissões `data.*` em fase futura.
 
 ### 8.3 Schemas Zod de input das APIs
 
@@ -573,7 +641,9 @@ Cada API route valida o body/query com um schema. São esses tipos que o front c
 
 | Tipo | Endpoint | Campos |
 |------|---------|--------|
+| `CheckEmailInput` | `POST /api/auth/check-email` | `email` (corporativo) — decide login vs. setup de senha |
 | `LoginInput` | `POST /api/auth/login` | `email` (corporativo, `@v4company.com`), `password` (opcional em dev) |
+| `SetupPasswordInput` | `POST /api/auth/setup-password` | fluxo de definição de senha (ativação) |
 
 Constante `ALLOWED_EMAIL_DOMAIN = "v4company.com"` (hard-coded, decisão de produto).
 
@@ -610,6 +680,12 @@ Labels de UI: `ROLE_LABEL` e `USER_STATUS_LABEL`.
 | `SaveStepBody` | `PATCH /api/units/:id/setup` | discriminated union por `step` — 9 variantes, uma por SetupStep (ver §4.0) |
 
 Cada variante carrega `data` no shape do step correspondente — todos os schemas de premissa (P1–P17), time comercial e realizado histórico já validados nesta página.
+
+#### Edição de premissas pela Matriz / unidade — [premissas.ts (validations)](../src/lib/validations/premissas.ts)
+
+| Tipo | Endpoint | Campos |
+|------|---------|--------|
+| `PremissaBlockBody` | `PATCH /api/premissas` | discriminated union por `block` — grão mais **fino** que os steps do wizard: cada canal de conversão (`conversaoInbound`+`canal`), cada subcanal outbound (`conversaoOutbound`+`subcanal`), `meetingBroker`, `distSplit` etc. têm seu próprio patch. Salva 1 bloco por vez via `savePremissasBlock`. Em `actingMode="matriz"` edita a linha da Matriz (exige `premissas.update`); em `"unidade"`, a própria unidade. |
 
 ### 8.4 Erros de auth/autorização
 
@@ -654,8 +730,14 @@ Esses campos vivem só em `useState` ou em filtros — não viram input persisti
 
 ### Campos com valor placeholder / convenção
 - **Ano modelado fixo (2026)**: `ANO_MODELADO` e `MESES_ANO_2026` em [projecao.ts](../src/lib/realizado/projecao.ts) ainda são hard-coded. Quando o sistema modelar outros anos, vai precisar virar lista/seletor.
+- **Colunas jsonb vestigiais em `unit_setups`**: `horizontes`, `time_comercial`, … continuam no schema mas não são mais lidas/escritas desde a Fase 2 (premissas migraram para `premissas` + filhas). **Pendente:** dropar essas colunas numa migration.
 
 ### Resolvidos nesta passada (registro)
+- ✅ **Premissas normalizadas (Fase 2)** — jsonb de `unit_setups` → tabela `premissas` + 8 filhas ([premissas.ts](../src/db/repositories/premissas.ts)). `unit_setups` ficou só com progresso + realizado. Migração one-shot em [migrate-premissas-jsonb.ts](../src/db/migrate-premissas-jsonb.ts).
+- ✅ **Persistência real** — saiu o mock in-memory; tudo em Postgres via Drizzle (`db:migrate`/`db:seed`).
+- ✅ **Matriz edita defaults** — `/premissas` + `PATCH /api/premissas` (`savePremissasBlock`, patch granular por bloco), protegido por `premissas.update`.
+- ✅ **Forecast re-ancorado** — projeção parte do mês fechado mais recente com faturamento (`getMesBaseForecast`), não mais de Janeiro fixo; meses fechados têm `projetado = realizado`.
+- ✅ **Esqueleto dinâmico** do realizado no step 9 (até `getUltimoMesFechado()`), não mais janela fixa Jan–Abr.
 - ✅ **P7** agora é derivado de P2 + P4 em tempo real ([p7-derivado.ts](../src/lib/premissas/p7-derivado.ts)) — `calcularP7(dist, tiers)`.
 - ✅ **CAC em `/premissas`** lê o último mês fechado de `realizadoHistorico` (unidade ativa ou soma das unidades em modo Matriz). Quando não há dado, mostra "—" + instrução.
 - ✅ **`MES_REFERENCIA_ATUAL` / `ULTIMO_MES_FECHADO`** agora derivam de `new Date()` com clamp em 2026 — `getMesReferenciaAtual()` e `getUltimoMesFechado()`.
@@ -674,8 +756,8 @@ Esses campos vivem só em `useState` ou em filtros — não viram input persisti
 | `/` | [app/page.tsx](../src/app/page.tsx) | `availableOrganizations`, `UnitSetup.completedSteps` | — |
 | `/unidades` | [app/unidades/page.tsx](../src/app/unidades/page.tsx) | `organizations`, `UnitSetup` | — |
 | `/usuarios` | [app/usuarios/page.tsx](../src/app/usuarios/page.tsx) | `users`, `memberships`, `organizations` | convite (cria `users` + `memberships`) |
-| `/premissas` | [premissas-client.tsx](../src/components/premissas/premissas-client.tsx) | premissas P1–P17 (defaults Matriz) | premissas P1–P17 quando `actingMode="matriz"` |
-| `/realizado` | [realizado-client.tsx](../src/components/realizado/realizado-client.tsx) | `realizadoHistorico`, `horizontes` (P1) | `realizadoHistorico` (unidade) |
+| `/premissas` | [premissas-client.tsx](../src/components/premissas/premissas-client.tsx) | premissas P1–P17 (defaults Matriz ou personalização da unidade) | premissas P1–P17 via `PATCH /api/premissas` (Matriz com `premissas.update`, ou unidade ativa) |
+| `/realizado` (Forecast 2026 unificado) | [realizado-client.tsx](../src/components/realizado/realizado-client.tsx) | premissas P1–P17 + `realizadoHistorico` + `horizonteAtual` | — (read-only). Edição do realizado segue via [/iniciar/realizado-historico](../src/app/iniciar/realizado-historico/page.tsx). |
 | `/iniciar` (layout) | [iniciar/layout.tsx](../src/app/iniciar/layout.tsx) | `UnitSetup.completedSteps` | — |
 | `/iniciar/horizontes` | step-horizontes | P1 (read-only) | marca step concluído |
 | `/iniciar/time-comercial` | step-time-comercial | `timeComercial`, P17 (consultivo) | `timeComercial` |
@@ -686,16 +768,24 @@ Esses campos vivem só em `useState` ou em filtros — não viram input persisti
 | `/iniciar/conversoes-outbound` | step-conversoes-outbound | P11–P15 | P11–P15 |
 | `/iniciar/mix-subcanais` | step-mix-subcanais | P16 | P16 |
 | `/iniciar/realizado-historico` | step-realizado-historico | `realizadoHistorico`, P1 | `realizadoHistorico` |
+| `/iniciar/resumo` | [resumo/page.tsx](../src/app/iniciar/resumo/page.tsx) | `UnitSetup.completedSteps` | — (revisão final) |
 | `/api/units/[id]/setup` (GET/PATCH) | [route.ts](../src/app/api/units/[id]/setup/route.ts) | `UnitSetup` completo | qualquer `SaveStepInput` |
+| `/api/premissas` (PATCH) | [route.ts](../src/app/api/premissas/route.ts) | — | `PremissaBlockBody` (1 bloco por chamada) |
+| `/api/auth/check-email`, `/setup-password` (POST) | — | `CheckEmailInput`, `SetupPasswordInput` | fluxo de ativação/senha |
 
 ---
 
 ## Referências de código
 
 - Defaults da Matriz: [src/lib/premissas/matriz-defaults.ts](../src/lib/premissas/matriz-defaults.ts)
-- Validações Zod: [src/lib/validations/unit-setup.ts](../src/lib/validations/unit-setup.ts)
-- Repository do setup (mock + tipos `UnitSetup`, `SaveStepInput`): [src/db/repositories/unit-setup.ts](../src/db/repositories/unit-setup.ts)
-- Schema do banco: [src/db/schema.ts](../src/db/schema.ts)
+- Tipos do setup (`UnitSetup`, `SaveStepInput`, `SetupStep`): [src/lib/unit-setup-types.ts](../src/lib/unit-setup-types.ts)
+- Validações Zod do wizard: [src/lib/validations/unit-setup.ts](../src/lib/validations/unit-setup.ts)
+- Validações Zod das premissas (`/api/premissas`): [src/lib/validations/premissas.ts](../src/lib/validations/premissas.ts)
+- Repository do setup (monta `UnitSetup` das 2 fontes): [src/db/repositories/unit-setup.ts](../src/db/repositories/unit-setup.ts)
+- Repository das premissas normalizadas (`PremissasBlocks`, `savePremissas`, `savePremissasBlock`): [src/db/repositories/premissas.ts](../src/db/repositories/premissas.ts)
+- Schema do banco (tabelas + filhas de premissa): [src/db/schema.ts](../src/db/schema.ts)
+- Seed / migração jsonb→normalizado: [src/db/seed.ts](../src/db/seed.ts), [src/db/migrate-premissas-jsonb.ts](../src/db/migrate-premissas-jsonb.ts)
 - Projeção realizado vs projetado: [src/lib/realizado/projecao.ts](../src/lib/realizado/projecao.ts)
+- Funil reverso (Ramp-up + Canal × Tier): [src/lib/premissas/funil-reverso.ts](../src/lib/premissas/funil-reverso.ts) · validação: [scripts/validate-funil-reverso.ts](../scripts/validate-funil-reverso.ts)
 - Formatação compartilhada: [src/components/premissas/format.ts](../src/components/premissas/format.ts)
 - Tipos de sessão/auth: [src/lib/auth/types.ts](../src/lib/auth/types.ts)

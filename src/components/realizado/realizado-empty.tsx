@@ -14,8 +14,8 @@ type Props = {
 export function RealizadoEmpty({ mode }: Props) {
   const isMatrizEmpty = mode === "matriz-sem-unidades";
   const eyebrow = isMatrizEmpty
-    ? "V4 OS · CONSOLIDADO DA REDE"
-    : "V4 OS · REALIZADO";
+    ? "V4 OS · CONSOLIDADO DA REDE · 2026"
+    : "V4 OS · FORECAST 2026";
 
   return (
     <>
@@ -24,7 +24,7 @@ export function RealizadoEmpty({ mode }: Props) {
           {eyebrow}
         </div>
         <h1 className="text-2xl font-semibold text-foreground">
-          Forecast
+          Forecast 2026
         </h1>
       </div>
 
@@ -36,7 +36,7 @@ export function RealizadoEmpty({ mode }: Props) {
               Nenhuma unidade visível ainda
             </h2>
             <p className="text-sm text-muted-foreground max-w-md">
-              A Matriz consolida os números a partir das unidades cadastradas. Cadastre uma unidade em <em>Unidades</em> e peça pra ela completar o wizard <em>/iniciar</em> — o realizado e o projetado vão aparecer aqui automaticamente.
+              A Matriz consolida o funil reverso a partir das unidades cadastradas. Cadastre uma unidade em <em>Unidades</em> e peça pra ela completar o wizard <em>/iniciar</em> — os outputs vão aparecer aqui automaticamente.
             </p>
           </>
         ) : (
