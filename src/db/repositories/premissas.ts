@@ -32,6 +32,7 @@ import {
   premissaConversaoOutbound,
   premissaMeetingBroker,
   premissaDistSplit,
+  premissaInvestimentoMes,
 } from "@/db/schema";
 import {
   CONVERSAO_BLACK_BOX_DEFAULT,
@@ -61,6 +62,7 @@ import {
   type InvestimentoMidia,
   type MetricaOperacional,
   type MixOutboundHorizonte,
+  type InvestimentoMes,
   type ReceitaProduto,
   type Tier,
   type TierCliente,
@@ -82,6 +84,12 @@ export type PremissasBlocks = {
   distMercado: DistMercado[];
   distSplit: DistSplitHorizonte[];
   investimentoMidia: InvestimentoMidia[];
+  /**
+   * Override mensal do investimento em mídia (R$). 0–12 entradas; meses
+   * ausentes caem em target × pctProducao do horizonte atual como fallback.
+   * Vive em `premissa_investimento_mes`.
+   */
+  investimentoMensal: InvestimentoMes[];
   conversoesInbound: ConversoesInboundData;
   conversoesOutbound: ConversoesOutboundData;
   mixSubcanais: MixOutboundHorizonte[];
@@ -107,6 +115,9 @@ export function matrizDefaultBlocks(): PremissasBlocks {
     distMercado: DIST_MERCADO_DEFAULT,
     distSplit: DIST_SPLIT_DEFAULT,
     investimentoMidia: INVESTIMENTO_MIDIA_DEFAULT,
+    // Matriz não tem override mensal — começa vazio; o cálculo cai no fallback
+    // de P6 por horizonte. Unidades materializam ao editar em /realizado.
+    investimentoMensal: [],
     conversoesInbound: {
       leadBroker: CONVERSAO_LEAD_BROKER_DEFAULT,
       blackBox: CONVERSAO_BLACK_BOX_DEFAULT,
@@ -169,7 +180,7 @@ export async function getPremissasByEntityIds(
 async function loadBlocksForPremissaIds(
   premissaIds: string[],
 ): Promise<Map<string, PremissasBlocks>> {
-  const [time, cargos, horiz, tiers, inbound, outbound, mb, split] = await Promise.all([
+  const [time, cargos, horiz, tiers, inbound, outbound, mb, split, investMes] = await Promise.all([
     db.select().from(premissaTimeComercial).where(inArray(premissaTimeComercial.premissaId, premissaIds)),
     db.select().from(premissaCargo).where(inArray(premissaCargo.premissaId, premissaIds)),
     db.select().from(premissaHorizonte).where(inArray(premissaHorizonte.premissaId, premissaIds)),
@@ -178,6 +189,7 @@ async function loadBlocksForPremissaIds(
     db.select().from(premissaConversaoOutbound).where(inArray(premissaConversaoOutbound.premissaId, premissaIds)),
     db.select().from(premissaMeetingBroker).where(inArray(premissaMeetingBroker.premissaId, premissaIds)),
     db.select().from(premissaDistSplit).where(inArray(premissaDistSplit.premissaId, premissaIds)),
+    db.select().from(premissaInvestimentoMes).where(inArray(premissaInvestimentoMes.premissaId, premissaIds)),
   ]);
 
   const group = <T extends { premissaId: string }>(rows: T[]): Map<string, T[]> => {
@@ -197,6 +209,7 @@ async function loadBlocksForPremissaIds(
   const outboundBy = group(outbound);
   const mbBy = group(mb);
   const splitBy = group(split);
+  const investMesBy = group(investMes);
 
   const result = new Map<string, PremissasBlocks>();
   for (const pid of premissaIds) {
@@ -240,6 +253,9 @@ async function loadBlocksForPremissaIds(
         bbPiso: r.bbPiso,
         regra: r.regra,
       })),
+      investimentoMensal: (investMesBy.get(pid) ?? [])
+        .map((r) => ({ mes: r.mes, investimento: r.investimento }))
+        .sort((a, b) => a.mes.localeCompare(b.mes)),
       mixSubcanais: orderBy(horizBy.get(pid) ?? [], "h", HORIZONTE_ORDER).map((r) => ({
         h: r.h,
         indicacao: r.mixIndicacao,
@@ -364,6 +380,7 @@ export async function savePremissas(
       tx.delete(premissaConversaoOutbound).where(eq(premissaConversaoOutbound.premissaId, pid)),
       tx.delete(premissaMeetingBroker).where(eq(premissaMeetingBroker.premissaId, pid)),
       tx.delete(premissaDistSplit).where(eq(premissaDistSplit.premissaId, pid)),
+      tx.delete(premissaInvestimentoMes).where(eq(premissaInvestimentoMes.premissaId, pid)),
     ]);
 
     // Time comercial (grão: pessoa) — preserva ordem via `ord`.
@@ -465,6 +482,19 @@ export async function savePremissas(
     );
     if (splitRows.length > 0) {
       await tx.insert(premissaDistSplit).values(splitRows);
+    }
+
+    // P6 — override mensal do investimento em mídia (R$). Esparso (até 12
+    // linhas); cálculo usa target × pctProducao do horizonte como fallback
+    // quando o mês não tem override.
+    if (blocks.investimentoMensal.length > 0) {
+      await tx.insert(premissaInvestimentoMes).values(
+        blocks.investimentoMensal.map((p) => ({
+          premissaId: pid,
+          mes: p.mes,
+          investimento: p.investimento,
+        })),
+      );
     }
 
     // P8 + P9 — conversões inbound (canal × tier)
@@ -579,6 +609,7 @@ export async function savePremissasStep(
 export type PremissaBlockPatch =
   | { block: "horizontes"; data: HorizonteCrescimento[] }
   | { block: "investimentoMidia"; data: InvestimentoMidia[] }
+  | { block: "investimentoMensal"; data: InvestimentoMes[] }
   | { block: "mixSubcanais"; data: MixOutboundHorizonte[] }
   | { block: "tiersCliente"; data: TierCliente[] }
   | { block: "receitaProduto"; data: ReceitaProduto[] }
@@ -596,6 +627,8 @@ function applyBlockPatch(base: PremissasBlocks, patch: PremissaBlockPatch): Prem
       return { ...base, horizontes: patch.data };
     case "investimentoMidia":
       return { ...base, investimentoMidia: patch.data };
+    case "investimentoMensal":
+      return { ...base, investimentoMensal: patch.data };
     case "mixSubcanais":
       return { ...base, mixSubcanais: patch.data };
     case "tiersCliente":

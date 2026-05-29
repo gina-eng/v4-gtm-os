@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { listOrganizations, getOrganizationById } from "@/db/repositories/organizations";
 import {
@@ -11,12 +12,17 @@ import { hasPermission, type PermissionAction } from "./permissions";
 /**
  * Lê o usuário "logado" via cookie `v4_user_id`.
  *
+ * Embrulhado com `react.cache`: o layout e a page chamam `getCurrentSession`
+ * no mesmo request — o cache evita re-executar as 3 queries (getUserById +
+ * listMembershipsByUser + listOrganizations) duas vezes por navegação.
+ * O escopo é por request, então não há risco de servir sessão de outro user.
+ *
  * ⚠️ Mock para dev. Quando a auth real entrar (adendo §11):
  *   - Substituir leitura do cookie pelo session token assinado
  *   - Validar contra a tabela `sessions`
  *   - O resto (memberships, active org, permissions) continua igual
  */
-export async function getCurrentSession(): Promise<AuthSession | null> {
+export const getCurrentSession = cache(async (): Promise<AuthSession | null> => {
   const cookieStore = await cookies();
   const userId = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   if (!userId) return null;
@@ -89,7 +95,7 @@ export async function getCurrentSession(): Promise<AuthSession | null> {
     availableOrganizations,
     actingMode,
   };
-}
+});
 
 export class UnauthorizedError extends Error {
   constructor(message = "Não autenticado") {

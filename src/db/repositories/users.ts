@@ -129,6 +129,20 @@ export async function listMembershipsByUser(userId: string): Promise<Membership[
     .where(and(eq(memberships.userId, userId), eq(memberships.status, "active")));
 }
 
+/**
+ * Batch: memberships ativos de vários users em uma única query. Evita N+1
+ * em telas que listam users e precisam dos vínculos de cada um.
+ */
+export async function listMembershipsByUserIds(
+  userIds: string[],
+): Promise<Membership[]> {
+  if (userIds.length === 0) return [];
+  return db
+    .select()
+    .from(memberships)
+    .where(and(inArray(memberships.userId, userIds), eq(memberships.status, "active")));
+}
+
 export async function listMembershipsByOrg(organizationId: string): Promise<Membership[]> {
   return db
     .select()

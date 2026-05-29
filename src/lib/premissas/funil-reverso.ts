@@ -165,8 +165,11 @@ function convOutbound(c: ConversaoOutbound | undefined): number {
  * horizonteAtual da unidade. Mesma lógica para meses fechados e futuros — o que
  * muda é a origem do target (realizado vs. projeção), via `calcularCurvaTarget`.
  *
- * Como o horizonte é fixo no ano, P6 (pctProducao/splitLb/splitBb/bbPiso), P4
- * (distSplit) e P16 (mix outbound) são calculados uma única vez.
+ * Como o horizonte é fixo no ano, P4 (distSplit), P16 (mix outbound) e os
+ * splits de P6 (splitLb/splitBb/bbPiso) são calculados uma única vez. O
+ * investimento total mensal vem do override em `investimentoMensal` (R$
+ * absoluto digitado pelo usuário); quando o mês não tem override, cai em
+ * `target × pctProducao do horizonte` como fallback.
  */
 export function calcularCanalTier(
   blocks: PremissasBlocks,
@@ -191,7 +194,12 @@ export function calcularCanalTier(
   const bbOn = splitBb > 0 && (p6?.bbPiso ?? 0) > 0;
   const somaSplit = bbOn ? splitLb + splitBb : splitLb || 1;
   const enterpriseAtivo = (pcts.Enterprise ?? 0) > 0;
-  const pctProducao = (p6?.pctProducao ?? 0) / 100;
+  // Fallback do horizonte; cada mês pode sobrescrever via investimentoMensal
+  // (valor absoluto em R$). Quando o mês não tem override, usa target × pct.
+  const pctProducaoFallback = (p6?.pctProducao ?? 0) / 100;
+  const investByMes = new Map<string, number>(
+    blocks.investimentoMensal.map((p) => [p.mes, p.investimento] as const),
+  );
 
   const convOutPonderada = (tier: Tier): number => {
     if (!mix) return 0;
@@ -207,7 +215,8 @@ export function calcularCanalTier(
   const linhas: LinhaCanalTier[] = [];
 
   for (const { mes, target } of curva) {
-    const investTotal = target * pctProducao;
+    const override = investByMes.get(mes);
+    const investTotal = override ?? target * pctProducaoFallback;
     const mbBudgetMes = enterpriseAtivo ? investTotal * (MB_BUDGET_PCT / 100) : 0;
     const mediaBudget = investTotal - mbBudgetMes;
     const lbBudgetMes = bbOn ? mediaBudget * (splitLb / somaSplit) : mediaBudget;
@@ -490,18 +499,36 @@ export const SUB_CANAIS: ReadonlyArray<{
   { key: "out_prospeccao", canal: "outbound", label: "Prospecção", leadLabel: "Leads" },
 ];
 
+/**
+ * Funil completo por sub-canal — mesma estrutura usada na visão por tier
+ * (`LinhaTier`), mas agregando todos os tiers de um sub-canal.
+ *
+ * Etapas do funil variam por canal:
+ * - LB/BB (inbound longo): Invest → Leads → MQL → SQL → SAL → Won
+ * - MB (inbound curto): Invest → SQL (entrada direta) → SAL → Won
+ * - Outbound: Leads → SQL → SAL → Won (sem invest, sem MQL)
+ *
+ * Etapas inaplicáveis ficam zeradas e a UI as oculta para o sub-canal.
+ */
 export type LinhaSubCanal = {
   mes: string;
   subcanal: SubCanalKey;
-  won: number;
+  invest: number;
   /** Leads (LB/BB/Outbound) ou SQLs (MB). */
   leads: number;
-  invest: number;
+  mql: number;
+  sql: number;
+  sal: number;
+  won: number;
+  /** Decomposição do Won por produto (P3). */
+  wonSaber: number;
+  wonTer: number;
+  wonExecutar: number;
   receita: number;
-  /** Decomposição da receita por categoria de produto (P3). */
-  saber: number;
-  ter: number;
-  executar: number;
+  /** Decomposição da receita por produto (P3). */
+  receitaSaber: number;
+  receitaTer: number;
+  receitaExecutar: number;
 };
 
 function addCanal(a: CanalValores, b: CanalValores): void {
@@ -520,16 +547,24 @@ function addCanal(a: CanalValores, b: CanalValores): void {
  * fatia os leads e as conversões fatiam o won proporcionalmente).
  */
 type SubAcc = {
-  won: number;
-  leads: number;
   invest: number;
+  leads: number;
+  mql: number;
+  sql: number;
+  sal: number;
+  won: number;
+  wonSaber: number;
+  wonTer: number;
+  wonExecutar: number;
   receita: number;
-  saber: number;
-  ter: number;
-  executar: number;
+  receitaSaber: number;
+  receitaTer: number;
+  receitaExecutar: number;
 };
 const zeroSub = (): SubAcc => ({
-  won: 0, leads: 0, invest: 0, receita: 0, saber: 0, ter: 0, executar: 0,
+  invest: 0, leads: 0, mql: 0, sql: 0, sal: 0, won: 0,
+  wonSaber: 0, wonTer: 0, wonExecutar: 0,
+  receita: 0, receitaSaber: 0, receitaTer: 0, receitaExecutar: 0,
 });
 
 export function calcularPorSubCanal(
@@ -540,6 +575,9 @@ export function calcularPorSubCanal(
   const detalhe = calcularCanalTier(blocks, horizonteAtual, opts);
   const tierInfo = byTier(blocks.tiersCliente);
   const receitaByTier = byTier(blocks.receitaProduto);
+  const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
+  const bbByTier = byTier(blocks.conversoesInbound.blackBox);
+  const mb = blocks.conversoesInbound.meetingBroker;
   const mix = blocks.mixSubcanais.find((m) => m.h === horizonteAtual);
   const outByTierBySub = new Map(
     SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
@@ -574,38 +612,78 @@ export function calcularPorSubCanal(
       const terP = (rp?.terPct ?? 0) / 100;
       const execP = (rp?.execPct ?? 0) / 100;
 
-      // Inbound: soma os tiers em cada canal e decompõe a receita por produto.
-      const addInbound = (c: CanalValores, key: SubCanalKey) => {
+      // Inbound LB/BB: funil longo (Leads → MQL → SQL → SAL → Won).
+      const addInbLongo = (
+        c: CanalValores,
+        key: SubCanalKey,
+        conv: { cr1: number; cr2: number; cr3: number } | undefined,
+      ) => {
         const a = acc[key];
-        a.won += c.won;
-        a.leads += c.leads;
         a.invest += c.invest;
+        a.leads += c.leads;
+        a.won += c.won;
         a.receita += c.receita;
-        a.saber += c.receita * saberP;
-        a.ter += c.receita * terP;
-        a.executar += c.receita * execP;
+        a.wonSaber += c.won * saberP;
+        a.wonTer += c.won * terP;
+        a.wonExecutar += c.won * execP;
+        a.receitaSaber += c.receita * saberP;
+        a.receitaTer += c.receita * terP;
+        a.receitaExecutar += c.receita * execP;
+        if (conv && c.leads > 0) {
+          const cr1 = conv.cr1 / 100, cr2 = conv.cr2 / 100, cr3 = conv.cr3 / 100;
+          a.mql += c.leads * cr1;
+          a.sql += c.leads * cr1 * cr2;
+          a.sal += c.leads * cr1 * cr2 * cr3;
+        }
       };
-      addInbound(t.lb, "lead_broker");
-      addInbound(t.bb, "black_box");
-      addInbound(t.mb, "meeting_broker");
+      addInbLongo(t.lb, "lead_broker", lbByTier.get(t.tier));
+      addInbLongo(t.bb, "black_box", bbByTier.get(t.tier));
+
+      // Inbound MB: funil curto. `leads` aqui já é a contagem de SQLs.
+      {
+        const c = t.mb;
+        const a = acc["meeting_broker"];
+        a.invest += c.invest;
+        a.leads += c.leads; // mantido por consistência; UI usa `sql`.
+        a.sql += c.leads;
+        a.sal += c.leads * (mb.cr3 / 100);
+        a.won += c.won;
+        a.receita += c.receita;
+        a.wonSaber += c.won * saberP;
+        a.wonTer += c.won * terP;
+        a.wonExecutar += c.won * execP;
+        a.receitaSaber += c.receita * saberP;
+        a.receitaTer += c.receita * terP;
+        a.receitaExecutar += c.receita * execP;
+      }
 
       // Outbound: re-splitta por subcanal usando o mix do horizonte.
+      // Funil curto (Leads → SQL → SAL → Won) e sem invest.
       const tcv = tierInfo.get(t.tier)?.tcvProdCom ?? 0;
       for (const sub of SUBCANAIS_OUTBOUND) {
         const peso = (mix?.[sub] ?? 0) / 100;
         const leadsTierSub = t.out.leads * peso;
-        const conv = convOutbound(outByTierBySub.get(sub)!.get(t.tier));
-        const wonTierSub = leadsTierSub * conv;
+        const conv = outByTierBySub.get(sub)!.get(t.tier);
+        const cr1 = conv ? conv.cr1 / 100 : 0;
+        const cr3 = conv ? conv.cr3 / 100 : 0;
+        const cr4 = conv ? conv.cr4 / 100 : 0;
+        const sqlTierSub = leadsTierSub * cr1;
+        const salTierSub = sqlTierSub * cr3;
+        const wonTierSub = salTierSub * cr4;
         const receitaTierSub = wonTierSub * tcv;
         const key = `out_${sub}` as SubCanalKey;
         const a = acc[key];
         a.leads += leadsTierSub;
+        a.sql += sqlTierSub;
+        a.sal += salTierSub;
         a.won += wonTierSub;
         a.receita += receitaTierSub;
-        a.saber += receitaTierSub * saberP;
-        a.ter += receitaTierSub * terP;
-        a.executar += receitaTierSub * execP;
-        // invest fica em 0 — outbound não consome mídia.
+        a.wonSaber += wonTierSub * saberP;
+        a.wonTer += wonTierSub * terP;
+        a.wonExecutar += wonTierSub * execP;
+        a.receitaSaber += receitaTierSub * saberP;
+        a.receitaTer += receitaTierSub * terP;
+        a.receitaExecutar += receitaTierSub * execP;
       }
     }
 
@@ -613,6 +691,116 @@ export function calcularPorSubCanal(
       resultado.push({ mes, subcanal: sub.key, ...acc[sub.key] });
     }
   }
+  return resultado;
+}
+
+// ============================================================
+// 8. Por tier de cliente — agregado por mês × tier
+//
+// Mantém o tier como granularidade e soma os 4 canais (LB/BB/MB/Outbound).
+// Recalcula MQL/SQL/SAL a partir das conversões — info que `LinhaCanalTier`
+// não carrega (lá só sobrevive won/leads/invest/receita). Receita e Won por
+// categoria de produto seguem o mesmo split P3 já usado em outras tabelas.
+// ============================================================
+
+export type LinhaTier = {
+  mes: string;
+  tier: Tier;
+  invest: number;
+  /** MQL só existe em LB/BB (inbound longo). MB entra já como SQL; outbound pula MQL. */
+  mql: number;
+  sql: number;
+  sal: number;
+  won: number;
+  wonSaber: number;
+  wonTer: number;
+  wonExecutar: number;
+  receita: number;
+  receitaSaber: number;
+  receitaTer: number;
+  receitaExecutar: number;
+};
+
+export function calcularPorTier(
+  blocks: PremissasBlocks,
+  horizonteAtual: Horizonte,
+  opts: CurvaOpts = {},
+): LinhaTier[] {
+  const detalhe = calcularCanalTier(blocks, horizonteAtual, opts);
+  const receitaByTier = byTier(blocks.receitaProduto);
+  const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
+  const bbByTier = byTier(blocks.conversoesInbound.blackBox);
+  const outByTierBySub = new Map(
+    SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
+  );
+  const mix = blocks.mixSubcanais.find((m) => m.h === horizonteAtual);
+  const mb = blocks.conversoesInbound.meetingBroker;
+
+  const resultado: LinhaTier[] = [];
+
+  for (const d of detalhe) {
+    let mql = 0, sql = 0, sal = 0;
+
+    const lbConv = lbByTier.get(d.tier);
+    if (lbConv && d.lb.leads > 0) {
+      const cr1 = lbConv.cr1 / 100, cr2 = lbConv.cr2 / 100, cr3 = lbConv.cr3 / 100;
+      mql += d.lb.leads * cr1;
+      sql += d.lb.leads * cr1 * cr2;
+      sal += d.lb.leads * cr1 * cr2 * cr3;
+    }
+    const bbConv = bbByTier.get(d.tier);
+    if (bbConv && d.bb.leads > 0) {
+      const cr1 = bbConv.cr1 / 100, cr2 = bbConv.cr2 / 100, cr3 = bbConv.cr3 / 100;
+      mql += d.bb.leads * cr1;
+      sql += d.bb.leads * cr1 * cr2;
+      sal += d.bb.leads * cr1 * cr2 * cr3;
+    }
+    // MB entra direto como SQL (d.mb.leads é a contagem de SQLs).
+    if (d.mb.leads > 0) {
+      sql += d.mb.leads;
+      sal += d.mb.leads * (mb.cr3 / 100);
+    }
+    // Outbound: re-splitta pelo mix P16 e usa cr1/cr3 do subcanal × tier.
+    if (mix && d.out.leads > 0) {
+      for (const s of SUBCANAIS_OUTBOUND) {
+        const peso = (mix[s] ?? 0) / 100;
+        if (peso <= 0) continue;
+        const conv = outByTierBySub.get(s)?.get(d.tier);
+        if (!conv) continue;
+        const leadsSub = d.out.leads * peso;
+        const cr1 = conv.cr1 / 100, cr3 = conv.cr3 / 100;
+        sql += leadsSub * cr1;
+        sal += leadsSub * cr1 * cr3;
+      }
+    }
+
+    const invest = d.lb.invest + d.bb.invest + d.mb.invest;
+    const won = d.totalWon;
+    const receita = d.totalReceita;
+
+    const rp = receitaByTier.get(d.tier);
+    const saberP = (rp?.saberPct ?? 0) / 100;
+    const terP = (rp?.terPct ?? 0) / 100;
+    const execP = (rp?.execPct ?? 0) / 100;
+
+    resultado.push({
+      mes: d.mes,
+      tier: d.tier,
+      invest,
+      mql,
+      sql,
+      sal,
+      won,
+      wonSaber: won * saberP,
+      wonTer: won * terP,
+      wonExecutar: won * execP,
+      receita,
+      receitaSaber: receita * saberP,
+      receitaTer: receita * terP,
+      receitaExecutar: receita * execP,
+    });
+  }
+
   return resultado;
 }
 
@@ -665,6 +853,183 @@ export function agregarRampUpMatriz(conjuntos: LinhaRampUp[][]): LinhaRampUp[] {
   return linhas;
 }
 
+// ============================================================
+// 7b. Por sub-canal × tier — mesma decomposição da seção 7, sem somar tiers.
+// Alimenta o sub-bloco "Por tier" dentro de cada sub-canal na tela /realizado.
+// ============================================================
+
+/** Mesma estrutura de `LinhaSubCanal`, mas mantendo o tier como granularidade. */
+export type LinhaSubCanalTier = {
+  mes: string;
+  subcanal: SubCanalKey;
+  tier: Tier;
+  invest: number;
+  /** Leads (LB/BB/Outbound) ou SQLs (MB). */
+  leads: number;
+  mql: number;
+  sql: number;
+  sal: number;
+  won: number;
+  wonSaber: number;
+  wonTer: number;
+  wonExecutar: number;
+  receita: number;
+  receitaSaber: number;
+  receitaTer: number;
+  receitaExecutar: number;
+};
+
+export function calcularPorSubCanalPorTier(
+  blocks: PremissasBlocks,
+  horizonteAtual: Horizonte,
+  opts: CurvaOpts = {},
+): LinhaSubCanalTier[] {
+  const detalhe = calcularCanalTier(blocks, horizonteAtual, opts);
+  const tierInfo = byTier(blocks.tiersCliente);
+  const receitaByTier = byTier(blocks.receitaProduto);
+  const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
+  const bbByTier = byTier(blocks.conversoesInbound.blackBox);
+  const mb = blocks.conversoesInbound.meetingBroker;
+  const mix = blocks.mixSubcanais.find((m) => m.h === horizonteAtual);
+  const outByTierBySub = new Map(
+    SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
+  );
+
+  const out: LinhaSubCanalTier[] = [];
+  for (const d of detalhe) {
+    const rp = receitaByTier.get(d.tier);
+    const saberP = (rp?.saberPct ?? 0) / 100;
+    const terP = (rp?.terPct ?? 0) / 100;
+    const execP = (rp?.execPct ?? 0) / 100;
+    const decomp = (won: number, receita: number) => ({
+      wonSaber: won * saberP,
+      wonTer: won * terP,
+      wonExecutar: won * execP,
+      receitaSaber: receita * saberP,
+      receitaTer: receita * terP,
+      receitaExecutar: receita * execP,
+    });
+
+    // LB — funil longo: Leads → MQL → SQL → SAL → Won
+    {
+      const conv = lbByTier.get(d.tier);
+      const cr1 = (conv?.cr1 ?? 0) / 100;
+      const cr2 = (conv?.cr2 ?? 0) / 100;
+      const cr3 = (conv?.cr3 ?? 0) / 100;
+      out.push({
+        mes: d.mes,
+        subcanal: "lead_broker",
+        tier: d.tier,
+        invest: d.lb.invest,
+        leads: d.lb.leads,
+        mql: d.lb.leads * cr1,
+        sql: d.lb.leads * cr1 * cr2,
+        sal: d.lb.leads * cr1 * cr2 * cr3,
+        won: d.lb.won,
+        receita: d.lb.receita,
+        ...decomp(d.lb.won, d.lb.receita),
+      });
+    }
+    // BB — funil longo
+    {
+      const conv = bbByTier.get(d.tier);
+      const cr1 = (conv?.cr1 ?? 0) / 100;
+      const cr2 = (conv?.cr2 ?? 0) / 100;
+      const cr3 = (conv?.cr3 ?? 0) / 100;
+      out.push({
+        mes: d.mes,
+        subcanal: "black_box",
+        tier: d.tier,
+        invest: d.bb.invest,
+        leads: d.bb.leads,
+        mql: d.bb.leads * cr1,
+        sql: d.bb.leads * cr1 * cr2,
+        sal: d.bb.leads * cr1 * cr2 * cr3,
+        won: d.bb.won,
+        receita: d.bb.receita,
+        ...decomp(d.bb.won, d.bb.receita),
+      });
+    }
+    // MB — funil curto: SQL (= leads) → SAL → Won
+    {
+      const sqls = d.mb.leads; // já é SQL
+      out.push({
+        mes: d.mes,
+        subcanal: "meeting_broker",
+        tier: d.tier,
+        invest: d.mb.invest,
+        leads: sqls,
+        mql: 0,
+        sql: sqls,
+        sal: sqls * (mb.cr3 / 100),
+        won: d.mb.won,
+        receita: d.mb.receita,
+        ...decomp(d.mb.won, d.mb.receita),
+      });
+    }
+
+    // Outbound (5 subcanais) — funil curto sem invest.
+    const tcv = tierInfo.get(d.tier)?.tcvProdCom ?? 0;
+    for (const s of SUBCANAIS_OUTBOUND) {
+      const peso = (mix?.[s] ?? 0) / 100;
+      const leadsTierSub = d.out.leads * peso;
+      const conv = outByTierBySub.get(s)!.get(d.tier);
+      const cr1 = conv ? conv.cr1 / 100 : 0;
+      const cr3 = conv ? conv.cr3 / 100 : 0;
+      const cr4 = conv ? conv.cr4 / 100 : 0;
+      const sqlTierSub = leadsTierSub * cr1;
+      const salTierSub = sqlTierSub * cr3;
+      const wonTierSub = salTierSub * cr4;
+      const receitaTierSub = wonTierSub * tcv;
+      out.push({
+        mes: d.mes,
+        subcanal: `out_${s}` as SubCanalKey,
+        tier: d.tier,
+        invest: 0,
+        leads: leadsTierSub,
+        mql: 0,
+        sql: sqlTierSub,
+        sal: salTierSub,
+        won: wonTierSub,
+        receita: receitaTierSub,
+        ...decomp(wonTierSub, receitaTierSub),
+      });
+    }
+  }
+  return out;
+}
+
+/** Soma `LinhaSubCanalTier` de várias unidades por (mes, subcanal, tier). */
+export function agregarPorSubCanalPorTierMatriz(
+  conjuntos: LinhaSubCanalTier[][],
+): LinhaSubCanalTier[] {
+  const acc = new Map<string, LinhaSubCanalTier>();
+  for (const linhas of conjuntos) {
+    for (const l of linhas) {
+      const k = `${l.mes}|${l.subcanal}|${l.tier}`;
+      const cur = acc.get(k);
+      if (!cur) {
+        acc.set(k, { ...l });
+        continue;
+      }
+      cur.invest += l.invest;
+      cur.leads += l.leads;
+      cur.mql += l.mql;
+      cur.sql += l.sql;
+      cur.sal += l.sal;
+      cur.won += l.won;
+      cur.wonSaber += l.wonSaber;
+      cur.wonTer += l.wonTer;
+      cur.wonExecutar += l.wonExecutar;
+      cur.receita += l.receita;
+      cur.receitaSaber += l.receitaSaber;
+      cur.receitaTer += l.receitaTer;
+      cur.receitaExecutar += l.receitaExecutar;
+    }
+  }
+  return [...acc.values()];
+}
+
 /** Soma `LinhaSubCanal` de várias unidades por (mes, subcanal). */
 export function agregarPorSubCanalMatriz(conjuntos: LinhaSubCanal[][]): LinhaSubCanal[] {
   const acc = new Map<string, LinhaSubCanal>();
@@ -677,19 +1042,55 @@ export function agregarPorSubCanalMatriz(conjuntos: LinhaSubCanal[][]): LinhaSub
         acc.set(k, { ...l });
         continue;
       }
-      cur.won += l.won;
-      cur.leads += l.leads;
       cur.invest += l.invest;
+      cur.leads += l.leads;
+      cur.mql += l.mql;
+      cur.sql += l.sql;
+      cur.sal += l.sal;
+      cur.won += l.won;
+      cur.wonSaber += l.wonSaber;
+      cur.wonTer += l.wonTer;
+      cur.wonExecutar += l.wonExecutar;
       cur.receita += l.receita;
-      cur.saber += l.saber;
-      cur.ter += l.ter;
-      cur.executar += l.executar;
+      cur.receitaSaber += l.receitaSaber;
+      cur.receitaTer += l.receitaTer;
+      cur.receitaExecutar += l.receitaExecutar;
     }
   }
   return [...acc.values()].sort((a, b) => {
     const cmp = a.mes.localeCompare(b.mes);
     return cmp !== 0 ? cmp : ord.indexOf(a.subcanal) - ord.indexOf(b.subcanal);
   });
+}
+
+/** Soma `LinhaTier` de várias unidades por (mes, tier). */
+export function agregarPorTierMatriz(conjuntos: LinhaTier[][]): LinhaTier[] {
+  const acc = new Map<string, LinhaTier>();
+  for (const linhas of conjuntos) {
+    for (const l of linhas) {
+      const k = `${l.mes}|${l.tier}`;
+      const cur = acc.get(k);
+      if (!cur) {
+        acc.set(k, { ...l });
+        continue;
+      }
+      cur.invest += l.invest;
+      cur.mql += l.mql;
+      cur.sql += l.sql;
+      cur.sal += l.sal;
+      cur.won += l.won;
+      cur.wonSaber += l.wonSaber;
+      cur.wonTer += l.wonTer;
+      cur.wonExecutar += l.wonExecutar;
+      cur.receita += l.receita;
+      cur.receitaSaber += l.receitaSaber;
+      cur.receitaTer += l.receitaTer;
+      cur.receitaExecutar += l.receitaExecutar;
+    }
+  }
+  return [...acc.values()].sort((a, b) =>
+    a.mes.localeCompare(b.mes) || TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier),
+  );
 }
 
 export function agregarCanalTierMatriz(conjuntos: LinhaCanalTier[][]): LinhaCanalTier[] {
@@ -726,4 +1127,170 @@ export function agregarCanalTierMatriz(conjuntos: LinhaCanalTier[][]): LinhaCana
   return [...acc.values()].sort((a, b) =>
     a.mes.localeCompare(b.mes) || TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier),
   );
+}
+
+// ============================================================
+// Resumo do funil 2026 — usado no /iniciar/resumo
+//
+// `calcularResumo` devolve a evolução mês a mês (12 linhas Jan→Dez) + total
+// anual. CPL é base inbound (LB+BB); taxas e ROAS no total são calculados a
+// partir das somas (não médias mensais — média de razão ≠ razão da média).
+// ============================================================
+
+export type ResumoMetricas = {
+  investimentoTotal: number;
+  mql: number;
+  sql: number;
+  sal: number;
+  won: number;
+  wonSaber: number;
+  wonTer: number;
+  wonExecutar: number;
+  receitaTotal: number;
+  receitaSaber: number;
+  receitaTer: number;
+  receitaExecutar: number;
+  /** Ticket médio (Receita ÷ Won) por categoria de produto. 0 se won=0. */
+  tmSaber: number;
+  tmTer: number;
+  tmExecutar: number;
+  /** Conversões acumuladas do funil (proporção, 0..1). 0 se etapa anterior=0. */
+  taxaMqlSql: number;
+  taxaSqlSal: number;
+  taxaSalWon: number;
+  /** Receita ÷ Investimento total. 0 se invest=0. */
+  roas: number;
+  /** Investimento inbound (LB+BB) ÷ leads inbound. 0 se leads=0. */
+  cpl: number;
+  /** Investimento inbound (LB+BB) total. Exposto pra permitir consolidação. */
+  investInbound: number;
+  /** Leads inbound (LB+BB). Exposto pra permitir consolidação do CPL. */
+  leadsInbound: number;
+};
+
+export type ResumoMensalLinha = ResumoMetricas & {
+  mes: string;
+  /** True se o mês veio do realizado (não da projeção). */
+  isFechado: boolean;
+};
+
+export type ResumoCompleto = {
+  meses: ResumoMensalLinha[];
+  total: ResumoMetricas;
+};
+
+const safeDiv = (n: number, d: number) => (d > 0 ? n / d : 0);
+
+export function calcularResumo(
+  blocks: PremissasBlocks,
+  horizonteAtual: Horizonte,
+  opts: CurvaOpts = {},
+): ResumoCompleto {
+  const rampUp = calcularRampUp(blocks, horizonteAtual, opts);
+  const porTier = calcularPorTier(blocks, horizonteAtual, opts);
+
+  // Agrega porTier por mês (soma os tiers).
+  type Agg = {
+    mql: number; sql: number; sal: number; won: number;
+    wonSaber: number; wonTer: number; wonExecutar: number;
+    receitaTotal: number; receitaSaber: number; receitaTer: number; receitaExecutar: number;
+  };
+  const aggByMes = new Map<string, Agg>();
+  for (const t of porTier) {
+    const cur = aggByMes.get(t.mes) ?? {
+      mql: 0, sql: 0, sal: 0, won: 0,
+      wonSaber: 0, wonTer: 0, wonExecutar: 0,
+      receitaTotal: 0, receitaSaber: 0, receitaTer: 0, receitaExecutar: 0,
+    };
+    cur.mql += t.mql;
+    cur.sql += t.sql;
+    cur.sal += t.sal;
+    cur.won += t.won;
+    cur.wonSaber += t.wonSaber;
+    cur.wonTer += t.wonTer;
+    cur.wonExecutar += t.wonExecutar;
+    cur.receitaTotal += t.receita;
+    cur.receitaSaber += t.receitaSaber;
+    cur.receitaTer += t.receitaTer;
+    cur.receitaExecutar += t.receitaExecutar;
+    aggByMes.set(t.mes, cur);
+  }
+
+  const meses: ResumoMensalLinha[] = rampUp.map((r) => {
+    const a = aggByMes.get(r.mes) ?? {
+      mql: 0, sql: 0, sal: 0, won: 0,
+      wonSaber: 0, wonTer: 0, wonExecutar: 0,
+      receitaTotal: 0, receitaSaber: 0, receitaTer: 0, receitaExecutar: 0,
+    };
+    const investInboundMes = r.investLb + r.investBb;
+    return {
+      mes: r.mes,
+      isFechado: r.isFechado,
+      investimentoTotal: r.investTotal,
+      mql: a.mql,
+      sql: a.sql,
+      sal: a.sal,
+      won: a.won,
+      wonSaber: a.wonSaber,
+      wonTer: a.wonTer,
+      wonExecutar: a.wonExecutar,
+      receitaTotal: a.receitaTotal,
+      receitaSaber: a.receitaSaber,
+      receitaTer: a.receitaTer,
+      receitaExecutar: a.receitaExecutar,
+      tmSaber: safeDiv(a.receitaSaber, a.wonSaber),
+      tmTer: safeDiv(a.receitaTer, a.wonTer),
+      tmExecutar: safeDiv(a.receitaExecutar, a.wonExecutar),
+      taxaMqlSql: safeDiv(a.sql, a.mql),
+      taxaSqlSal: safeDiv(a.sal, a.sql),
+      taxaSalWon: safeDiv(a.won, a.sal),
+      roas: safeDiv(a.receitaTotal, r.investTotal),
+      cpl: safeDiv(investInboundMes, r.leadsIb),
+      investInbound: investInboundMes,
+      leadsInbound: r.leadsIb,
+    };
+  });
+
+  // Total anual — soma das absolutas, razões calculadas dos totais.
+  let investimentoTotal = 0, investInbound = 0, leadsInbound = 0;
+  let mql = 0, sql = 0, sal = 0, won = 0;
+  let wonSaber = 0, wonTer = 0, wonExecutar = 0;
+  let receitaTotal = 0, receitaSaber = 0, receitaTer = 0, receitaExecutar = 0;
+  for (const r of rampUp) {
+    investimentoTotal += r.investTotal;
+    investInbound += r.investLb + r.investBb;
+    leadsInbound += r.leadsIb;
+  }
+  for (const t of porTier) {
+    mql += t.mql;
+    sql += t.sql;
+    sal += t.sal;
+    won += t.won;
+    wonSaber += t.wonSaber;
+    wonTer += t.wonTer;
+    wonExecutar += t.wonExecutar;
+    receitaTotal += t.receita;
+    receitaSaber += t.receitaSaber;
+    receitaTer += t.receitaTer;
+    receitaExecutar += t.receitaExecutar;
+  }
+
+  const total: ResumoMetricas = {
+    investimentoTotal,
+    mql, sql, sal, won,
+    wonSaber, wonTer, wonExecutar,
+    receitaTotal, receitaSaber, receitaTer, receitaExecutar,
+    tmSaber: safeDiv(receitaSaber, wonSaber),
+    tmTer: safeDiv(receitaTer, wonTer),
+    tmExecutar: safeDiv(receitaExecutar, wonExecutar),
+    taxaMqlSql: safeDiv(sql, mql),
+    taxaSqlSal: safeDiv(sal, sql),
+    taxaSalWon: safeDiv(won, sal),
+    roas: safeDiv(receitaTotal, investimentoTotal),
+    cpl: safeDiv(investInbound, leadsInbound),
+    investInbound,
+    leadsInbound,
+  };
+
+  return { meses, total };
 }

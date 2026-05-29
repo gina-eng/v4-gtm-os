@@ -8,8 +8,10 @@ import { getUnitSetup, getUnitSetupsByOrgIds } from "@/db/repositories/unit-setu
 import { REALIZADO_HISTORICO_DEFAULT } from "@/lib/premissas/matriz-defaults";
 import {
   agregarPorSubCanalMatriz,
+  agregarPorSubCanalPorTierMatriz,
   agregarRampUpMatriz,
   calcularPorSubCanal,
+  calcularPorSubCanalPorTier,
   calcularRampUp,
 } from "@/lib/premissas/funil-reverso";
 import { ForecastClient } from "@/components/realizado/realizado-client";
@@ -51,6 +53,11 @@ export default async function RealizadoPage() {
       const realizado = setupByOrgId.get(u.id)?.realizadoHistorico ?? REALIZADO_HISTORICO_DEFAULT;
       return calcularPorSubCanal(blocks, u.horizonteAtual, { realizadoHistorico: realizado, dataInicio: u.dataInicio });
     });
+    const subCanalTierUnidades = unidades.map((u) => {
+      const blocks = blocksById.get(u.id) ?? matrizBlocks;
+      const realizado = setupByOrgId.get(u.id)?.realizadoHistorico ?? REALIZADO_HISTORICO_DEFAULT;
+      return calcularPorSubCanalPorTier(blocks, u.horizonteAtual, { realizadoHistorico: realizado, dataInicio: u.dataInicio });
+    });
     return (
       <ForecastClient
         mode="matriz"
@@ -58,6 +65,7 @@ export default async function RealizadoPage() {
         unitCount={unidades.length}
         linhasRampUp={agregarRampUpMatriz(rampUpUnidades)}
         linhasSubCanal={agregarPorSubCanalMatriz(subCanalUnidades)}
+        linhasSubCanalTier={agregarPorSubCanalPorTierMatriz(subCanalTierUnidades)}
         cargos={matrizBlocks.metricasOperacionais.map((m) => m.cargo)}
       />
     );
@@ -84,7 +92,11 @@ export default async function RealizadoPage() {
       horizonteAtual={unitOrg.horizonteAtual}
       linhasRampUp={calcularRampUp(blocks, unitOrg.horizonteAtual, curvaOpts)}
       linhasSubCanal={calcularPorSubCanal(blocks, unitOrg.horizonteAtual, curvaOpts)}
+      linhasSubCanalTier={calcularPorSubCanalPorTier(blocks, unitOrg.horizonteAtual, curvaOpts)}
       cargos={blocks.metricasOperacionais.map((m) => m.cargo)}
+      investimentoMidia={blocks.investimentoMidia}
+      investimentoMensal={blocks.investimentoMensal}
+      matrizInvestimentoMidia={matrizBlocks.investimentoMidia}
     />
   );
 }

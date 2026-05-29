@@ -1,8 +1,97 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Lock, Unlock, X } from "lucide-react";
-import { formatBRL, formatInt, formatPercent } from "./format";
+import { formatBRL, formatInt, formatPercent, parseBR } from "./format";
+
+/**
+ * Input numérico com máscara — base dos wrappers Currency/Percent/Integer.
+ *
+ * - `format(n)` define a apresentação ("R$ 1.234", "12,5%", "1.234").
+ * - `parse(s)` extrai o número do texto digitado (default: parser PT-BR).
+ * - `realtime`: quando true, reformata a cada keystroke ("12300" → "R$ 12.300").
+ *   Quando false, mantém o texto cru enquanto o usuário digita e só formata
+ *   ao perder foco — ideal para campos com decimais (ex.: 12,5 %).
+ *
+ * O estado interno `text` segue o que o usuário vê no input. Sincroniza com
+ * `value` (prop) apenas quando o input não está focado — assim mudanças
+ * externas (router.refresh, reset) refletem sem atrapalhar a digitação.
+ */
+function MaskedNumberInput({
+  value,
+  onChange,
+  format,
+  parse,
+  step,
+  min,
+  max,
+  realtime,
+  inputMode,
+  align,
+  inputClassName,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  format: (n: number) => string;
+  parse: (s: string) => number;
+  step?: number;
+  min?: number;
+  max?: number;
+  realtime: boolean;
+  inputMode: "numeric" | "decimal";
+  align: "left" | "center" | "right";
+  inputClassName: string;
+}) {
+  const [text, setText] = useState(() => format(value));
+  const focusedRef = useRef(false);
+
+  // Mudanças externas (router.refresh, reset de form) só refletem quando o
+  // usuário não está digitando — evita pular o cursor no meio da edição.
+  useEffect(() => {
+    if (!focusedRef.current) setText(format(value));
+  }, [value, format]);
+
+  function clamp(n: number): number {
+    let v = Number.isFinite(n) ? n : 0;
+    if (typeof min === "number" && v < min) v = min;
+    if (typeof max === "number" && v > max) v = max;
+    return v;
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value;
+    const parsed = clamp(parse(raw));
+    onChange(parsed);
+    if (realtime && raw.trim().length > 0) {
+      setText(format(parsed));
+    } else {
+      setText(raw);
+    }
+  }
+
+  function handleFocus(e: React.FocusEvent<HTMLInputElement>) {
+    focusedRef.current = true;
+    e.currentTarget.select();
+  }
+
+  function handleBlur() {
+    focusedRef.current = false;
+    setText(format(value));
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode={inputMode}
+      value={text}
+      step={step}
+      onChange={handleChange}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      className={`bg-transparent text-xs tabular-nums focus:outline-none text-foreground ${inputClassName} ${cellAlignClass(align)}`}
+    />
+  );
+}
 
 /**
  * Célula que alterna entre exibição formatada (read-only) e input editável.
@@ -50,13 +139,17 @@ export function NumberCell({
   className = "",
   inputClassName = "w-12",
   format = formatInt,
+  parse = parseBR,
   step = 1,
   min,
   max,
   matrizValue,
   lockableZero = false,
+  realtime = true,
+  inputMode = "numeric",
 }: BaseProps & {
   format?: (n: number) => string;
+  parse?: (s: string) => number;
   step?: number;
   min?: number;
   max?: number;
@@ -69,6 +162,11 @@ export function NumberCell({
    *   matriz" — não há como digitar valor local.
    */
   lockableZero?: boolean;
+  /** Quando true, reformata o texto a cada keystroke (default). Para campos
+   *  decimais (%) prefira false — formata só ao perder o foco. */
+  realtime?: boolean;
+  /** Hint do teclado mobile: "numeric" sem decimal, "decimal" com vírgula. */
+  inputMode?: "numeric" | "decimal";
 }) {
   // Unidade: matriz não liberou esta linha → célula travada.
   const lockedByMatriz = lockableZero && matrizValue === 0;
@@ -177,17 +275,18 @@ export function NumberCell({
   ) : null;
   const inputSlot = (
     <span className={editingWrapperClass(align)}>
-      <input
-        type="number"
+      <MaskedNumberInput
         value={Number.isFinite(value) ? value : 0}
+        onChange={onChange}
+        format={format}
+        parse={parse}
         step={step}
         min={min}
         max={max}
-        onChange={(e) => {
-          const next = e.target.valueAsNumber;
-          onChange(Number.isFinite(next) ? next : 0);
-        }}
-        className={`bg-transparent text-xs tabular-nums focus:outline-none text-foreground ${inputClassName} ${cellAlignClass(align)}`}
+        realtime={realtime}
+        inputMode={inputMode}
+        align={align}
+        inputClassName={inputClassName}
       />
       {lockableZero && (
         <button
@@ -213,26 +312,52 @@ export function NumberCell({
   );
 }
 
+/** Moeda R$ — máscara em tempo real "R$1.234"; sem centavos. */
 export function CurrencyCell(props: BaseProps & { step?: number; lockableZero?: boolean }) {
-  return <NumberCell {...props} format={formatBRL} step={props.step ?? 100} />;
-}
-
-export function PercentCell(
-  props: BaseProps & { digits?: number; step?: number; lockableZero?: boolean },
-) {
   return (
     <NumberCell
       {...props}
-      format={(n) => formatPercent(n, props.digits ?? 1)}
-      step={props.step ?? 0.1}
+      format={formatBRL}
+      step={props.step ?? 100}
       min={0}
-      max={100}
+      realtime
+      inputMode="numeric"
     />
   );
 }
 
+/** Percentual — máscara "12,5%". Formata só ao perder o foco para não atrapalhar
+ *  a digitação de decimais com vírgula. */
+export function PercentCell(
+  props: BaseProps & { digits?: number; step?: number; lockableZero?: boolean },
+) {
+  const digits = props.digits ?? 1;
+  return (
+    <NumberCell
+      {...props}
+      format={(n) => formatPercent(n, digits)}
+      step={props.step ?? 0.1}
+      min={0}
+      max={100}
+      realtime={false}
+      inputMode="decimal"
+    />
+  );
+}
+
+/** Inteiro com separador de milhar "1.234". */
 export function IntegerCell(props: BaseProps & { lockableZero?: boolean }) {
-  return <NumberCell {...props} format={formatInt} step={1} min={0} inputClassName={props.inputClassName ?? "w-10"} />;
+  return (
+    <NumberCell
+      {...props}
+      format={formatInt}
+      step={1}
+      min={0}
+      inputClassName={props.inputClassName ?? "w-12"}
+      realtime
+      inputMode="numeric"
+    />
+  );
 }
 
 /**
@@ -279,18 +404,27 @@ export function NullableNumberCell({
   return (
     <span className={`inline-flex items-center gap-1.5 ${align === "left" ? "justify-start" : align === "center" ? "justify-center" : "justify-end"}`}>
       <span className={`inline-flex items-center px-1.5 py-0.5 border border-dashed rounded ${isOpen ? "border-border bg-muted/30 opacity-60" : "border-warning bg-warning/5"}`}>
-        <input
-          type="number"
-          value={isOpen ? "" : Number.isFinite(value) ? (value as number) : 0}
-          step={step}
-          min={0}
-          disabled={isOpen}
-          onChange={(e) => {
-            const next = e.target.valueAsNumber;
-            onChange(Number.isFinite(next) ? next : 0);
-          }}
-          className={`bg-transparent text-xs tabular-nums focus:outline-none text-foreground ${inputClassName} text-right disabled:cursor-not-allowed`}
-        />
+        {isOpen ? (
+          <input
+            type="text"
+            value=""
+            disabled
+            className={`bg-transparent text-xs tabular-nums focus:outline-none text-foreground ${inputClassName} text-right disabled:cursor-not-allowed`}
+          />
+        ) : (
+          <MaskedNumberInput
+            value={Number.isFinite(value) ? (value as number) : 0}
+            onChange={(v) => onChange(v)}
+            format={format}
+            parse={parseBR}
+            step={step}
+            min={0}
+            realtime
+            inputMode="numeric"
+            align="right"
+            inputClassName={inputClassName}
+          />
+        )}
       </span>
       <label className="inline-flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">
         <input

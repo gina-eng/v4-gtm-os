@@ -49,6 +49,7 @@ const blocks: PremissasBlocks = {
   distMercado: DIST_MERCADO_DEFAULT,
   distSplit: DIST_SPLIT_DEFAULT,
   investimentoMidia: INVESTIMENTO_MIDIA_DEFAULT,
+  investimentoMensal: [],
   conversoesInbound: {
     leadBroker: CONVERSAO_LEAD_BROKER_DEFAULT,
     blackBox: CONVERSAO_BLACK_BOX_DEFAULT,

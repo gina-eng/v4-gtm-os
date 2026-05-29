@@ -1,18 +1,25 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Network } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink, Network } from "lucide-react";
 import { formatBRL, formatBRLk, formatInt, formatPercent } from "@/components/premissas/format";
 import { FieldHelp } from "@/components/ui/field-help";
-import type { Horizonte } from "@/lib/premissas/matriz-defaults";
+import type {
+  Horizonte,
+  InvestimentoMes,
+  InvestimentoMidia,
+} from "@/lib/premissas/matriz-defaults";
 import type {
   LinhaRampUp,
   LinhaSubCanal,
+  LinhaSubCanalTier,
   SubCanalKey,
 } from "@/lib/premissas/funil-reverso";
 import { SUB_CANAIS } from "@/lib/premissas/funil-reverso";
+import type { Tier } from "@/lib/premissas/matriz-defaults";
 import { formatMesPt, MESES_ANO_2026 } from "@/lib/realizado/projecao";
+import { EditorInvestimentoMensal } from "./editor-investimento-mensal";
 
 type Props = {
   mode: "matriz" | "unidade";
@@ -24,9 +31,19 @@ type Props = {
   linhasRampUp: LinhaRampUp[];
   /** Detalhe por (sub-canal, mês) — usado na seção Canal × Sub-canal. */
   linhasSubCanal: LinhaSubCanal[];
+  /** Detalhe por (sub-canal, tier, mês) — sub-bloco "Por tier" dentro de cada sub-canal. */
+  linhasSubCanalTier: LinhaSubCanalTier[];
   /** Cargos (de P17) — colunas da tabela de Time. */
   cargos: string[];
+  /** P6 atual da unidade — alimenta o baseline do editor mensal de pace. */
+  investimentoMidia?: InvestimentoMidia[];
+  /** Override mensal atual do investimento em R$ (0–12 entradas). */
+  investimentoMensal?: InvestimentoMes[];
+  /** P6 da Matriz — pra mostrar delta vs baseline no editor inline. */
+  matrizInvestimentoMidia?: InvestimentoMidia[];
 };
+
+const TIER_ORDER: readonly Tier[] = ["Tiny", "Small", "Medium", "Large", "Enterprise"];
 
 const W_LABEL = 220;
 const W_MES = 116;
@@ -39,17 +56,22 @@ function mesCurto(mes: string): string {
 
 /**
  * Tela /realizado (Forecast 2026) — visão unificada do funil reverso.
- * 4 seções: Canal × Sub-canal · Investimento · Receita · Time necessário.
+ * 4 seções: Receita · Investimento total · Canal × Sub-canal · Time necessário.
  * Read-only; a edição do realizado mensal continua no passo do wizard.
  */
 export function ForecastClient({
   mode,
+  organizationId,
   organizationName,
   unitCount = 1,
   horizonteAtual,
   linhasRampUp,
   linhasSubCanal,
+  linhasSubCanalTier,
   cargos,
+  investimentoMidia,
+  investimentoMensal,
+  matrizInvestimentoMidia,
 }: Props) {
   const isMatriz = mode === "matriz";
   const eyebrow = isMatriz
@@ -65,6 +87,26 @@ export function ForecastClient({
   for (const l of linhasSubCanal) subCanalByKey.set(`${l.subcanal}|${l.mes}`, l);
   const rampUpByMes = new Map<string, LinhaRampUp>();
   for (const l of linhasRampUp) rampUpByMes.set(l.mes, l);
+  // Tiers por sub-canal: `${subcanal}|${tier}|${mes}` → linha. Alimenta o
+  // sub-bloco "Por tier" embutido dentro de cada sub-canal.
+  const subCanalTierByKey = new Map<string, LinhaSubCanalTier>();
+  for (const l of linhasSubCanalTier) {
+    subCanalTierByKey.set(`${l.subcanal}|${l.tier}|${l.mes}`, l);
+  }
+  // Set de (sub-canal, tier) com algum volume no ano — em horizontes baixos
+  // alguns sub-canais ficam restritos a poucos tiers.
+  const tiersAtivosPorSub = new Map<SubCanalKey, Tier[]>();
+  for (const sub of SUB_CANAIS) {
+    const ativos = TIER_ORDER.filter((t) =>
+      linhasSubCanalTier.some(
+        (l) =>
+          l.subcanal === sub.key &&
+          l.tier === t &&
+          (l.receita > 0 || l.invest > 0 || l.won > 0 || l.leads > 0),
+      ),
+    );
+    tiersAtivosPorSub.set(sub.key, ativos);
+  }
   // Highlight de meses fechados (vem do realizado) — alimenta a Canal × Sub-canal.
   const isFechadoByMes = new Map<string, boolean>();
   for (const l of linhasRampUp) isFechadoByMes.set(l.mes, l.isFechado);
@@ -128,8 +170,27 @@ export function ForecastClient({
         </div>
       </div>
 
-      <TabelaCanalSubCanal subCanalByKey={subCanalByKey} isFechadoByMes={isFechadoByMes} />
       <TabelaReceita rampUpByMes={rampUpByMes} />
+      {mode === "unidade" &&
+        organizationId &&
+        horizonteAtual &&
+        investimentoMidia &&
+        investimentoMensal !== undefined && (
+          <EditorInvestimentoMensal
+            organizationId={organizationId}
+            horizonteAtual={horizonteAtual}
+            investimentoMidia={investimentoMidia}
+            investimentoMensal={investimentoMensal}
+            rampUpByMes={rampUpByMes}
+          />
+        )}
+      <TabelaInvestimentoTotal rampUpByMes={rampUpByMes} />
+      <TabelaCanalSubCanal
+        subCanalByKey={subCanalByKey}
+        isFechadoByMes={isFechadoByMes}
+        subCanalTierByKey={subCanalTierByKey}
+        tiersAtivosPorSub={tiersAtivosPorSub}
+      />
       <TabelaTime rampUpByMes={rampUpByMes} cargos={cargos} />
     </>
   );
@@ -139,7 +200,25 @@ export function ForecastClient({
 // Seção 1 — Canal × Sub-canal
 // ============================================================
 
-type SubCanalNumericField = "won" | "leads" | "invest" | "receita" | "saber" | "ter" | "executar";
+/**
+ * Funil reverso completo — mesma estrutura no resumo do sub-canal e no
+ * detalhe por tier. Won e Receita são decompostos por produto P3.
+ * Etapas inaplicáveis por canal são omitidas em `metricasParaSub`.
+ */
+type SubCanalNumericField =
+  | "invest"
+  | "leads"
+  | "mql"
+  | "sql"
+  | "sal"
+  | "won"
+  | "wonSaber"
+  | "wonTer"
+  | "wonExecutar"
+  | "receita"
+  | "receitaSaber"
+  | "receitaTer"
+  | "receitaExecutar";
 type MetricaSub = {
   field: SubCanalNumericField;
   label: string;
@@ -148,66 +227,101 @@ type MetricaSub = {
   indent?: boolean;
 };
 
-/** Won, Leads, Invest, Receita (em destaque) + Saber/Ter/Exec indentados. */
-const METRICAS_SUBCANAL_INBOUND: readonly MetricaSub[] = [
-  { field: "won", label: "Won", fmt: "int" },
-  { field: "leads", label: "Leads", fmt: "int" },
-  { field: "invest", label: "Invest", fmt: "money" },
-  { field: "receita", label: "Receita", fmt: "money", emphasize: true },
-  { field: "saber", label: "Saber", fmt: "money", indent: true },
-  { field: "ter", label: "Ter", fmt: "money", indent: true },
-  { field: "executar", label: "Executar", fmt: "money", indent: true },
+const METRICA_INVEST: MetricaSub = { field: "invest", label: "Investimento", fmt: "money" };
+const METRICA_LEADS: MetricaSub = { field: "leads", label: "Leads", fmt: "int" };
+const METRICA_MQL: MetricaSub = { field: "mql", label: "MQL", fmt: "int" };
+const METRICA_SQL: MetricaSub = { field: "sql", label: "SQL", fmt: "int" };
+const METRICA_SAL: MetricaSub = { field: "sal", label: "SAL", fmt: "int" };
+const METRICA_WON: MetricaSub = { field: "won", label: "Won", fmt: "int", emphasize: true };
+const METRICAS_WON_P3: readonly MetricaSub[] = [
+  { field: "wonSaber", label: "Saber", fmt: "int", indent: true },
+  { field: "wonTer", label: "Ter", fmt: "int", indent: true },
+  { field: "wonExecutar", label: "Executar", fmt: "int", indent: true },
+];
+const METRICA_RECEITA: MetricaSub = { field: "receita", label: "Receita", fmt: "money", emphasize: true };
+const METRICAS_RECEITA_P3: readonly MetricaSub[] = [
+  { field: "receitaSaber", label: "Saber", fmt: "money", indent: true },
+  { field: "receitaTer", label: "Ter", fmt: "money", indent: true },
+  { field: "receitaExecutar", label: "Executar", fmt: "money", indent: true },
 ];
 
-/** MB usa "SQL" no lugar de "Leads". */
-const METRICAS_SUBCANAL_MB: readonly MetricaSub[] = [
-  { field: "won", label: "Won", fmt: "int" },
-  { field: "leads", label: "SQL", fmt: "int" },
-  { field: "invest", label: "Invest", fmt: "money" },
-  { field: "receita", label: "Receita", fmt: "money", emphasize: true },
-  { field: "saber", label: "Saber", fmt: "money", indent: true },
-  { field: "ter", label: "Ter", fmt: "money", indent: true },
-  { field: "executar", label: "Executar", fmt: "money", indent: true },
-];
-
-/** Outbound não consome mídia → sem linha de Invest. */
-const METRICAS_SUBCANAL_OUTBOUND: readonly MetricaSub[] = [
-  { field: "won", label: "Won", fmt: "int" },
-  { field: "leads", label: "Leads", fmt: "int" },
-  { field: "receita", label: "Receita", fmt: "money", emphasize: true },
-  { field: "saber", label: "Saber", fmt: "money", indent: true },
-  { field: "ter", label: "Ter", fmt: "money", indent: true },
-  { field: "executar", label: "Executar", fmt: "money", indent: true },
-];
+function metricasParaSub(sub: (typeof SUB_CANAIS)[number]): readonly MetricaSub[] {
+  if (sub.canal === "outbound") {
+    // Outbound: funil curto, sem MQL e sem Invest.
+    return [
+      METRICA_LEADS,
+      METRICA_SQL,
+      METRICA_SAL,
+      METRICA_WON,
+      ...METRICAS_WON_P3,
+      METRICA_RECEITA,
+      ...METRICAS_RECEITA_P3,
+    ];
+  }
+  if (sub.key === "meeting_broker") {
+    // MB: entra direto em SQL — sem Leads de topo, sem MQL.
+    return [
+      METRICA_INVEST,
+      METRICA_SQL,
+      METRICA_SAL,
+      METRICA_WON,
+      ...METRICAS_WON_P3,
+      METRICA_RECEITA,
+      ...METRICAS_RECEITA_P3,
+    ];
+  }
+  // LB/BB — funil longo, começa em MQL (Leads de topo é métrica de mídia,
+  // não do funil de qualificação que importa pra venda).
+  return [
+    METRICA_INVEST,
+    METRICA_MQL,
+    METRICA_SQL,
+    METRICA_SAL,
+    METRICA_WON,
+    ...METRICAS_WON_P3,
+    METRICA_RECEITA,
+    ...METRICAS_RECEITA_P3,
+  ];
+}
 
 function TabelaCanalSubCanal({
   subCanalByKey,
   isFechadoByMes,
+  subCanalTierByKey,
+  tiersAtivosPorSub,
 }: {
   subCanalByKey: Map<string, LinhaSubCanal>;
   isFechadoByMes: Map<string, boolean>;
+  subCanalTierByKey: Map<string, LinhaSubCanalTier>;
+  tiersAtivosPorSub: Map<SubCanalKey, Tier[]>;
 }) {
   const get = (sub: SubCanalKey, mes: string) => subCanalByKey.get(`${sub}|${mes}`);
+  const getTier = (sub: SubCanalKey, tier: Tier, mes: string) =>
+    subCanalTierByKey.get(`${sub}|${tier}|${mes}`);
   const inbound = SUB_CANAIS.filter((s) => s.canal === "inbound");
   const outbound = SUB_CANAIS.filter((s) => s.canal === "outbound");
 
   return (
     <TabelaChrome
       titulo="Canal × Sub-canal"
-      subtitulo="investimento, funil e decomposição da receita por produto (P3)"
+      subtitulo="investimento, funil e decomposição da receita por produto (P3) — cada sub-canal abre o detalhe por tier de cliente"
     >
       <SecaoCanal
         canalLabel="Inbound"
         subcanais={inbound}
-        getMetricas={(s) => (s.key === "meeting_broker" ? METRICAS_SUBCANAL_MB : METRICAS_SUBCANAL_INBOUND)}
+        getMetricas={metricasParaSub}
         getLinha={(s, mes) => get(s.key, mes)}
+        getTier={getTier}
+        tiersAtivosPorSub={tiersAtivosPorSub}
         isFechadoByMes={isFechadoByMes}
       />
       <SecaoCanal
         canalLabel="Outbound"
         subcanais={outbound}
-        getMetricas={() => METRICAS_SUBCANAL_OUTBOUND}
+        getMetricas={metricasParaSub}
         getLinha={(s, mes) => get(s.key, mes)}
+        getTier={getTier}
+        tiersAtivosPorSub={tiersAtivosPorSub}
         isFechadoByMes={isFechadoByMes}
       />
     </TabelaChrome>
@@ -218,7 +332,8 @@ function TabelaCanalSubCanal({
  * Uma seção de canal (Inbound ou Outbound) — UM <tbody> que contém:
  *  - O banner do canal: sticky-top:36px (logo abaixo do thead), bg-accent sólido.
  *  - Cada sub-canal: banner sticky-top:72px (logo abaixo do banner do canal) +
- *    rows de métrica (Won/Leads/Invest/Receita + Saber/Ter/Executar).
+ *    rows de métrica agregadas (Won/Leads/Invest/Receita + Saber/Ter/Executar)
+ *    + sub-bloco "Por tier" com Won/Leads/Invest/Receita por tier ativo.
  *
  * Como TUDO da seção vive no MESMO tbody, o canal banner (top:36) e os
  * sub-canal banners (top:72) coexistem sem precisar de tbodies aninhados (que
@@ -230,12 +345,16 @@ function SecaoCanal({
   subcanais,
   getMetricas,
   getLinha,
+  getTier,
+  tiersAtivosPorSub,
   isFechadoByMes,
 }: {
   canalLabel: string;
   subcanais: readonly (typeof SUB_CANAIS)[number][];
   getMetricas: (s: (typeof SUB_CANAIS)[number]) => readonly MetricaSub[];
   getLinha: (s: (typeof SUB_CANAIS)[number], mes: string) => LinhaSubCanal | undefined;
+  getTier: (sub: SubCanalKey, tier: Tier, mes: string) => LinhaSubCanalTier | undefined;
+  tiersAtivosPorSub: Map<SubCanalKey, Tier[]>;
   isFechadoByMes: Map<string, boolean>;
 }) {
   const colSpanTotal = 1 + MESES.length + 1;
@@ -256,49 +375,156 @@ function SecaoCanal({
       {subcanais.map((sub) => {
         const metricas = getMetricas(sub);
         return (
-          <Fragment key={sub.key}>
-            {/* Banner do SUB-CANAL — sticky-top:72 (36 thead + 36 canal). Fundo
-                opaco (bg-muted) pra não vazar dados quando stickado sobre as
-                linhas de outro sub-canal. */}
-            <tr className="border-y border-border/50">
-              <td
-                colSpan={colSpanTotal}
-                className="sticky top-[72px] z-30 bg-muted py-1.5"
-              >
-                <span className="sticky left-0 inline-block px-6 text-[11px] uppercase tracking-wider font-semibold text-foreground">
-                  {sub.label}
-                </span>
-              </td>
-            </tr>
-            {metricas.map((m) => {
-              const totalAno = MESES.reduce(
-                (acc, mes) => acc + (getLinha(sub, mes)?.[m.field] ?? 0),
-                0,
-              );
-              const labelBg = m.emphasize ? "bg-muted/40" : "bg-card";
-              const rowBg = m.emphasize ? "bg-muted/30 font-semibold" : "hover:bg-muted/20";
-              const labelPad = m.indent ? "pl-10 pr-3" : "px-6";
-              return (
-                <tr key={m.label} className={`border-b border-border/60 ${rowBg}`}>
-                  <td className={`sticky left-0 z-10 ${labelBg} border-r border-border ${labelPad} py-2 text-xs text-foreground`}>
-                    {m.label}
-                  </td>
-                  {MESES.map((mes) => {
-                    const v = getLinha(sub, mes)?.[m.field] ?? 0;
-                    return (
-                      <Cell key={mes} valor={v} fmt={m.fmt} fechado={isFechadoByMes.get(mes) ?? false} />
-                    );
-                  })}
-                  <CellTotal valor={totalAno} fmt={m.fmt} />
-                </tr>
-              );
-            })}
-          </Fragment>
+          <SubCanalBlock
+            key={sub.key}
+            sub={sub}
+            metricas={metricas}
+            tierMetricas={metricas}
+            tiersAtivos={tiersAtivosPorSub.get(sub.key) ?? []}
+            getLinha={getLinha}
+            getTier={getTier}
+            isFechadoByMes={isFechadoByMes}
+            colSpanTotal={colSpanTotal}
+          />
         );
       })}
     </tbody>
   );
 }
+
+/**
+ * Um sub-canal completo: banner sticky + linhas agregadas + sub-bloco "Por tier"
+ * collapsible (fechado por padrão). Cada instância mantém seu próprio
+ * `tierOpen` — assim o usuário abre só o que quer comparar.
+ */
+function SubCanalBlock({
+  sub,
+  metricas,
+  tierMetricas,
+  tiersAtivos,
+  getLinha,
+  getTier,
+  isFechadoByMes,
+  colSpanTotal,
+}: {
+  sub: (typeof SUB_CANAIS)[number];
+  metricas: readonly MetricaSub[];
+  tierMetricas: readonly MetricaSub[];
+  tiersAtivos: Tier[];
+  getLinha: (s: (typeof SUB_CANAIS)[number], mes: string) => LinhaSubCanal | undefined;
+  getTier: (sub: SubCanalKey, tier: Tier, mes: string) => LinhaSubCanalTier | undefined;
+  isFechadoByMes: Map<string, boolean>;
+  colSpanTotal: number;
+}) {
+  const [tierOpen, setTierOpen] = useState(false);
+  const Chevron = tierOpen ? ChevronDown : ChevronRight;
+  return (
+    <Fragment>
+      {/* Banner do SUB-CANAL — sticky-top:72 (36 thead + 36 canal). Fundo
+          opaco (bg-muted) pra não vazar dados quando stickado sobre as
+          linhas de outro sub-canal. */}
+      <tr className="border-y border-border/50">
+        <td
+          colSpan={colSpanTotal}
+          className="sticky top-[72px] z-30 bg-muted py-1.5"
+        >
+          <span className="sticky left-0 inline-block px-6 text-[11px] uppercase tracking-wider font-semibold text-foreground">
+            {sub.label}
+          </span>
+        </td>
+      </tr>
+      {metricas.map((m) => {
+        const totalAno = MESES.reduce(
+          (acc, mes) => acc + (getLinha(sub, mes)?.[m.field] ?? 0),
+          0,
+        );
+        const labelBg = m.emphasize ? "bg-muted/40" : "bg-card";
+        const rowBg = m.emphasize ? "bg-muted/30 font-semibold" : "hover:bg-muted/20";
+        const labelPad = m.indent ? "pl-10 pr-3" : "px-6";
+        return (
+          <tr key={m.label} className={`border-b border-border/60 ${rowBg}`}>
+            <td className={`sticky left-0 z-10 ${labelBg} border-r border-border ${labelPad} py-2 text-xs text-foreground`}>
+              {m.label}
+            </td>
+            {MESES.map((mes) => {
+              const v = getLinha(sub, mes)?.[m.field] ?? 0;
+              return (
+                <Cell key={mes} valor={v} fmt={m.fmt} fechado={isFechadoByMes.get(mes) ?? false} />
+              );
+            })}
+            <CellTotal valor={totalAno} fmt={m.fmt} />
+          </tr>
+        );
+      })}
+      {tiersAtivos.length > 0 && (
+        <>
+          {/* Toggle do sub-bloco "Por tier" — botão sticky-left dentro do td.
+              Default fechado; ao abrir, renderiza as linhas de detalhe. */}
+          <tr className="border-t border-border/60 bg-muted/15">
+            <td colSpan={colSpanTotal} className="py-0">
+              <button
+                type="button"
+                onClick={() => setTierOpen((v) => !v)}
+                aria-expanded={tierOpen}
+                className="sticky left-0 inline-flex items-center gap-1.5 pl-9 pr-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium hover:text-foreground transition-colors"
+              >
+                <Chevron className="h-3 w-3" />
+                Por tier de cliente
+                <span className="text-muted-foreground/60 normal-case tracking-normal">
+                  · {tiersAtivos.length} tier{tiersAtivos.length > 1 ? "s" : ""}
+                </span>
+              </button>
+            </td>
+          </tr>
+          {tierOpen &&
+            tiersAtivos.map((tier) => (
+              <Fragment key={`${sub.key}-${tier}`}>
+                <tr className="border-y border-accent/30">
+                  <td colSpan={colSpanTotal} className="bg-accent/10 py-1.5">
+                    <span className="sticky left-0 inline-block pl-12 pr-3 text-[11px] uppercase tracking-wider text-accent font-semibold">
+                      {tier}
+                    </span>
+                  </td>
+                </tr>
+                {tierMetricas.map((m) => {
+                  const totalAno = MESES.reduce(
+                    (acc, mes) => acc + (getTier(sub.key, tier, mes)?.[m.field] ?? 0),
+                    0,
+                  );
+                  const labelBg = m.emphasize ? "bg-muted/30" : "bg-card";
+                  const rowBg = m.emphasize ? "bg-muted/20 font-semibold" : "hover:bg-muted/15";
+                  const labelPad = m.indent ? "pl-20 pr-3" : "pl-16 pr-3";
+                  return (
+                    <tr
+                      key={`${sub.key}-${tier}-${m.label}`}
+                      className={`border-b border-border/40 ${rowBg}`}
+                    >
+                      <td className={`sticky left-0 z-10 ${labelBg} border-r border-border ${labelPad} py-1.5 text-[11px] text-muted-foreground`}>
+                        {m.label}
+                      </td>
+                      {MESES.map((mes) => {
+                        const v = getTier(sub.key, tier, mes)?.[m.field] ?? 0;
+                        return (
+                          <Cell
+                            key={mes}
+                            valor={v}
+                            fmt={m.fmt}
+                            fechado={isFechadoByMes.get(mes) ?? false}
+                          />
+                        );
+                      })}
+                      <CellTotal valor={totalAno} fmt={m.fmt} />
+                    </tr>
+                  );
+                })}
+              </Fragment>
+            ))}
+        </>
+      )}
+    </Fragment>
+  );
+}
+
 
 // ============================================================
 // Seção 2 — Receita
@@ -316,6 +542,29 @@ function TabelaReceita({ rampUpByMes }: { rampUpByMes: Map<string, LinhaRampUp> 
     <TabelaChrome titulo="Receita" subtitulo="total e por categoria de produto (P3)">
       <tbody>
         {METRICAS_RECEITA.map((m) => (
+          <MetricRowRampUp key={m.label} metric={m} byMes={rampUpByMes} />
+        ))}
+      </tbody>
+    </TabelaChrome>
+  );
+}
+
+// ============================================================
+// Seção 3 — Investimento total
+// ============================================================
+
+const METRICAS_INVESTIMENTO: Array<MetricRampUp> = [
+  { label: "Investimento Total", get: (l) => l.investTotal, fmt: "money", emphasize: true },
+  { label: "Lead Broker", get: (l) => l.investLb, fmt: "money", indent: true, help: "Investimento alocado em Lead Broker (P3)." },
+  { label: "Black Box", get: (l) => l.investBb, fmt: "money", indent: true, help: "Investimento alocado em Black Box (P3)." },
+  { label: "Meeting Broker", get: (l) => l.investMb, fmt: "money", indent: true, help: "Investimento alocado em Meeting Broker (P3)." },
+];
+
+function TabelaInvestimentoTotal({ rampUpByMes }: { rampUpByMes: Map<string, LinhaRampUp> }) {
+  return (
+    <TabelaChrome titulo="Investimento total" subtitulo="total e por fonte de mídia (P3)">
+      <tbody>
+        {METRICAS_INVESTIMENTO.map((m) => (
           <MetricRowRampUp key={m.label} metric={m} byMes={rampUpByMes} />
         ))}
       </tbody>

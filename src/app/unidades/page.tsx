@@ -1,5 +1,5 @@
 import { listOrganizations } from "@/db/repositories/organizations";
-import { getUnitSetup, SETUP_STEPS } from "@/db/repositories/unit-setup";
+import { getUnitSetupsByOrgIds, SETUP_STEPS } from "@/db/repositories/unit-setup";
 import { requireAuth } from "@/lib/auth/current-user";
 import { UnidadesClient } from "@/components/unidades/unidades-client";
 
@@ -25,16 +25,14 @@ export default async function UnidadesPage() {
   // % de preenchimento do modelo (wizard /iniciar): nº de steps concluídos
   // sobre total de SETUP_STEPS. Só faz sentido pra unidades — matriz mostra "—".
   const totalSteps = SETUP_STEPS.length;
-  const setupCompletionEntries = await Promise.all(
-    scoped
-      .filter((o) => o.type === "unidade")
-      .map(async (o) => {
-        const setup = await getUnitSetup(o.id);
-        const pct = Math.round((setup.completedSteps.length / totalSteps) * 100);
-        return [o.id, pct] as const;
-      }),
+  const unitIds = scoped.filter((o) => o.type === "unidade").map((o) => o.id);
+  const setups = await getUnitSetupsByOrgIds(unitIds);
+  const setupCompletionByOrgId = Object.fromEntries(
+    setups.map((s) => [
+      s.organizationId,
+      Math.round((s.completedSteps.length / totalSteps) * 100),
+    ]),
   );
-  const setupCompletionByOrgId = Object.fromEntries(setupCompletionEntries);
 
   return (
     <UnidadesClient

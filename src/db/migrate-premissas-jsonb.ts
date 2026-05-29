@@ -62,6 +62,8 @@ async function main() {
       distSplit: base.distSplit, // não existia em jsonb — usa default da matriz
       investimentoMidia:
         (row.investimentoMidia as InvestimentoMidia[] | null) ?? base.investimentoMidia,
+      investimentoMensal: base.investimentoMensal, // não existia em jsonb — começa vazio
+
       conversoesInbound:
         (row.conversoesInbound as ConversoesInboundData | null) ?? base.conversoesInbound,
       conversoesOutbound:

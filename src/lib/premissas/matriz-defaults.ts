@@ -253,6 +253,21 @@ export const DIST_SPLIT_DEFAULT: DistSplitHorizonte[] = [
 // Investimento em Mídia por Horizonte (P6)
 // ============================================================
 
+/**
+ * Override do investimento em mídia (R$) por mês de 2026. Cada unidade tem até
+ * 12 linhas; quando um mês não está presente, o cálculo usa o pctProducao do
+ * horizonte atual (P6) × target como fallback. Granularidade: mês.
+ *
+ * O input do usuário em /realizado é o valor absoluto (R$); o `% da produção`
+ * exibido é derivado (investimento ÷ target × 100), não é persistido.
+ */
+export type InvestimentoMes = {
+  /** Mês ISO `"2026-01" .. "2026-12"`. */
+  mes: string;
+  /** Investimento absoluto em mídia para o mês, em R$. */
+  investimento: number;
+};
+
 export type InvestimentoMidia = {
   h: Horizonte;
   pctProducao: number;

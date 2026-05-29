@@ -1,11 +1,25 @@
 import Link from "next/link";
 import { ArrowRight, Check, Info, Rocket } from "lucide-react";
 import { requireAuth } from "@/lib/auth/current-user";
+import type { AuthSession } from "@/lib/auth/types";
 import {
   getUnitSetup,
+  getUnitSetupsByOrgIds,
   SETUP_STEPS,
   SETUP_STEP_LABEL,
 } from "@/db/repositories/unit-setup";
+import {
+  getPremissas,
+  getPremissasByEntityIds,
+  matrizDefaultBlocks,
+} from "@/db/repositories/premissas";
+import {
+  calcularResumo,
+  type ResumoCompleto,
+} from "@/lib/premissas/funil-reverso";
+import { consolidarResumos } from "@/lib/premissas/consolidar-resumo";
+import { REALIZADO_HISTORICO_DEFAULT } from "@/lib/premissas/matriz-defaults";
+import { ResumoTable } from "@/components/iniciar/resumo-table";
 
 export const dynamic = "force-dynamic";
 
@@ -15,20 +29,39 @@ export default async function HomePage() {
   // Apenas usuário atuando como unidade vê o hero do wizard. Matriz consolidada
   // continua vendo a tela em branco original (até essa ter conteúdo próprio).
   if (session.actingMode === "unidade" && session.activeOrganization) {
-    const setup = await getUnitSetup(session.activeOrganization.id);
+    const unitOrg = session.activeOrganization;
+    const setup = await getUnitSetup(unitOrg.id);
     const completedCount = setup.completedSteps.length;
     const totalSteps = SETUP_STEPS.length;
     const allDone = completedCount === totalSteps;
 
-    return <UnitHome name={session.activeOrganization.name} setup={{ completedCount, totalSteps, allDone, completedSteps: setup.completedSteps }} />;
+    const resumo = allDone
+      ? calcularResumo(
+          (await getPremissas(unitOrg.id)) ?? matrizDefaultBlocks(),
+          unitOrg.horizonteAtual,
+          {
+            realizadoHistorico: setup.realizadoHistorico ?? REALIZADO_HISTORICO_DEFAULT,
+            dataInicio: unitOrg.dataInicio,
+          },
+        )
+      : null;
+
+    return (
+      <UnitHome
+        name={unitOrg.name}
+        setup={{ completedCount, totalSteps, allDone, completedSteps: setup.completedSteps }}
+        resumo={resumo}
+      />
+    );
   }
 
-  return <MatrizHome />;
+  return <MatrizHome session={session} />;
 }
 
 function UnitHome({
   name,
   setup,
+  resumo,
 }: {
   name: string;
   setup: {
@@ -37,6 +70,7 @@ function UnitHome({
     allDone: boolean;
     completedSteps: readonly string[];
   };
+  resumo: ResumoCompleto | null;
 }) {
   if (setup.allDone) {
     return (
@@ -68,11 +102,7 @@ function UnitHome({
           </Link>
         </section>
 
-        <div className="bg-card border border-border rounded p-4">
-          <p className="text-sm text-muted-foreground">
-            Próximas telas chegam aqui. Por enquanto, use o menu lateral para acessar Premissas e demais áreas.
-          </p>
-        </div>
+        {resumo && <ResumoTable resumo={resumo} />}
       </>
     );
   }
@@ -140,18 +170,68 @@ function UnitHome({
   );
 }
 
-function MatrizHome() {
+/**
+ * Calcula o resumo do funil 2026 consolidado da rede.
+ *
+ * Para cada unidade visível: usa as premissas próprias (fallback: premissas
+ * da matriz), `horizonteAtual` e `realizadoHistorico` da unidade. Soma os
+ * absolutos mês a mês e recalcula taxas/ROAS/CPL/TM a partir dos totais.
+ *
+ * Retorna `null` quando não há unidade visível.
+ */
+async function loadResumoConsolidado(
+  session: AuthSession,
+): Promise<{ resumo: ResumoCompleto; unidades: number } | null> {
+  const unitOrgs = session.availableOrganizations.filter((o) => o.type === "unidade");
+  if (unitOrgs.length === 0) return null;
+
+  const matrizOrg = session.availableOrganizations.find((o) => o.type === "matriz");
+  const unitIds = unitOrgs.map((u) => u.id);
+  const blockIds = matrizOrg ? [matrizOrg.id, ...unitIds] : unitIds;
+
+  const [blocksMap, setups] = await Promise.all([
+    getPremissasByEntityIds(blockIds),
+    getUnitSetupsByOrgIds(unitIds),
+  ]);
+  const matrizBlocks =
+    (matrizOrg && blocksMap.get(matrizOrg.id)) ?? matrizDefaultBlocks();
+  const setupById = new Map(setups.map((s) => [s.organizationId, s] as const));
+
+  const resumos = unitOrgs.map((unit) => {
+    const blocks = blocksMap.get(unit.id) ?? matrizBlocks;
+    const setup = setupById.get(unit.id);
+    return calcularResumo(blocks, unit.horizonteAtual, {
+      realizadoHistorico: setup?.realizadoHistorico ?? REALIZADO_HISTORICO_DEFAULT,
+      dataInicio: unit.dataInicio,
+    });
+  });
+
+  const consolidado = consolidarResumos(resumos);
+  if (!consolidado) return null;
+  return { resumo: consolidado, unidades: unitOrgs.length };
+}
+
+async function MatrizHome({ session }: { session: AuthSession }) {
+  const consolidado = await loadResumoConsolidado(session);
+
   return (
     <>
       <div className="flex items-center justify-between mb-4 gap-4">
         <h1 className="text-xl font-semibold text-foreground">Início</h1>
       </div>
 
-      <div className="bg-card border border-border rounded p-4">
-        <p className="text-sm text-muted-foreground">
-          Visão consolidada da rede. Próximas iterações trarão KPIs agregados e indicadores das unidades.
-        </p>
-      </div>
+      {consolidado ? (
+        <ResumoTable
+          resumo={consolidado.resumo}
+          subtitle={`rede consolidada — soma de ${consolidado.unidades} unidade${consolidado.unidades === 1 ? "" : "s"}, taxas e ROAS recalculados dos totais`}
+        />
+      ) : (
+        <div className="bg-card border border-border rounded p-4">
+          <p className="text-sm text-muted-foreground">
+            Visão consolidada da rede. Nenhuma unidade visível para o usuário atual.
+          </p>
+        </div>
+      )}
     </>
   );
 }

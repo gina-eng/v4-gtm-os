@@ -6,7 +6,7 @@
  * e Server Components) não precisarem mudar.
  */
 
-import { and, eq, ilike, or, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { organizations, type Organization } from "@/db/schema";
 import {
@@ -46,6 +46,20 @@ export async function getOrganizationById(id: string): Promise<Organization | nu
     .where(eq(organizations.id, id))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Batch: várias orgs em uma única query. Retorna um Map id → Organization
+ * pra lookup O(1) em telas que enriquecem listagens (ex: /usuarios).
+ */
+export async function getOrganizationsByIds(
+  ids: string[],
+): Promise<Map<string, Organization>> {
+  const result = new Map<string, Organization>();
+  if (ids.length === 0) return result;
+  const rows = await db.select().from(organizations).where(inArray(organizations.id, ids));
+  for (const r of rows) result.set(r.id, r);
+  return result;
 }
 
 export async function getOrganizationBySlug(slug: string): Promise<Organization | null> {

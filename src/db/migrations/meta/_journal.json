@@ -50,6 +50,20 @@
       "when": 1779831780052,
       "tag": "0006_lazy_adam_destine",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780059716474,
+      "tag": "0007_regular_the_spike",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780060783763,
+      "tag": "0008_thick_mister_negative",
+      "breakpoints": true
     }
   ]
 }

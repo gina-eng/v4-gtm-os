@@ -382,6 +382,24 @@ export const premissaTier = pgTable(
   (table) => [uniqueIndex("idx_prem_tier_unique").on(table.premissaId, table.tier)],
 );
 
+// P6 — Override do investimento em mídia (R$), mês a mês (2026). Grão: mês
+// (até 12 linhas por unidade). Quando ausente, o cálculo usa o pctProducao do
+// horizonte atual em premissa_horizonte como fallback (target × pct). O input
+// do usuário é o valor absoluto; o % da produção é derivado (investimento ÷
+// target × 100) na UI.
+export const premissaInvestimentoMes = pgTable(
+  "premissa_investimento_mes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    mes: varchar("mes", { length: 7 }).notNull(), // "2026-01" .. "2026-12"
+    investimento: doublePrecision("investimento").notNull(),
+  },
+  (table) => [uniqueIndex("idx_prem_invest_mes_unique").on(table.premissaId, table.mes)],
+);
+
 // P4 — Split normalizado de leads por horizonte × tier (tabela direita do P4).
 // Grão: horizonte × tier (esparso — só tiers ativos no horizonte).
 export const premissaDistSplit = pgTable(
