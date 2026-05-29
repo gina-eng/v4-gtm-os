@@ -39,6 +39,10 @@ import {
   agregarRampUpMatriz,
   SUB_CANAIS,
 } from "@/lib/premissas/funil-reverso";
+import { horizonteEfetivo } from "@/lib/realizado/projecao";
+
+const HORIZONTE_ORDER = ["H1", "H2", "H3", "H4", "H5"] as const;
+const horizonteIdx = (h: string) => HORIZONTE_ORDER.indexOf(h as (typeof HORIZONTE_ORDER)[number]);
 
 const blocks: PremissasBlocks = {
   horizontes: HORIZONTE_CRESCIMENTO_DEFAULT,
@@ -88,8 +92,12 @@ for (const h of ["H1", "H2", "H3", "H4", "H5"] as const) {
   // M2 = faixaMin × (1 + taxa/100)
   const m2Esperado = Math.round(info.faixaMin * (1 + info.crescMensalPct / 100));
   approx(`${h}: M2 = M1 × (1 + ${info.crescMensalPct}%)`, curva[1]!.target, m2Esperado);
-  // Todos no horizonte do unit
-  check(`${h}: horizonte fixo`, curva.every((l) => l.horizonte === h));
+  // Horizonte nunca regride pra baixo do `h` (piso da unidade); pode promover
+  // pra cima conforme o patamar cresce e cruza `faixaMax`.
+  check(
+    `${h}: horizonte ≥ piso`,
+    curva.every((l) => horizonteIdx(l.horizonte) >= horizonteIdx(h)),
+  );
   check(`${h}: nenhum mês fechado (fallback)`, curva.every((l) => !l.isFechado));
 }
 
@@ -133,18 +141,39 @@ if (baseFechado && primeiroFuturo) {
 console.log("\n== Coerência do funil (H3, com realizado) ==");
 const ramp = calcularRampUp(blocks, "H3", { realizadoHistorico: realizado });
 check("Ramp-up tem 12 linhas", ramp.length === 12);
-const pctProdH3 = INVESTIMENTO_MIDIA_DEFAULT.find((i) => i.h === "H3")!.pctProducao;
+const realizadoByMes = new Map(realizado.map((r) => [r.mes, r] as const));
+for (const l of ramp) {
+  const r = realizadoByMes.get(l.mes);
+  if (l.isFechado && r && r.investido > 0) {
+    // Pace puxa realizado.investido nos meses fechados (não usa baseline).
+    approx(
+      `M ${l.mes} investTotal = realizado.investido`,
+      l.investTotal,
+      r.investido,
+      1,
+    );
+  } else {
+    // Meses futuros (ou fechados sem dado): usa pctProducao do horizonte
+    // EFETIVO do mês (promoção automática), não do horizonteAtual fixo.
+    const pctEf = INVESTIMENTO_MIDIA_DEFAULT.find((i) => i.h === l.horizonte)!.pctProducao;
+    approx(
+      `M ${l.mes} investTotal = target × ${pctEf}% (H ${l.horizonte})`,
+      l.investTotal,
+      l.target * (pctEf / 100),
+      1,
+    );
+  }
+}
+// Receita total = inbound + outbound (sem cap em target). Pode ficar acima
+// ou abaixo — outbound proativo é dimensionado pela capacidade do time, não
+// pelo resíduo do target.
 for (const l of ramp) {
   approx(
-    `M ${l.mes} investTotal = target × ${pctProdH3}%`,
-    l.investTotal,
-    l.target * (pctProdH3 / 100),
-    1,
+    `M ${l.mes} recTotal = recInbound + recOutbound`,
+    l.recTotal,
+    l.recInbound + l.recOutbound,
+    2,
   );
-}
-// Receita total ≥ target
-for (const l of ramp) {
-  check(`M ${l.mes} recTotal ≥ target`, l.recTotal >= l.target - 1);
 }
 // Saber+Ter+Exec ≈ recTotal
 for (const l of ramp) {
@@ -172,8 +201,9 @@ approx(
 // ── 5. Canal × Tier — quantidade de linhas (tiers ativos × 12 meses) ────
 console.log("\n== Canal × Tier ==");
 const ct = calcularCanalTier(blocks, "H3");
-// H3 tem 3 tiers ativos (Tiny, Small, Medium) — 36 linhas
-check("H3 Canal×Tier = 3 tiers × 12 meses = 36", ct.length === 36);
+// Com promoção automática de horizonte, H3 pode escalar pra H4/H5 ao longo
+// do ano, ativando mais tiers — então o piso é 3×12=36, não a igualdade.
+check("H3 Canal×Tier ≥ 3 tiers × 12 meses = 36", ct.length >= 36);
 const ctH5 = calcularCanalTier(blocks, "H5");
 check("H5 Canal×Tier = 5 tiers × 12 meses = 60", ctH5.length === 60);
 

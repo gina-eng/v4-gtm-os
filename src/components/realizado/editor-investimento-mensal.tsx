@@ -11,9 +11,15 @@ import type {
   Horizonte,
   InvestimentoMes,
   InvestimentoMidia,
+  RealizadoMensal,
 } from "@/lib/premissas/matriz-defaults";
 import type { LinhaRampUp } from "@/lib/premissas/funil-reverso";
-import { formatMesPt, MESES_ANO_2026 } from "@/lib/realizado/projecao";
+import {
+  formatMesPt,
+  getMesAncora,
+  MESES_ANO_2026,
+  ULTIMO_MES_FECHADO,
+} from "@/lib/realizado/projecao";
 
 type Props = {
   organizationId: string;
@@ -22,8 +28,22 @@ type Props = {
   investimentoMidia: InvestimentoMidia[];
   /** Override mensal atual (R$). 0–12 entradas; meses ausentes herdam o baseline. */
   investimentoMensal: InvestimentoMes[];
+  /**
+   * Realizado mensal da unidade — fornece o `investido` real dos meses fechados.
+   * Esses meses ficam read-only no editor (a edição vive em /iniciar/realizado-historico).
+   */
+  realizadoHistorico: RealizadoMensal[];
   /** Linhas ramp-up por mês — fonte do target (para calcular o % derivado). */
   rampUpByMes: Map<string, LinhaRampUp>;
+  /** Horizonte efetivo por mês — quando definido, exibe badge sob o nome do mês. */
+  horizonteByMes?: Map<string, Horizonte>;
+  /** Meses onde houve transição de horizonte — recebem borda accent na coluna. */
+  transicoesMeses?: Set<string>;
+  /**
+   * Data de início da unidade (YYYY-MM-DD). Meses anteriores ao mês-âncora
+   * ficam travados (read-only, dim) — a unidade ainda não operava.
+   */
+  dataInicio?: string | null;
 };
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -43,9 +63,15 @@ export function EditorInvestimentoMensal({
   horizonteAtual,
   investimentoMidia,
   investimentoMensal,
+  realizadoHistorico,
   rampUpByMes,
+  horizonteByMes,
+  transicoesMeses,
+  dataInicio,
 }: Props) {
   const router = useRouter();
+  const mesAncora = getMesAncora(dataInicio ?? null);
+  const isAntesDeOperar = (mes: string) => mes < mesAncora;
 
   const baselinePct = useMemo(() => {
     const p6 = investimentoMidia.find((i) => i.h === horizonteAtual);
@@ -59,12 +85,39 @@ export function EditorInvestimentoMensal({
     return m;
   }, [rampUpByMes]);
 
-  // Estado: sempre 12 valores absolutos (R$). Inicializa do override do banco;
-  // meses ausentes herdam o baseline (target × pctProducao do horizonte).
+  // Investido real declarado no setup por mês fechado. Meses fechados com
+  // `investido > 0` viram read-only no editor (o valor vem do realizado).
+  const investidoRealByMes = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of realizadoHistorico) m.set(r.mes, r.investido);
+    return m;
+  }, [realizadoHistorico]);
+
+  const isFechado = (mes: string) => mes <= ULTIMO_MES_FECHADO;
+  // Meses anteriores ao início da unidade são travados (unidade ainda não
+  // operava). Meses fechados com investido > 0 puxam do realizado e também
+  // ficam travados (fonte da verdade no /iniciar/realizado-historico).
+  const isReadOnlyMes = (mes: string) =>
+    isAntesDeOperar(mes) ||
+    (isFechado(mes) && (investidoRealByMes.get(mes) ?? 0) > 0);
+
+  // Estado: sempre 12 valores absolutos (R$). Prioridade:
+  //   1. mês antes da operação → 0 (travado)
+  //   2. mês fechado com investido > 0 → valor do realizado (travado)
+  //   3. override do banco (investimentoMensal)
+  //   4. fallback baseline (target × pctProducao do horizonte)
   const buildInitial = (): Record<string, number> => {
     const byMes = new Map(investimentoMensal.map((p) => [p.mes, p.investimento]));
     const out: Record<string, number> = {};
     for (const mes of MESES) {
+      if (isAntesDeOperar(mes)) {
+        out[mes] = 0;
+        continue;
+      }
+      if (isReadOnlyMes(mes)) {
+        out[mes] = investidoRealByMes.get(mes) ?? 0;
+        continue;
+      }
       const override = byMes.get(mes);
       out[mes] = override ?? (targetByMes.get(mes) ?? 0) * (baselinePct / 100);
     }
@@ -80,7 +133,7 @@ export function EditorInvestimentoMensal({
     setValores(next);
     lastSavedRef.current = next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [investimentoMensal, baselinePct, targetByMes]);
+  }, [investimentoMensal, baselinePct, targetByMes, investidoRealByMes]);
 
   function patchMes(mes: string, novoValor: number) {
     setValores((prev) => ({ ...prev, [mes]: novoValor }));
@@ -88,7 +141,9 @@ export function EditorInvestimentoMensal({
 
   useEffect(() => {
     const dirty = MESES.some(
-      (m) => Math.abs((valores[m] ?? 0) - (lastSavedRef.current[m] ?? 0)) > 0.01,
+      (m) =>
+        !isReadOnlyMes(m) &&
+        Math.abs((valores[m] ?? 0) - (lastSavedRef.current[m] ?? 0)) > 0.01,
     );
     if (!dirty) return;
 
@@ -96,7 +151,12 @@ export function EditorInvestimentoMensal({
       setStatus("saving");
       setErrorMsg(null);
       try {
-        const payload = MESES.map((mes) => ({ mes, investimento: valores[mes] ?? 0 }));
+        // Meses read-only (realizado) não vão no payload — o valor lá é a
+        // fonte da verdade e mora em /iniciar/realizado-historico.
+        const payload = MESES.filter((mes) => !isReadOnlyMes(mes)).map((mes) => ({
+          mes,
+          investimento: valores[mes] ?? 0,
+        }));
         const res = await fetch(`/api/units/${organizationId}/investimento-mensal`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -133,7 +193,7 @@ export function EditorInvestimentoMensal({
             Pace de investimento
           </h2>
           <span className="text-[10px] text-muted-foreground">
-            — defina o investimento em mídia (R$) mês a mês; o % da produção é derivado
+            — meses fechados puxam do realizado; meses futuros são editáveis (R$). O % da produção é derivado
           </span>
           <span className="inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ml-2">
             {horizonteAtual}
@@ -152,26 +212,52 @@ export function EditorInvestimentoMensal({
       <table className="text-sm border-collapse table-fixed" style={{ width: "max-content" }}>
         <colgroup>
           <col style={{ width: W_LABEL }} />
-          {MESES.map((m) => (
-            <col key={m} style={{ width: W_MES }} />
-          ))}
+          {MESES.map((m) => {
+            const isTransition = transicoesMeses?.has(m) ?? false;
+            return (
+              <col
+                key={m}
+                style={{ width: W_MES }}
+                className={isTransition ? "border-l-2 border-l-accent" : undefined}
+              />
+            );
+          })}
           <col style={{ width: W_TOTAL }} />
         </colgroup>
         <thead>
           <tr>
-            <th className="sticky top-0 left-0 z-50 bg-table-header text-table-header-foreground px-3 py-2 text-left text-[10px] uppercase tracking-wider border-r border-border">
-              Métrica
-            </th>
-            {MESES.map((mes) => (
-              <th
-                key={mes}
-                className="sticky top-0 z-40 bg-table-header text-table-header-foreground h-9 font-medium px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums"
-                title={formatMesPt(mes)}
-              >
-                {mesCurto(mes)}
-              </th>
-            ))}
-            <th className="sticky top-0 z-40 bg-accent/15 text-accent h-9 px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border">
+            <th className="sticky top-0 left-0 z-50 bg-table-header text-table-header-foreground px-3 py-2 text-left text-[10px] uppercase tracking-wider border-r border-border"></th>
+            {MESES.map((mes) => {
+              const h = horizonteByMes?.get(mes);
+              const isTransition = transicoesMeses?.has(mes) ?? false;
+              return (
+                <th
+                  key={mes}
+                  className={`sticky top-0 z-40 bg-table-header text-table-header-foreground h-auto font-medium px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums ${
+                    isTransition ? "border-l-2 border-l-accent" : ""
+                  }`}
+                  title={
+                    h
+                      ? `${formatMesPt(mes)} — premissas aplicadas: ${h}`
+                      : formatMesPt(mes)
+                  }
+                >
+                  <div className="flex flex-col items-end leading-tight">
+                    <span>{mesCurto(mes)}</span>
+                    {h && (
+                      <span
+                        className={`text-[9px] font-semibold mt-0.5 ${
+                          isTransition ? "text-accent" : "text-muted-foreground/70"
+                        }`}
+                      >
+                        {h}
+                      </span>
+                    )}
+                  </div>
+                </th>
+              );
+            })}
+            <th className="sticky top-0 z-40 bg-accent/15 text-accent h-auto px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border">
               Total 2026
             </th>
           </tr>
@@ -188,17 +274,41 @@ export function EditorInvestimentoMensal({
                 />
               </span>
             </td>
-            {MESES.map((mes) => (
-              <td key={mes} className="px-3 py-2 text-right">
-                <CurrencyCell
-                  isEditing
-                  value={valores[mes] ?? 0}
-                  onChange={(v) => patchMes(mes, v)}
-                  step={1000}
-                  inputClassName="w-20"
-                />
-              </td>
-            ))}
+            {MESES.map((mes) => {
+              if (isAntesDeOperar(mes)) {
+                return (
+                  <td
+                    key={mes}
+                    className="px-3 py-2 text-right text-xs tabular-nums text-muted-foreground/40 bg-muted/10"
+                    title={`Unidade iniciou em ${formatMesPt(mesAncora)} — meses anteriores não operam.`}
+                  >
+                    —
+                  </td>
+                );
+              }
+              if (isReadOnlyMes(mes)) {
+                return (
+                  <td
+                    key={mes}
+                    className="px-3 py-2 text-right text-xs tabular-nums bg-info/5 text-foreground"
+                    title="Valor declarado no setup como realizado — edite em /iniciar/realizado-historico"
+                  >
+                    {formatBRL(valores[mes] ?? 0)}
+                  </td>
+                );
+              }
+              return (
+                <td key={mes} className="px-3 py-2 text-right">
+                  <CurrencyCell
+                    isEditing
+                    value={valores[mes] ?? 0}
+                    onChange={(v) => patchMes(mes, v)}
+                    step={1000}
+                    inputClassName="w-20"
+                  />
+                </td>
+              );
+            })}
             <td className="px-3 py-2 text-right bg-accent/5 border-l-2 border-border text-xs tabular-nums text-accent font-semibold">
               {formatBRL(investAno)}
             </td>

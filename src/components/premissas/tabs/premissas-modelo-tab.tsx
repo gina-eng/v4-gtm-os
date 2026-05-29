@@ -999,6 +999,10 @@ function tcvPonderado(p: Produto): number {
   );
 }
 
+function somaAdesao(p: Produto): number {
+  return p.saberPct + p.terPct + p.execPct;
+}
+
 function ReceitaProdutoSection({
   canEdit,
   initial,
@@ -1012,6 +1016,10 @@ function ReceitaProdutoSection({
   const [draft, setDraft] = useState<Produto[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
+  // Invariante P3: Saber% + Ter% + Executar% deve somar 100% em cada tier.
+  // Bloqueia o save enquanto alguma linha estiver fora (tolerância 0.5).
+  const linhasInvalidas = draft.filter((r) => Math.abs(somaAdesao(r) - 100) > 0.5);
+  const podeSalvar = linhasInvalidas.length === 0;
 
   function patch<K extends keyof Produto>(idx: number, key: K, v: Produto[K]) {
     setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
@@ -1023,11 +1031,20 @@ function ReceitaProdutoSection({
       badge={<SectionBadge>Premissa 03</SectionBadge>}
       canEdit={canEdit}
       isEditing={isEditing}
+      canSave={podeSalvar}
+      saveDisabledHint={
+        podeSalvar
+          ? undefined
+          : `Ajuste a adesão dos tiers: ${linhasInvalidas
+              .map((r) => `${r.tier} (${somaAdesao(r).toFixed(0)}%)`)
+              .join(", ")} — cada tier deve somar 100%.`
+      }
       onEdit={() => {
         setDraft(saved);
         setIsEditing(true);
       }}
       onSave={() => {
+        if (!podeSalvar) return;
         setSaved(draft);
         setIsEditing(false);
         void onPersist(draft);
@@ -1051,42 +1068,62 @@ function ReceitaProdutoSection({
               <Th align="right" help="Average Ticket — ticket médio do produto Ter neste tier.">Ter AT</Th>
               <Th align="right" help="% dos clientes deste tier que adquirem o produto Executar.">Executar %</Th>
               <Th align="right" help="Average Ticket — ticket médio do produto Executar neste tier.">Executar AT</Th>
+              <Th align="right" help="Soma de Saber% + Ter% + Executar% no tier. Deve totalizar 100%.">Soma %</Th>
               <Th align="right" help="TCV Ponderado = (Saber% × Saber AT) + (Ter% × Ter AT) + (Executar% × Executar AT). Calculado automaticamente.">TCV Pond.</Th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => (
-              <tr
-                key={r.tier}
-                className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-              >
-                <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.tier}</td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <PercentCell isEditing={isEditing} value={r.saberPct} onChange={(v) => patch(idx, "saberPct", v)} digits={0} lockableZero />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing} value={r.saberAt} onChange={(v) => patch(idx, "saberAt", v)} lockableZero />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <PercentCell isEditing={isEditing} value={r.terPct} onChange={(v) => patch(idx, "terPct", v)} digits={0} lockableZero />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing} value={r.terAt} onChange={(v) => patch(idx, "terAt", v)} lockableZero />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <PercentCell isEditing={isEditing} value={r.execPct} onChange={(v) => patch(idx, "execPct", v)} digits={0} lockableZero />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing} value={r.execAt} onChange={(v) => patch(idx, "execAt", v)} lockableZero />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right tabular-nums font-medium text-success">
-                  {formatBRL(tcvPonderado(r))}
-                </td>
-              </tr>
-            ))}
+            {rows.map((r, idx) => {
+              const soma = somaAdesao(r);
+              const somaOk = Math.abs(soma - 100) < 0.5;
+              return (
+                <tr
+                  key={r.tier}
+                  className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
+                >
+                  <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.tier}</td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <PercentCell isEditing={isEditing} value={r.saberPct} onChange={(v) => patch(idx, "saberPct", v)} digits={0} lockableZero />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing} value={r.saberAt} onChange={(v) => patch(idx, "saberAt", v)} lockableZero />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <PercentCell isEditing={isEditing} value={r.terPct} onChange={(v) => patch(idx, "terPct", v)} digits={0} lockableZero />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing} value={r.terAt} onChange={(v) => patch(idx, "terAt", v)} lockableZero />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <PercentCell isEditing={isEditing} value={r.execPct} onChange={(v) => patch(idx, "execPct", v)} digits={0} lockableZero />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing} value={r.execAt} onChange={(v) => patch(idx, "execAt", v)} lockableZero />
+                  </td>
+                  <td
+                    className={`px-1.5 py-2 text-xs text-right tabular-nums font-medium ${
+                      somaOk ? "text-success" : "text-destructive"
+                    }`}
+                    title={somaOk ? undefined : `Soma deve ser 100% — atual ${soma.toFixed(0)}%.`}
+                  >
+                    {formatPercent(soma, 0)}
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right tabular-nums font-medium text-success">
+                    {formatBRL(tcvPonderado(r))}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+      {isEditing && !podeSalvar && (
+        <div className="px-4 py-2 text-[11px] text-destructive border-t border-border bg-destructive/5">
+          A adesão por produto deve somar 100% em cada tier. Ajuste antes de salvar: {linhasInvalidas
+            .map((r) => `${r.tier} (${somaAdesao(r).toFixed(0)}%)`)
+            .join(", ")}.
+        </div>
+      )}
     </EditableSection>
   );
 }

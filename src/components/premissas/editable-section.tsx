@@ -15,6 +15,10 @@ type Props = {
   onEdit: () => void;
   onSave: () => void;
   onCancel: () => void;
+  /** Se false, o botão Salvar fica desabilitado (usar para invariantes como "soma = 100%"). */
+  canSave?: boolean;
+  /** Tooltip exibido no botão Salvar quando canSave=false — descreve o motivo do bloqueio. */
+  saveDisabledHint?: string;
   children: ReactNode;
 };
 
@@ -40,6 +44,8 @@ export function EditableSection({
   onEdit,
   onSave,
   onCancel,
+  canSave = true,
+  saveDisabledHint,
   children,
 }: Props) {
   return (
@@ -84,7 +90,9 @@ export function EditableSection({
                 <button
                   type="button"
                   onClick={onSave}
-                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[11px] font-medium bg-accent text-accent-foreground hover:opacity-90"
+                  disabled={!canSave}
+                  title={!canSave ? saveDisabledHint : undefined}
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[11px] font-medium bg-accent text-accent-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Check className="h-3 w-3" />
                   Salvar

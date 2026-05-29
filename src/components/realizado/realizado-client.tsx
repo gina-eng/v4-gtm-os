@@ -9,6 +9,7 @@ import type {
   Horizonte,
   InvestimentoMes,
   InvestimentoMidia,
+  RealizadoMensal,
 } from "@/lib/premissas/matriz-defaults";
 import type {
   LinhaRampUp,
@@ -33,14 +34,16 @@ type Props = {
   linhasSubCanal: LinhaSubCanal[];
   /** Detalhe por (sub-canal, tier, mês) — sub-bloco "Por tier" dentro de cada sub-canal. */
   linhasSubCanalTier: LinhaSubCanalTier[];
-  /** Cargos (de P17) — colunas da tabela de Time. */
-  cargos: string[];
   /** P6 atual da unidade — alimenta o baseline do editor mensal de pace. */
   investimentoMidia?: InvestimentoMidia[];
   /** Override mensal atual do investimento em R$ (0–12 entradas). */
   investimentoMensal?: InvestimentoMes[];
   /** P6 da Matriz — pra mostrar delta vs baseline no editor inline. */
   matrizInvestimentoMidia?: InvestimentoMidia[];
+  /** Realizado mensal (setup wizard) — alimenta o pace dos meses fechados. */
+  realizadoHistorico?: RealizadoMensal[];
+  /** Data de início da unidade (YYYY-MM-DD). Meses antes ficam travados no Pace. */
+  dataInicio?: string | null;
 };
 
 const TIER_ORDER: readonly Tier[] = ["Tiny", "Small", "Medium", "Large", "Enterprise"];
@@ -56,7 +59,8 @@ function mesCurto(mes: string): string {
 
 /**
  * Tela /realizado (Forecast 2026) — visão unificada do funil reverso.
- * 4 seções: Receita · Investimento total · Canal × Sub-canal · Time necessário.
+ * 3 seções: Receita · Investimento total · Canal × Sub-canal.
+ * O "Time necessário" virou rota própria em /time-comercial.
  * Read-only; a edição do realizado mensal continua no passo do wizard.
  */
 export function ForecastClient({
@@ -68,10 +72,11 @@ export function ForecastClient({
   linhasRampUp,
   linhasSubCanal,
   linhasSubCanalTier,
-  cargos,
   investimentoMidia,
   investimentoMensal,
   matrizInvestimentoMidia,
+  realizadoHistorico,
+  dataInicio,
 }: Props) {
   const isMatriz = mode === "matriz";
   const eyebrow = isMatriz
@@ -111,10 +116,32 @@ export function ForecastClient({
   const isFechadoByMes = new Map<string, boolean>();
   for (const l of linhasRampUp) isFechadoByMes.set(l.mes, l.isFechado);
 
+  // Detecta transições de horizonte ao longo do ano (só faz sentido na visão
+  // de unidade — matriz agrega horizontes diferentes por unidade).
+  const horizonteByMes: Map<string, Horizonte> | undefined = isMatriz
+    ? undefined
+    : new Map(linhasRampUp.map((l) => [l.mes, l.horizonte] as const));
+  const transicoesHorizonte = (() => {
+    if (isMatriz) return [] as Array<{ de: Horizonte; para: Horizonte; mes: string }>;
+    const out: Array<{ de: Horizonte; para: Horizonte; mes: string }> = [];
+    let anterior: Horizonte | null = null;
+    for (const l of linhasRampUp) {
+      if (l.horizonte && anterior && l.horizonte !== anterior) {
+        out.push({ de: anterior, para: l.horizonte, mes: l.mes });
+      }
+      if (l.horizonte) anterior = l.horizonte;
+    }
+    return out;
+  })();
+  const transicoesMeses = new Set(transicoesHorizonte.map((t) => t.mes));
+  const horizonteFinal = linhasRampUp[linhasRampUp.length - 1]?.horizonte ?? horizonteAtual;
+
   const subtitulo = isMatriz
     ? "Soma das unidades visíveis. Cada unidade calcula com o próprio horizonte e ancora no realizado."
     : horizonteAtual
-      ? `Funil reverso 2026: meses fechados vêm do realizado; meses futuros projetados pela taxa do horizonte ${horizonteAtual} (P1).`
+      ? transicoesHorizonte.length > 0
+        ? `Funil reverso 2026: meses fechados vêm do realizado; o horizonte é promovido automaticamente quando o patamar ultrapassa faixaMax. Cada faixa aplica suas próprias premissas (P1, P4, P6, P16).`
+        : `Funil reverso 2026: meses fechados vêm do realizado; meses futuros projetados pela taxa do horizonte ${horizonteAtual} (P1).`
       : "Funil reverso 2026 a partir das premissas da unidade.";
 
   return (
@@ -128,13 +155,29 @@ export function ForecastClient({
             {eyebrow}
           </div>
           <div className="flex items-end justify-between gap-3 flex-wrap">
-            <div className="flex items-end gap-3">
+            <div className="flex items-end gap-3 flex-wrap">
               <h1 className="text-2xl font-semibold text-foreground">Forecast 2026</h1>
               {!isMatriz && horizonteAtual && (
-                <span className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <span
+                  className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                  title="Horizonte cadastrado da unidade (piso da projeção)"
+                >
                   {horizonteAtual}
+                  {horizonteFinal !== horizonteAtual && (
+                    <span className="ml-1.5 text-accent">→ {horizonteFinal}</span>
+                  )}
                 </span>
               )}
+              {!isMatriz &&
+                transicoesHorizonte.map((t) => (
+                  <span
+                    key={`${t.de}-${t.para}-${t.mes}`}
+                    className="inline-flex items-center rounded border border-accent/30 bg-accent/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent"
+                    title={`Patamar de ${t.de} cruzou faixaMax — premissas de ${t.para} aplicam a partir desse mês.`}
+                  >
+                    {t.de} → {t.para} ({mesCurto(t.mes)})
+                  </span>
+                ))}
             </div>
             {!isMatriz && (
               <Link
@@ -170,7 +213,11 @@ export function ForecastClient({
         </div>
       </div>
 
-      <TabelaReceita rampUpByMes={rampUpByMes} />
+      <TabelaReceita
+        rampUpByMes={rampUpByMes}
+        horizonteByMes={horizonteByMes}
+        transicoesMeses={transicoesMeses}
+      />
       {mode === "unidade" &&
         organizationId &&
         horizonteAtual &&
@@ -181,17 +228,26 @@ export function ForecastClient({
             horizonteAtual={horizonteAtual}
             investimentoMidia={investimentoMidia}
             investimentoMensal={investimentoMensal}
+            realizadoHistorico={realizadoHistorico ?? []}
             rampUpByMes={rampUpByMes}
+            horizonteByMes={horizonteByMes}
+            transicoesMeses={transicoesMeses}
+            dataInicio={dataInicio ?? null}
           />
         )}
-      <TabelaInvestimentoTotal rampUpByMes={rampUpByMes} />
+      <TabelaInvestimentoTotal
+        rampUpByMes={rampUpByMes}
+        horizonteByMes={horizonteByMes}
+        transicoesMeses={transicoesMeses}
+      />
       <TabelaCanalSubCanal
         subCanalByKey={subCanalByKey}
         isFechadoByMes={isFechadoByMes}
         subCanalTierByKey={subCanalTierByKey}
         tiersAtivosPorSub={tiersAtivosPorSub}
+        horizonteByMes={horizonteByMes}
+        transicoesMeses={transicoesMeses}
       />
-      <TabelaTime rampUpByMes={rampUpByMes} cargos={cargos} />
     </>
   );
 }
@@ -289,11 +345,15 @@ function TabelaCanalSubCanal({
   isFechadoByMes,
   subCanalTierByKey,
   tiersAtivosPorSub,
+  horizonteByMes,
+  transicoesMeses,
 }: {
   subCanalByKey: Map<string, LinhaSubCanal>;
   isFechadoByMes: Map<string, boolean>;
   subCanalTierByKey: Map<string, LinhaSubCanalTier>;
   tiersAtivosPorSub: Map<SubCanalKey, Tier[]>;
+  horizonteByMes?: Map<string, Horizonte>;
+  transicoesMeses?: Set<string>;
 }) {
   const get = (sub: SubCanalKey, mes: string) => subCanalByKey.get(`${sub}|${mes}`);
   const getTier = (sub: SubCanalKey, tier: Tier, mes: string) =>
@@ -305,6 +365,8 @@ function TabelaCanalSubCanal({
     <TabelaChrome
       titulo="Canal × Sub-canal"
       subtitulo="investimento, funil e decomposição da receita por produto (P3) — cada sub-canal abre o detalhe por tier de cliente"
+      horizonteByMes={horizonteByMes}
+      transicoesMeses={transicoesMeses}
     >
       <SecaoCanal
         canalLabel="Inbound"
@@ -537,9 +599,22 @@ const METRICAS_RECEITA: Array<MetricRampUp> = [
   { label: "Executar", get: (l) => l.executar, fmt: "money", indent: true, help: "Parcela do produto Executar (P3)." },
 ];
 
-function TabelaReceita({ rampUpByMes }: { rampUpByMes: Map<string, LinhaRampUp> }) {
+function TabelaReceita({
+  rampUpByMes,
+  horizonteByMes,
+  transicoesMeses,
+}: {
+  rampUpByMes: Map<string, LinhaRampUp>;
+  horizonteByMes?: Map<string, Horizonte>;
+  transicoesMeses?: Set<string>;
+}) {
   return (
-    <TabelaChrome titulo="Receita" subtitulo="total e por categoria de produto (P3)">
+    <TabelaChrome
+      titulo="Receita"
+      subtitulo="total e por categoria de produto (P3)"
+      horizonteByMes={horizonteByMes}
+      transicoesMeses={transicoesMeses}
+    >
       <tbody>
         {METRICAS_RECEITA.map((m) => (
           <MetricRowRampUp key={m.label} metric={m} byMes={rampUpByMes} />
@@ -560,47 +635,24 @@ const METRICAS_INVESTIMENTO: Array<MetricRampUp> = [
   { label: "Meeting Broker", get: (l) => l.investMb, fmt: "money", indent: true, help: "Investimento alocado em Meeting Broker (P3)." },
 ];
 
-function TabelaInvestimentoTotal({ rampUpByMes }: { rampUpByMes: Map<string, LinhaRampUp> }) {
-  return (
-    <TabelaChrome titulo="Investimento total" subtitulo="total e por fonte de mídia (P3)">
-      <tbody>
-        {METRICAS_INVESTIMENTO.map((m) => (
-          <MetricRowRampUp key={m.label} metric={m} byMes={rampUpByMes} />
-        ))}
-      </tbody>
-    </TabelaChrome>
-  );
-}
-
-// ============================================================
-// Seção 4 — Time necessário
-// ============================================================
-
-function TabelaTime({
+function TabelaInvestimentoTotal({
   rampUpByMes,
-  cargos,
+  horizonteByMes,
+  transicoesMeses,
 }: {
   rampUpByMes: Map<string, LinhaRampUp>;
-  cargos: string[];
+  horizonteByMes?: Map<string, Horizonte>;
+  transicoesMeses?: Set<string>;
 }) {
-  const metricas: MetricRampUp[] = [
-    ...cargos.map((cargo) => ({
-      label: cargo,
-      get: (l: LinhaRampUp) => l.headcount[cargo] ?? 0,
-      fmt: "int" as const,
-      total: "max" as const,
-    })),
-    { label: "HC Total", get: (l) => l.hcTotal, fmt: "int", total: "max", emphasize: true },
-  ];
   return (
     <TabelaChrome
-      titulo="Time necessário"
-      subtitulo="headcount derivado de P17 (wipLimit)"
-      totalLabel="Pico 2026"
-      rodape="HC = ceil(volume_estágio ÷ wipLimit). LDR=leads totais · BDR=leads OB · SDR=SQLs · CLOSER/KAM=won. Coluna “Pico 2026” = HC máximo do ano (estoque, não soma)."
+      titulo="Investimento total"
+      subtitulo="total e por fonte de mídia (P3)"
+      horizonteByMes={horizonteByMes}
+      transicoesMeses={transicoesMeses}
     >
       <tbody>
-        {metricas.map((m) => (
+        {METRICAS_INVESTIMENTO.map((m) => (
           <MetricRowRampUp key={m.label} metric={m} byMes={rampUpByMes} />
         ))}
       </tbody>
@@ -617,14 +669,21 @@ function TabelaChrome({
   subtitulo,
   totalLabel = "Total 2026",
   rodape,
+  horizonteByMes,
+  transicoesMeses,
   children,
 }: {
   titulo: string;
   subtitulo?: string;
   totalLabel?: string;
   rodape?: string;
+  /** Horizonte efetivo por mês — quando definido, exibe badge sob o nome do mês. */
+  horizonteByMes?: Map<string, Horizonte>;
+  /** Conjunto de meses onde houve transição de horizonte — recebem borda accent. */
+  transicoesMeses?: Set<string>;
   children: React.ReactNode;
 }) {
+  const showH = horizonteByMes !== undefined;
   return (
     // Sem overflow-x-auto interno: o scroll horizontal sobe pra <main> e o
     // sticky top do thead consegue se ancorar no scroll vertical da página.
@@ -641,28 +700,54 @@ function TabelaChrome({
       <table className="text-sm border-collapse table-fixed" style={{ width: "max-content" }}>
         <colgroup>
           <col style={{ width: W_LABEL }} />
-          {MESES.map((m) => (
-            <col key={m} style={{ width: W_MES }} />
-          ))}
+          {MESES.map((m) => {
+            const isTransition = transicoesMeses?.has(m) ?? false;
+            return (
+              <col
+                key={m}
+                style={{ width: W_MES }}
+                className={isTransition ? "border-l-2 border-l-accent" : undefined}
+              />
+            );
+          })}
           <col style={{ width: W_TOTAL }} />
         </colgroup>
         <thead>
           <tr>
             {/* Corner cell — sticky em ambos os eixos, z-index mais alto pra cobrir
                 tudo na interseção. */}
-            <th className="sticky top-0 left-0 z-50 bg-table-header text-table-header-foreground px-3 py-2 text-left text-[10px] uppercase tracking-wider border-r border-border">
-              Métrica
-            </th>
-            {MESES.map((mes) => (
-              <th
-                key={mes}
-                className="sticky top-0 z-40 bg-table-header text-table-header-foreground h-9 font-medium px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums"
-                title={formatMesPt(mes)}
-              >
-                {mesCurto(mes)}
-              </th>
-            ))}
-            <th className="sticky top-0 z-40 bg-accent/15 text-accent h-9 px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border">
+            <th className="sticky top-0 left-0 z-50 bg-table-header text-table-header-foreground px-3 py-2 text-left text-[10px] uppercase tracking-wider border-r border-border"></th>
+            {MESES.map((mes) => {
+              const h = horizonteByMes?.get(mes);
+              const isTransition = transicoesMeses?.has(mes) ?? false;
+              return (
+                <th
+                  key={mes}
+                  className={`sticky top-0 z-40 bg-table-header text-table-header-foreground h-auto font-medium px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums ${
+                    isTransition ? "border-l-2 border-l-accent" : ""
+                  }`}
+                  title={
+                    h
+                      ? `${formatMesPt(mes)} — premissas aplicadas: ${h}`
+                      : formatMesPt(mes)
+                  }
+                >
+                  <div className="flex flex-col items-end leading-tight">
+                    <span>{mesCurto(mes)}</span>
+                    {showH && h && (
+                      <span
+                        className={`text-[9px] font-semibold mt-0.5 ${
+                          isTransition ? "text-accent" : "text-muted-foreground/70"
+                        }`}
+                      >
+                        {h}
+                      </span>
+                    )}
+                  </div>
+                </th>
+              );
+            })}
+            <th className="sticky top-0 z-40 bg-accent/15 text-accent h-auto px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border">
               {totalLabel}
             </th>
           </tr>

@@ -101,17 +101,52 @@ export type LinhaRealizadoProjetado = {
   /**
    * Forecast mês-a-mês (rolling):
    * - meses **fechados**: igual ao realizado (o número efetivo é o próprio forecast).
-   * - meses **futuros**: projetados a partir do mês-base (o fechado mais recente
-   *   com faturamento) capitalizando à taxa fixa do horizonte atual —
-   *   base × (1 + crescMensalPct/100)^n.
+   * - meses **futuros**: projetados mês a mês a partir do mês-base capitalizando
+   *   à taxa do horizonte efetivo do mês anterior (promoção automática quando o
+   *   patamar do mês ultrapassa `faixaMax`).
    * - 0 quando não há nenhum mês fechado preenchido (sem base pra projetar).
    */
   projetado: number;
   /** True para meses futuros (depois do último mês fechado). */
   isProjetado: boolean;
-  /** Horizonte usado para projetar o mês futuro. Null em meses fechados ou sem base. */
+  /**
+   * Horizonte efetivo do mês — o patamar em que o faturamento daquele mês cai
+   * (`faixaMin ≤ valor ≤ faixaMax`), respeitando o piso `horizonteAtual`. Define
+   * as premissas aplicáveis (splits, pcts, mix, taxa de crescimento). Null em
+   * meses anteriores à âncora ou quando não há base pra calcular.
+   */
   horizonteAplicado: Horizonte | null;
 };
+
+const HORIZONTE_ORDER = ["H1", "H2", "H3", "H4", "H5"] as const;
+
+/**
+ * Determina o horizonte efetivo de um patamar de faturamento.
+ *
+ * Regra: o menor horizonte H tal que `valor ≤ faixaMax(H)`, respeitando o piso
+ * `minHorizonte` (a unidade nunca regride pra baixo do horizonte cadastrado).
+ * Quando o valor passa do teto de H5 (`faixaMax = null`), continua em H5.
+ *
+ * Exemplo: minHorizonte=H1, valor=200_000 → H3 (porque 200k > faixaMax(H2)=150k
+ * mas ≤ faixaMax(H3)=450k).
+ */
+export function horizonteEfetivo(
+  valor: number,
+  horizontes: HorizonteCrescimento[],
+  minHorizonte: Horizonte,
+): Horizonte {
+  const byH = new Map(horizontes.map((h) => [h.h, h] as const));
+  const minIdx = HORIZONTE_ORDER.indexOf(minHorizonte);
+  for (let i = Math.max(0, minIdx); i < HORIZONTE_ORDER.length; i++) {
+    const h = HORIZONTE_ORDER[i];
+    const config = byH.get(h);
+    if (!config) continue;
+    // H5 tem faixaMax=null → topo, qualquer valor cabe.
+    if (config.faixaMax === null) return h;
+    if (valor <= config.faixaMax) return h;
+  }
+  return HORIZONTE_ORDER[HORIZONTE_ORDER.length - 1];
+}
 
 /**
  * Determina o mês-âncora da unidade dentro do ano modelado.
@@ -162,15 +197,20 @@ export function getMesBaseForecast(
 /**
  * Monta a tabela mês-a-mês de forecast (rolling) para o ano modelado.
  *
- * Regra:
- * - **Mês-base** = mês fechado mais recente com faturamento (ver
- *   `getMesBaseForecast`). A projeção dos meses futuros parte dele.
- * - **Taxa** = `crescMensalPct` do horizonte atual da unidade (P1). Fixa o ano
- *   inteiro — não troca quando ultrapassa `faixaMax`.
- * - Meses **fechados** (≥ mês de início da unidade): `projetado = realizado`,
- *   pois o número efetivo é o próprio forecast realizado.
- * - Meses **futuros**: `projetado = base × (1 + taxa/100)^n`, onde n é a
- *   distância em meses até o mês-base.
+ * Regra de promoção (importante):
+ * - O `horizonteAplicado` de um mês é o horizonte vivo no INÍCIO dele — ou
+ *   seja, herdado do mês anterior. Quando um mês fechado ultrapassa
+ *   `faixaMax`, a promoção vale a partir do mês SEGUINTE (não retroage no
+ *   próprio mês que cruzou a faixa).
+ * - Exemplo: unidade H1 (faixaMax 60k). Maio fecha em 61k → maio é exibido
+ *   como H1 (a unidade viveu maio em H1); junho já entra em H2 e aplica as
+ *   premissas de H2 (taxa, splits, mix, pct produção).
+ *
+ * Demais regras:
+ * - **Mês-base** = mês fechado mais recente com faturamento. Projeções partem
+ *   dele capitalizando mês a mês pela taxa do horizonte vivo no início de cada
+ *   mês futuro.
+ * - Meses **fechados** (≥ mês de início da unidade): `projetado = realizado`.
  * - Meses **antes** do início da unidade ficam zerados.
  * - Sem nenhum mês fechado preenchido, não há base → tudo zerado.
  */
@@ -184,19 +224,25 @@ export function calcularRealizadoVsProjetado(
   for (const r of realizadoMensal) realizadoByMes.set(r.mes, r);
 
   const mesAncora = getMesAncora(opts.dataInicio);
-  const horizonte =
-    horizontes.find((h) => h.h === horizonteAtual) ??
-    horizontes[horizontes.length - 1];
-  const taxa = horizonte?.crescMensalPct ?? 0;
+  const horizontesByH = new Map(horizontes.map((h) => [h.h, h] as const));
   const ultimoMesFechado = getUltimoMesFechado();
 
   const mesBase = getMesBaseForecast(realizadoMensal, opts);
   const valorBase = mesBase
     ? realizadoByMes.get(mesBase)?.faturamento ?? 0
     : 0;
-  const idxBase = mesBase
-    ? (MESES_ANO_2026 as readonly string[]).indexOf(mesBase)
-    : -1;
+
+  // `horizonteVivo` = patamar conquistado pela unidade, atualizado APÓS cada
+  // mês que cruza `faixaMax`. Começa no horizonte cadastrado (piso); só sobe.
+  let horizonteVivo: Horizonte = horizonteAtual;
+  // `valor` = último faturamento vivo da curva interna; capitaliza mês a mês
+  // mesmo quando o mês corrente é fechado-sem-dado (preserva a aritmética).
+  let valor = 0;
+  const promover = (v: number) => {
+    if (v <= 0) return;
+    const novoH = horizonteEfetivo(v, horizontes, horizonteAtual);
+    if (idxHorizonte(novoH) > idxHorizonte(horizonteVivo)) horizonteVivo = novoH;
+  };
 
   const linhas: LinhaRealizadoProjetado[] = [];
   for (const mes of MESES_ANO_2026) {
@@ -204,7 +250,7 @@ export function calcularRealizadoVsProjetado(
     const isAntesDaAncora = mes < mesAncora;
     const isMesFechado = mes <= ultimoMesFechado;
 
-    if (isAntesDaAncora) {
+    if (isAntesDaAncora || !mesBase) {
       linhas.push({
         mes,
         realizado: 0,
@@ -215,40 +261,69 @@ export function calcularRealizadoVsProjetado(
       continue;
     }
 
-    if (isMesFechado) {
-      // Mês fechado: o forecast é o próprio realizado.
+    if (mes < mesBase) {
+      // Antes do mês-base: mostra realizado. O horizonte exibido é o vivo no
+      // início do mês (=horizonteVivo antes da promoção causada por este mês).
       linhas.push({
         mes,
         realizado,
         projetado: realizado,
+        isProjetado: false,
+        horizonteAplicado: realizado > 0 ? horizonteVivo : null,
+      });
+      if (realizado > 0) {
+        valor = realizado;
+        promover(realizado); // promove pro próximo mês.
+      }
+      continue;
+    }
+
+    if (mes === mesBase) {
+      valor = valorBase;
+      linhas.push({
+        mes,
+        realizado: valorBase,
+        projetado: valorBase,
+        isProjetado: false,
+        horizonteAplicado: horizonteVivo,
+      });
+      promover(valorBase);
+      continue;
+    }
+
+    // mes > mesBase — capitaliza com a taxa do horizonte vivo no início do
+    // mês. Se o mês ANTERIOR cruzou faixaMax, este mês já cresce na taxa nova.
+    const taxa = horizontesByH.get(horizonteVivo)?.crescMensalPct ?? 0;
+    valor = Math.round(valor * (1 + taxa / 100));
+
+    if (isMesFechado) {
+      // Fechado sem dado (post-base, fat=0). Mantém valor virtual silencioso.
+      linhas.push({
+        mes,
+        realizado: 0,
+        projetado: 0,
         isProjetado: false,
         horizonteAplicado: null,
       });
       continue;
     }
 
-    // Mês futuro: capitaliza a partir do mês-base pela taxa do horizonte.
-    if (mesBase) {
-      const n = (MESES_ANO_2026 as readonly string[]).indexOf(mes) - idxBase;
-      linhas.push({
-        mes,
-        realizado,
-        projetado: Math.round(valorBase * Math.pow(1 + taxa / 100, n)),
-        isProjetado: true,
-        horizonteAplicado: horizonteAtual,
-      });
-    } else {
-      linhas.push({
-        mes,
-        realizado,
-        projetado: 0,
-        isProjetado: true,
-        horizonteAplicado: null,
-      });
-    }
+    // Futuro: o horizonte do mês é o vivo no início; promoção acontece DEPOIS.
+    linhas.push({
+      mes,
+      realizado,
+      projetado: valor,
+      isProjetado: true,
+      horizonteAplicado: horizonteVivo,
+    });
+    promover(valor);
   }
 
   return linhas;
+}
+
+function idxHorizonte(h: Horizonte): number {
+  return HORIZONTE_ORDER.indexOf(h as (typeof HORIZONTE_ORDER)[number]);
 }
 
 /**

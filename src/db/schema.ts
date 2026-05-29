@@ -480,3 +480,49 @@ export const premissaMeetingBroker = pgTable(
   },
   (table) => [uniqueIndex("idx_prem_meeting_broker_unique").on(table.premissaId)],
 );
+
+// ============================================================
+// realizado_funil — Fase /bowtie (input do realizado do funil)
+//
+// Uma linha por célula (organizationId × mes × subcanal × tier). Substitui o
+// futuro pull de sistema externo. Granularidade casa 1-pra-1 com a projeção
+// de calcularPorSubCanalPorTier — assim os filtros do /bowtie agregam projetado
+// e realizado pelo mesmo eixo.
+//
+// `subcanal` é varchar livre (em vez dos enums separados inbound/outbound) pra
+// caber as 8 chaves de SUB_CANAIS num único campo: lead_broker, black_box,
+// meeting_broker, out_indicacao, out_eventos, out_recovery, out_recomendacao,
+// out_prospeccao.
+// ============================================================
+
+export const realizadoFunil = pgTable(
+  "realizado_funil",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    mes: varchar("mes", { length: 7 }).notNull(),
+    subcanal: varchar("subcanal", { length: 40 }).notNull(),
+    tier: tierEnum("tier").notNull(),
+    leads: doublePrecision("leads").notNull().default(0),
+    mql: doublePrecision("mql").notNull().default(0),
+    sql: doublePrecision("sql").notNull().default(0),
+    sal: doublePrecision("sal").notNull().default(0),
+    won: doublePrecision("won").notNull().default(0),
+    faturamento: doublePrecision("faturamento").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_realizado_funil_unique").on(
+      table.organizationId,
+      table.mes,
+      table.subcanal,
+      table.tier,
+    ),
+    index("idx_realizado_funil_org_mes").on(table.organizationId, table.mes),
+  ],
+);
+
+export type RealizadoFunilRow = typeof realizadoFunil.$inferSelect;
+export type NewRealizadoFunilRow = typeof realizadoFunil.$inferInsert;

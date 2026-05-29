@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { CurrencyCell, NullableCurrencyCell, PercentCell } from "@/components/premissas/editable-cell";
-import { formatBRL } from "@/components/premissas/format";
+import { formatBRL, formatPercent } from "@/components/premissas/format";
 import { FieldHelp } from "@/components/ui/field-help";
 import { WizardFooter } from "./wizard-footer";
 import type { ReceitaProduto, TierCliente } from "@/lib/premissas/matriz-defaults";
@@ -26,6 +26,10 @@ function tcvPond(p: ReceitaProduto): number {
   );
 }
 
+function somaAdesao(p: ReceitaProduto): number {
+  return p.saberPct + p.terPct + p.execPct;
+}
+
 export function StepTiersReceita({
   organizationId,
   initialProdutos,
@@ -41,12 +45,24 @@ export function StepTiersReceita({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Invariante P3: Saber% + Ter% + Executar% deve somar 100% em cada tier.
+  const linhasInvalidas = produtos.filter((r) => Math.abs(somaAdesao(r) - 100) > 0.5);
+  const podeSalvar = linhasInvalidas.length === 0;
+
   function patchProduto<K extends keyof ReceitaProduto>(idx: number, k: K, v: ReceitaProduto[K]) {
     setProdutos((prev) => prev.map((r, i) => (i === idx ? { ...r, [k]: v } : r)));
   }
 
   async function handleContinue() {
     if (saving) return;
+    if (!podeSalvar) {
+      setError(
+        `Adesão por produto deve somar 100% em cada tier. Ajuste: ${linhasInvalidas
+          .map((r) => `${r.tier} (${somaAdesao(r).toFixed(0)}%)`)
+          .join(", ")}.`,
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -250,6 +266,12 @@ export function StepTiersReceita({
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
+                    Soma %
+                    <FieldHelp text="Soma de Saber% + Ter% + Executar% no tier. Deve totalizar 100%." position="bottom" />
+                  </span>
+                </th>
+                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
+                  <span className="inline-flex items-center gap-1 justify-end">
                     TCV Pond.
                     <FieldHelp text="TCV Ponderado: (Saber% × Saber AT) + (Ter% × Ter AT) + (Executar% × Executar AT). Calculado automaticamente." position="bottom" />
                   </span>
@@ -257,38 +279,57 @@ export function StepTiersReceita({
               </tr>
             </thead>
             <tbody>
-              {produtos.map((r, idx) => (
-                <tr
-                  key={r.tier}
-                  className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-                >
-                  <td className="px-2 py-2 text-xs font-medium text-accent">{r.tier}</td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <PercentCell isEditing value={r.saberPct} matrizValue={matrizProdutos[idx]?.saberPct} onChange={(v) => patchProduto(idx, "saberPct", v)} digits={0} lockableZero />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell isEditing value={r.saberAt} matrizValue={matrizProdutos[idx]?.saberAt} onChange={(v) => patchProduto(idx, "saberAt", v)} lockableZero />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <PercentCell isEditing value={r.terPct} matrizValue={matrizProdutos[idx]?.terPct} onChange={(v) => patchProduto(idx, "terPct", v)} digits={0} lockableZero />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell isEditing value={r.terAt} matrizValue={matrizProdutos[idx]?.terAt} onChange={(v) => patchProduto(idx, "terAt", v)} lockableZero />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <PercentCell isEditing value={r.execPct} matrizValue={matrizProdutos[idx]?.execPct} onChange={(v) => patchProduto(idx, "execPct", v)} digits={0} lockableZero />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell isEditing value={r.execAt} matrizValue={matrizProdutos[idx]?.execAt} onChange={(v) => patchProduto(idx, "execAt", v)} lockableZero />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right tabular-nums font-medium text-success">
-                    {formatBRL(tcvPond(r))}
-                  </td>
-                </tr>
-              ))}
+              {produtos.map((r, idx) => {
+                const soma = somaAdesao(r);
+                const somaOk = Math.abs(soma - 100) < 0.5;
+                return (
+                  <tr
+                    key={r.tier}
+                    className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
+                  >
+                    <td className="px-2 py-2 text-xs font-medium text-accent">{r.tier}</td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <PercentCell isEditing value={r.saberPct} matrizValue={matrizProdutos[idx]?.saberPct} onChange={(v) => patchProduto(idx, "saberPct", v)} digits={0} lockableZero />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell isEditing value={r.saberAt} matrizValue={matrizProdutos[idx]?.saberAt} onChange={(v) => patchProduto(idx, "saberAt", v)} lockableZero />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <PercentCell isEditing value={r.terPct} matrizValue={matrizProdutos[idx]?.terPct} onChange={(v) => patchProduto(idx, "terPct", v)} digits={0} lockableZero />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell isEditing value={r.terAt} matrizValue={matrizProdutos[idx]?.terAt} onChange={(v) => patchProduto(idx, "terAt", v)} lockableZero />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <PercentCell isEditing value={r.execPct} matrizValue={matrizProdutos[idx]?.execPct} onChange={(v) => patchProduto(idx, "execPct", v)} digits={0} lockableZero />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell isEditing value={r.execAt} matrizValue={matrizProdutos[idx]?.execAt} onChange={(v) => patchProduto(idx, "execAt", v)} lockableZero />
+                    </td>
+                    <td
+                      className={`px-2 py-2 text-xs text-right tabular-nums font-medium ${
+                        somaOk ? "text-success" : "text-destructive"
+                      }`}
+                      title={somaOk ? undefined : `Soma deve ser 100% — atual ${soma.toFixed(0)}%.`}
+                    >
+                      {formatPercent(soma, 0)}
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right tabular-nums font-medium text-success">
+                      {formatBRL(tcvPond(r))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+        {!podeSalvar && (
+          <div className="px-4 py-2 text-[11px] text-destructive border-t border-border bg-destructive/5">
+            A adesão por produto deve somar 100% em cada tier. Ajuste antes de continuar: {linhasInvalidas
+              .map((r) => `${r.tier} (${somaAdesao(r).toFixed(0)}%)`)
+              .join(", ")}.
+          </div>
+        )}
       </section>
 
       <WizardFooter

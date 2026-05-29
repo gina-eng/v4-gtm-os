@@ -13,7 +13,9 @@ import {
   PanelLeft,
   SlidersHorizontal,
   Target,
+  UserCog,
   Users,
+  Workflow,
 } from "lucide-react";
 import { V4Logo } from "@/design-system/components/V4Logo";
 import { useSession } from "@/lib/auth/auth-context";
@@ -29,6 +31,8 @@ type NavItem = {
 const navItems: NavItem[] = [
   { href: "/", label: "Início", icon: LayoutDashboard },
   { href: "/realizado", label: "Forecast", icon: LineChart },
+  { href: "/bowtie", label: "Funil Bowtie", icon: Workflow },
+  { href: "/time-comercial", label: "Time Comercial", icon: UserCog },
   { href: "/unidades", label: "Unidades", icon: Building2 },
   { href: "/usuarios", label: "Usuários", icon: Users },
   { href: "/premissas", label: "Premissas", icon: SlidersHorizontal },

@@ -99,9 +99,7 @@ export function ResumoTable({ resumo, title, subtitle }: Props) {
         </colgroup>
         <thead>
           <tr>
-            <th className="sticky left-0 z-30 bg-table-header text-table-header-foreground px-3 py-2 text-left text-[10px] uppercase tracking-wider border-r border-border">
-              Métrica
-            </th>
+            <th className="sticky left-0 z-30 bg-table-header text-table-header-foreground px-3 py-2 text-left text-[10px] uppercase tracking-wider border-r border-border"></th>
             {MESES.map((mes) => (
               <th
                 key={mes}

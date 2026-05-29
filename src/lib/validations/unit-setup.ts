@@ -112,9 +112,26 @@ export const receitaProdutoSchema = z.object({
   execAt: z.number().min(0),
 });
 
+/** Em cada tier, Saber% + Ter% + Executar% deve totalizar 100% (tolerância 0.5). */
+export const receitaProdutoArraySchema = z
+  .array(receitaProdutoSchema)
+  .min(1)
+  .superRefine((arr, ctx) => {
+    arr.forEach((row, i) => {
+      const total = row.saberPct + row.terPct + row.execPct;
+      if (Math.abs(total - 100) > 0.5) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Adesão de produtos do tier ${row.tier} soma ${total.toFixed(1)}% — deve totalizar 100%.`,
+          path: [i],
+        });
+      }
+    });
+  });
+
 export const tiersReceitaSchema = z.object({
   tiers: z.array(tierClienteSchema).min(1),
-  produtos: z.array(receitaProdutoSchema).min(1),
+  produtos: receitaProdutoArraySchema,
 });
 
 // ============================================================

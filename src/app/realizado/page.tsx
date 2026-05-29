@@ -66,7 +66,6 @@ export default async function RealizadoPage() {
         linhasRampUp={agregarRampUpMatriz(rampUpUnidades)}
         linhasSubCanal={agregarPorSubCanalMatriz(subCanalUnidades)}
         linhasSubCanalTier={agregarPorSubCanalPorTierMatriz(subCanalTierUnidades)}
-        cargos={matrizBlocks.metricasOperacionais.map((m) => m.cargo)}
       />
     );
   }
@@ -93,10 +92,11 @@ export default async function RealizadoPage() {
       linhasRampUp={calcularRampUp(blocks, unitOrg.horizonteAtual, curvaOpts)}
       linhasSubCanal={calcularPorSubCanal(blocks, unitOrg.horizonteAtual, curvaOpts)}
       linhasSubCanalTier={calcularPorSubCanalPorTier(blocks, unitOrg.horizonteAtual, curvaOpts)}
-      cargos={blocks.metricasOperacionais.map((m) => m.cargo)}
       investimentoMidia={blocks.investimentoMidia}
       investimentoMensal={blocks.investimentoMensal}
       matrizInvestimentoMidia={matrizBlocks.investimentoMidia}
+      realizadoHistorico={realizado}
+      dataInicio={unitOrg.dataInicio}
     />
   );
 }

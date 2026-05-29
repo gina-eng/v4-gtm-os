@@ -98,7 +98,7 @@ function UnitHome({
             href="/iniciar/resumo"
             className="inline-flex items-center gap-1.5 h-9 px-3 rounded text-sm border border-border hover:bg-muted"
           >
-            Ver resumo
+            Revisar o preenchimento
           </Link>
         </section>
 

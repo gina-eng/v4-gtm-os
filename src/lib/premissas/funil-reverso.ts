@@ -26,8 +26,18 @@ import type { PremissasBlocks } from "@/db/repositories/premissas";
 import {
   calcularRealizadoVsProjetado,
   getMesAncora,
+  horizonteEfetivo,
   MESES_ANO_2026,
 } from "@/lib/realizado/projecao";
+
+/**
+ * Resolve o mês-âncora dentro de 2026. Meses antes desse marco ficam fora da
+ * operação da unidade — premissas (incluindo headcount) não devem ser
+ * computadas neles, ainda que existam overrides residuais em P6.
+ */
+function ancoraDeUnidade(opts: CurvaOpts): string {
+  return getMesAncora(opts.dataInicio);
+}
 
 const TIER_ORDER: Tier[] = ["Tiny", "Small", "Medium", "Large", "Enterprise"];
 
@@ -62,7 +72,11 @@ export type LinhaTarget = {
   /** Mês ISO `"2026-01" .. "2026-12"`. */
   mes: string;
   target: number;
-  /** Horizonte aplicado — sempre o horizonteAtual da unidade (fixo no ano). */
+  /**
+   * Horizonte efetivo do mês — promovido automaticamente quando a unidade
+   * ultrapassa `faixaMax` (não regride pra baixo do `horizonteAtual` da
+   * unidade). Todas as premissas dependentes (P6, P4, P16, P1) usam esse.
+   */
   horizonte: Horizonte;
   /** True se o mês já está fechado (vem do realizado, não da projeção). */
   isFechado: boolean;
@@ -94,23 +108,51 @@ export function calcularCurvaTarget(
     return linhas.map((l) => ({
       mes: l.mes,
       target: l.projetado,
-      horizonte: horizonteAtual,
+      // `horizonteAplicado` já vem promovido quando o patamar ultrapassa faixaMax;
+      // fallback no horizonteAtual pra meses sem base (antes da âncora etc.).
+      horizonte: l.horizonteAplicado ?? horizonteAtual,
       isFechado: !l.isProjetado,
     }));
   }
-  // Fallback: planejamento sem realizado ainda → faixaMin do horizonteAtual.
+  // Fallback: planejamento sem realizado ainda → faixaMin do horizonteAtual,
+  // capitalizando mês a mês. Promoção segue a mesma regra de
+  // `calcularRealizadoVsProjetado`: o horizonte exibido é o vivo no início do
+  // mês; cruzar faixaMax promove pro próximo mês, não pra o próprio.
   const h = horizontes.find((x) => x.h === horizonteAtual);
   const ancora = h?.faixaMin ?? 0;
-  const taxa = h?.crescMensalPct ?? 0;
+  const horizontesByH = new Map(horizontes.map((c) => [c.h, c] as const));
   const mesAncora = getMesAncora(opts.dataInicio);
+  const HORIZONTE_ORDER: Horizonte[] = ["H1", "H2", "H3", "H4", "H5"];
+  const idxH = (x: Horizonte) => HORIZONTE_ORDER.indexOf(x);
   const meses = MESES_ANO_2026 as readonly string[];
   const idxAnc = meses.indexOf(mesAncora);
-  return meses.map((mes, idx) => ({
-    mes,
-    target: idx < idxAnc ? 0 : Math.round(ancora * Math.pow(1 + taxa / 100, idx - idxAnc)),
-    horizonte: horizonteAtual,
-    isFechado: false,
-  }));
+  const out: LinhaTarget[] = [];
+  let valorAnterior = 0;
+  let horizonteVivo: Horizonte = horizonteAtual;
+  for (let idx = 0; idx < meses.length; idx++) {
+    const mes = meses[idx];
+    if (idx < idxAnc) {
+      out.push({ mes, target: 0, horizonte: horizonteAtual, isFechado: false });
+      continue;
+    }
+    let valor: number;
+    if (idx === idxAnc) {
+      valor = ancora;
+    } else {
+      const taxa = horizontesByH.get(horizonteVivo)?.crescMensalPct ?? 0;
+      valor = Math.round(valorAnterior * (1 + taxa / 100));
+    }
+    valorAnterior = valor;
+    out.push({
+      mes,
+      target: valor,
+      horizonte: horizonteVivo,
+      isFechado: false,
+    });
+    const novoH = horizonteEfetivo(valor, horizontes, horizonteAtual);
+    if (idxH(novoH) > idxH(horizonteVivo)) horizonteVivo = novoH;
+  }
+  return out;
 }
 
 // ============================================================
@@ -161,15 +203,18 @@ function convOutbound(c: ConversaoOutbound | undefined): number {
 }
 
 /**
- * Calcula o detalhe mês × tier × canal a partir das premissas da entidade e do
- * horizonteAtual da unidade. Mesma lógica para meses fechados e futuros — o que
- * muda é a origem do target (realizado vs. projeção), via `calcularCurvaTarget`.
+ * Calcula o detalhe mês × tier × canal a partir das premissas da entidade.
  *
- * Como o horizonte é fixo no ano, P4 (distSplit), P16 (mix outbound) e os
- * splits de P6 (splitLb/splitBb/bbPiso) são calculados uma única vez. O
- * investimento total mensal vem do override em `investimentoMensal` (R$
- * absoluto digitado pelo usuário); quando o mês não tem override, cai em
- * `target × pctProducao do horizonte` como fallback.
+ * O horizonte é **efetivo por mês** (ver `calcularCurvaTarget`): se a unidade
+ * ultrapassa `faixaMax` em algum mês fechado, os meses seguintes já operam no
+ * horizonte de cima. P4 (distSplit), P16 (mix outbound), P6 (splitLb/splitBb/
+ * pctProducao) são reavaliados por horizonte em cada mês.
+ *
+ * Investimento total mensal:
+ * - Meses **fechados**: prioriza `realizadoHistorico.investido` (o que a
+ *   unidade efetivamente gastou); cai em override ou fallback se ainda 0.
+ * - Meses **futuros**: override em `investimentoMensal` (R$ absoluto) tem
+ *   precedência sobre o fallback `target × pctProducao` do horizonte do mês.
  */
 export function calcularCanalTier(
   blocks: PremissasBlocks,
@@ -178,9 +223,47 @@ export function calcularCanalTier(
 ): LinhaCanalTier[] {
   const curva = calcularCurvaTarget(blocks.horizontes, horizonteAtual, opts);
 
-  const p6 = blocks.investimentoMidia.find((i) => i.h === horizonteAtual);
-  const pcts = blocks.distSplit.find((s) => s.h === horizonteAtual)?.pcts ?? {};
-  const mix = blocks.mixSubcanais.find((m) => m.h === horizonteAtual);
+  // Caches por horizonte — montados sob demanda à medida que cada mês exige
+  // um patamar diferente. Em ano sem promoção, vira efetivamente uma entrada.
+  type PerHorizonte = {
+    p6: ReturnType<PremissasBlocks["investimentoMidia"]["find"]>;
+    pcts: Record<string, number>;
+    mix: ReturnType<PremissasBlocks["mixSubcanais"]["find"]>;
+    splitLb: number;
+    splitBb: number;
+    bbOn: boolean;
+    somaSplit: number;
+    enterpriseAtivo: boolean;
+    pctProducaoFallback: number;
+  };
+  const perH = new Map<Horizonte, PerHorizonte>();
+  const getPerH = (h: Horizonte): PerHorizonte => {
+    const cached = perH.get(h);
+    if (cached) return cached;
+    const p6 = blocks.investimentoMidia.find((i) => i.h === h);
+    const pcts = blocks.distSplit.find((s) => s.h === h)?.pcts ?? {};
+    const mix = blocks.mixSubcanais.find((m) => m.h === h);
+    const splitLb = p6?.splitLb ?? 100;
+    const splitBb = p6?.splitBb ?? 0;
+    const bbOn = splitBb > 0 && (p6?.bbPiso ?? 0) > 0;
+    const somaSplit = bbOn ? splitLb + splitBb : splitLb || 1;
+    const enterpriseAtivo = (pcts.Enterprise ?? 0) > 0;
+    const pctProducaoFallback = (p6?.pctProducao ?? 0) / 100;
+    const value: PerHorizonte = {
+      p6,
+      pcts,
+      mix,
+      splitLb,
+      splitBb,
+      bbOn,
+      somaSplit,
+      enterpriseAtivo,
+      pctProducaoFallback,
+    };
+    perH.set(h, value);
+    return value;
+  };
+
   const tierInfo = byTier(blocks.tiersCliente);
   const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
   const bbByTier = byTier(blocks.conversoesInbound.blackBox);
@@ -189,19 +272,30 @@ export function calcularCanalTier(
   );
   const mb = blocks.conversoesInbound.meetingBroker;
 
-  const splitLb = p6?.splitLb ?? 100;
-  const splitBb = p6?.splitBb ?? 0;
-  const bbOn = splitBb > 0 && (p6?.bbPiso ?? 0) > 0;
-  const somaSplit = bbOn ? splitLb + splitBb : splitLb || 1;
-  const enterpriseAtivo = (pcts.Enterprise ?? 0) > 0;
-  // Fallback do horizonte; cada mês pode sobrescrever via investimentoMensal
-  // (valor absoluto em R$). Quando o mês não tem override, usa target × pct.
-  const pctProducaoFallback = (p6?.pctProducao ?? 0) / 100;
+  // Investimento real declarado no setup (meses fechados); override manual
+  // (`investimentoMensal`) só se aplica a meses futuros — em fechado, o que
+  // valeu foi o que efetivamente foi gasto.
+  const investidoRealByMes = new Map<string, number>(
+    (opts.realizadoHistorico ?? []).map((r) => [r.mes, r.investido] as const),
+  );
   const investByMes = new Map<string, number>(
     blocks.investimentoMensal.map((p) => [p.mes, p.investimento] as const),
   );
+  // Outbound proativo: volume mensal de leads = soma da capacidadePct/100 das
+  // pessoas com cargo BDR × wipLimit de BDR (P17). Pra meses fechados, prefere
+  // `realizado.leadsOb` (o que o time efetivamente gerou).
+  const bdrMetric = blocks.metricasOperacionais.find(
+    (m) => m.cargo.toUpperCase() === "BDR",
+  );
+  const wipBdr = bdrMetric?.wipLimit ?? 0;
+  const capacidadeBdrMensal = blocks.timeComercial
+    .filter((m) => m.cargo.toUpperCase() === "BDR")
+    .reduce((acc, m) => acc + ((m.capacidadePct ?? 0) / 100) * wipBdr, 0);
+  const leadsObRealByMes = new Map<string, number>(
+    (opts.realizadoHistorico ?? []).map((r) => [r.mes, r.leadsOb] as const),
+  );
 
-  const convOutPonderada = (tier: Tier): number => {
+  const convOutPonderada = (tier: Tier, mix: PerHorizonte["mix"]): number => {
     if (!mix) return 0;
     let acc = 0;
     for (const s of SUBCANAIS_OUTBOUND) {
@@ -214,19 +308,26 @@ export function calcularCanalTier(
 
   const linhas: LinhaCanalTier[] = [];
 
-  for (const { mes, target } of curva) {
+  for (const { mes, target, horizonte, isFechado } of curva) {
+    const ctx = getPerH(horizonte);
+    // Prioridade: realizado > override > fallback. Em meses fechados, só usa
+    // override/fallback se a unidade ainda não declarou investido > 0.
+    const investidoReal = isFechado ? investidoRealByMes.get(mes) ?? 0 : 0;
     const override = investByMes.get(mes);
-    const investTotal = override ?? target * pctProducaoFallback;
-    const mbBudgetMes = enterpriseAtivo ? investTotal * (MB_BUDGET_PCT / 100) : 0;
+    const investTotal =
+      investidoReal > 0
+        ? investidoReal
+        : override ?? target * ctx.pctProducaoFallback;
+    const mbBudgetMes = ctx.enterpriseAtivo ? investTotal * (MB_BUDGET_PCT / 100) : 0;
     const mediaBudget = investTotal - mbBudgetMes;
-    const lbBudgetMes = bbOn ? mediaBudget * (splitLb / somaSplit) : mediaBudget;
-    const bbBudgetMes = bbOn ? mediaBudget * (splitBb / somaSplit) : 0;
+    const lbBudgetMes = ctx.bbOn ? mediaBudget * (ctx.splitLb / ctx.somaSplit) : mediaBudget;
+    const bbBudgetMes = ctx.bbOn ? mediaBudget * (ctx.splitBb / ctx.somaSplit) : 0;
 
     // Inbound por tier → acumula receita inbound do mês.
     const porTier: Array<{ tier: Tier; lb: CanalValores; bb: CanalValores; mb: CanalValores }> = [];
     let recInboundMes = 0;
     for (const tier of TIER_ORDER) {
-      const share = (pcts[tier] ?? 0) / 100;
+      const share = (ctx.pcts[tier] ?? 0) / 100;
       if (share <= 0) continue;
       const info = tierInfo.get(tier);
       const tcv = info?.tcvProdCom ?? 0;
@@ -256,25 +357,30 @@ export function calcularCanalTier(
       porTier.push({ tier, lb, bb, mb: mbCanal });
     }
 
-    // Outbound = resíduo do target, distribuído por tier (split P4).
-    const recOutboundMes = Math.max(0, target - recInboundMes);
+    // Outbound proativo: volume de leads OB = capacidade do time BDR (ou
+    // realizado.leadsOb pra meses fechados). NÃO é resíduo do target — a
+    // receita total (inbound + outbound) pode ficar acima ou abaixo do target.
+    // Em meses antes da operação (target=0), zera também — sem time atuando.
+    const leadsObReal = isFechado ? leadsObRealByMes.get(mes) ?? 0 : 0;
+    const leadsObTotalMes =
+      leadsObReal > 0 ? leadsObReal : target > 0 ? capacidadeBdrMensal : 0;
 
     for (const linha of porTier) {
-      const share = (pcts[linha.tier] ?? 0) / 100;
+      const share = (ctx.pcts[linha.tier] ?? 0) / 100;
       const info = tierInfo.get(linha.tier);
       const tcv = info?.tcvProdCom ?? 0;
       const out = zeroCanal();
-      out.receita = recOutboundMes * share;
-      out.won = tcv > 0 ? out.receita / tcv : 0;
-      const conv = convOutPonderada(linha.tier);
-      out.leads = conv > 0 ? out.won / conv : 0;
+      out.leads = leadsObTotalMes * share;
+      const conv = convOutPonderada(linha.tier, ctx.mix);
+      out.won = out.leads * conv;
+      out.receita = out.won * tcv;
 
       const totalWon = linha.lb.won + linha.bb.won + linha.mb.won + out.won;
       const totalReceita = linha.lb.receita + linha.bb.receita + linha.mb.receita + out.receita;
 
       linhas.push({
         mes,
-        horizonte: horizonteAtual,
+        horizonte,
         tier: linha.tier,
         lb: linha.lb,
         bb: linha.bb,
@@ -356,6 +462,7 @@ export function calcularRampUp(
     porMes.set(d.mes, arr);
   }
 
+  const mesAncora = ancoraDeUnidade(opts);
   const linhas: LinhaRampUp[] = [];
   // Garante a ordem cronológica dos 12 meses (mesmo que algum mês não tenha tiers ativos).
   for (const mes of MESES_ANO_2026 as readonly string[]) {
@@ -363,6 +470,10 @@ export function calcularRampUp(
     const info = targetInfo.get(mes);
     const target = info?.target ?? 0;
     const isFechado = info?.isFechado ?? false;
+    // Meses antes da abertura da unidade: HC sempre zero, independente do
+    // que sobrou em P6/realizado. A curva já zera target, mas overrides
+    // residuais no investimentoMensal podiam vazar volume → headcount.
+    const isPreOperacao = mes < mesAncora;
 
     let investLb = 0, investBb = 0, investMb = 0;
     let recInbound = 0, recOutbound = 0;
@@ -399,26 +510,31 @@ export function calcularRampUp(
     const leadsTotal = leadsIb + leadsOb;
     const wonTotal = tiers.reduce((acc, d) => acc + d.totalWon, 0);
 
-    // Headcount (P17) por cargo.
+    // Headcount (P17) por cargo. Antes da abertura da unidade, fica zerado.
     const headcount: Record<string, number> = {};
     let hcTotal = 0;
-    for (const m of metricas) {
-      if (m.wipLimit <= 0) continue;
-      const stage = STAGE_BY_CARGO[m.cargo.toUpperCase()] ?? "leadsTotal";
-      const volume =
-        stage === "leadsTotal" ? leadsTotal
-        : stage === "leadsOb" ? leadsOb
-        : stage === "leadsIb" ? leadsIb
-        : stage === "sqls" ? sqlsTotal
-        : /* won */ wonTotal;
-      const hc = volume > 0 ? Math.ceil(volume / m.wipLimit) : 0;
-      headcount[m.cargo] = hc;
-      hcTotal += hc;
+    if (!isPreOperacao) {
+      for (const m of metricas) {
+        if (m.wipLimit <= 0) continue;
+        const stage = STAGE_BY_CARGO[m.cargo.toUpperCase()] ?? "leadsTotal";
+        const volume =
+          stage === "leadsTotal" ? leadsTotal
+          : stage === "leadsOb" ? leadsOb
+          : stage === "leadsIb" ? leadsIb
+          : stage === "sqls" ? sqlsTotal
+          : /* won */ wonTotal;
+        const hc = volume > 0 ? Math.ceil(volume / m.wipLimit) : 0;
+        headcount[m.cargo] = hc;
+        hcTotal += hc;
+      }
+    } else {
+      for (const m of metricas) headcount[m.cargo] = 0;
     }
 
     linhas.push({
       mes,
-      horizonte: horizonteAtual,
+      // Horizonte efetivo do mês (já promovido se a unidade ultrapassou faixaMax).
+      horizonte: info?.horizonte ?? horizonteAtual,
       target,
       isFechado,
       investLb,
@@ -578,7 +694,9 @@ export function calcularPorSubCanal(
   const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
   const bbByTier = byTier(blocks.conversoesInbound.blackBox);
   const mb = blocks.conversoesInbound.meetingBroker;
-  const mix = blocks.mixSubcanais.find((m) => m.h === horizonteAtual);
+  // Mix de outbound varia por horizonte — promoção automática (calcularCanalTier)
+  // já calcula o horizonte efetivo do mês; aqui só lemos esse horizonte.
+  const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
   const outByTierBySub = new Map(
     SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
   );
@@ -657,8 +775,9 @@ export function calcularPorSubCanal(
         a.receitaExecutar += c.receita * execP;
       }
 
-      // Outbound: re-splitta por subcanal usando o mix do horizonte.
-      // Funil curto (Leads → SQL → SAL → Won) e sem invest.
+      // Outbound: re-splitta por subcanal usando o mix do horizonte EFETIVO do
+      // mês (`t.horizonte` já vem promovido por calcularCanalTier).
+      const mix = mixByH.get(t.horizonte);
       const tcv = tierInfo.get(t.tier)?.tcvProdCom ?? 0;
       for (const sub of SUBCANAIS_OUTBOUND) {
         const peso = (mix?.[sub] ?? 0) / 100;
@@ -733,12 +852,14 @@ export function calcularPorTier(
   const outByTierBySub = new Map(
     SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
   );
-  const mix = blocks.mixSubcanais.find((m) => m.h === horizonteAtual);
+  // Mix por horizonte efetivo do mês (promovido por calcularCanalTier).
+  const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
   const mb = blocks.conversoesInbound.meetingBroker;
 
   const resultado: LinhaTier[] = [];
 
   for (const d of detalhe) {
+    const mix = mixByH.get(d.horizonte);
     let mql = 0, sql = 0, sal = 0;
 
     const lbConv = lbByTier.get(d.tier);
@@ -890,13 +1011,15 @@ export function calcularPorSubCanalPorTier(
   const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
   const bbByTier = byTier(blocks.conversoesInbound.blackBox);
   const mb = blocks.conversoesInbound.meetingBroker;
-  const mix = blocks.mixSubcanais.find((m) => m.h === horizonteAtual);
+  // Mix por horizonte efetivo do mês (promovido por calcularCanalTier).
+  const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
   const outByTierBySub = new Map(
     SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
   );
 
   const out: LinhaSubCanalTier[] = [];
   for (const d of detalhe) {
+    const mix = mixByH.get(d.horizonte);
     const rp = receitaByTier.get(d.tier);
     const saberP = (rp?.saberPct ?? 0) / 100;
     const terP = (rp?.terPct ?? 0) / 100;

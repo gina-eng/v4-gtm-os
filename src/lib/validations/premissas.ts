@@ -7,7 +7,7 @@ import {
   investimentoMidiaSchema,
   metricasOperacionaisSchema,
   mixSubcanaisSchema,
-  receitaProdutoSchema,
+  receitaProdutoArraySchema,
   tierClienteSchema,
   timeComercialMembroSchema,
 } from "./unit-setup";
@@ -28,7 +28,7 @@ export const premissaBlockBodySchema = z.discriminatedUnion("block", [
   z.object({ block: z.literal("investimentoMidia"), data: z.array(investimentoMidiaSchema).min(1) }),
   z.object({ block: z.literal("mixSubcanais"), data: mixSubcanaisSchema }),
   z.object({ block: z.literal("tiersCliente"), data: z.array(tierClienteSchema).min(1) }),
-  z.object({ block: z.literal("receitaProduto"), data: z.array(receitaProdutoSchema).min(1) }),
+  z.object({ block: z.literal("receitaProduto"), data: receitaProdutoArraySchema }),
   z.object({ block: z.literal("distMercado"), data: z.array(distMercadoBlockRow()).min(1) }),
   z.object({
     block: z.literal("distSplit"),
