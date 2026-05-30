@@ -165,12 +165,13 @@ export const investimentoMidiaSchema = z
     splitLb: z.number().min(0).max(100),
     splitBb: z.number().min(0).max(100),
     splitMt: z.number().min(0).max(100),
+    splitEv: z.number().min(0).max(100),
     bbPiso: z.number().min(0),
     regra: z.string().trim().max(255),
   })
-  .refine((v) => v.splitLb + v.splitBb + v.splitMt <= 100.5, {
-    message: "splitLb + splitBb + splitMt deve ser ≤ 100%",
-    path: ["splitMt"],
+  .refine((v) => v.splitLb + v.splitBb + v.splitMt + v.splitEv <= 100.5, {
+    message: "splitLb + splitBb + splitMt + splitEv deve ser ≤ 100%",
+    path: ["splitEv"],
   });
 
 export const leadsInvestimentoSchema = z.object({
@@ -201,10 +202,24 @@ export const conversaoMeetingBrokerSchema = z.object({
   pipeline: z.string().trim().max(255),
 });
 
+export const eventosCustoSchema = z.object({
+  custoSql: z.number().min(0),
+  meta: z.string().trim().max(255),
+  pipeline: z.string().trim().max(255),
+});
+
+export const conversaoEventosSchema = z.object({
+  tier: tierEnum,
+  cr3: z.number().min(0).max(100),
+  cr4: z.number().min(0).max(100),
+});
+
 export const conversoesInboundSchema = z.object({
   leadBroker: z.array(conversaoInboundSchema).min(1),
   blackBox: z.array(conversaoInboundSchema).min(1),
   meetingBroker: conversaoMeetingBrokerSchema,
+  eventosCusto: eventosCustoSchema,
+  eventos: z.array(conversaoEventosSchema).min(1),
 });
 
 // ============================================================

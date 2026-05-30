@@ -340,6 +340,7 @@ export const premissaHorizonte = pgTable(
     splitLb: doublePrecision("split_lb").notNull(),
     splitBb: doublePrecision("split_bb").notNull(),
     splitMt: doublePrecision("split_mt").notNull().default(0),
+    splitEv: doublePrecision("split_ev").notNull().default(0),
     bbPiso: doublePrecision("bb_piso").notNull(),
     regra: text("regra").notNull().default(""),
     // P16 — Mix Subcanais Outbound (% por horizonte)
@@ -478,6 +479,36 @@ export const premissaMeetingBroker = pgTable(
     pipeline: text("pipeline").notNull().default(""),
   },
   (table) => [uniqueIndex("idx_prem_meeting_broker_unique").on(table.premissaId)],
+);
+
+// Eventos — inbound funil curto multi-tier. custoSql é singleton (1 linha por
+// preenchimento) — CR3/CR4 ficam por tier em premissa_conversao_eventos.
+export const premissaEventosCusto = pgTable(
+  "premissa_eventos_custo",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    custoSql: doublePrecision("custo_sql").notNull().default(5000),
+    meta: text("meta").notNull().default(""),
+    pipeline: text("pipeline").notNull().default(""),
+  },
+  (table) => [uniqueIndex("idx_prem_eventos_custo_unique").on(table.premissaId)],
+);
+
+export const premissaConversaoEventos = pgTable(
+  "premissa_conversao_eventos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    tier: tierEnum("tier").notNull(),
+    cr3: doublePrecision("cr3").notNull(),
+    cr4: doublePrecision("cr4").notNull(),
+  },
+  (table) => [uniqueIndex("idx_prem_conv_eventos_unique").on(table.premissaId, table.tier)],
 );
 
 // ============================================================

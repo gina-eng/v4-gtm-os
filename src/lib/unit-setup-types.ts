@@ -8,10 +8,12 @@
  */
 
 import type {
+  ConversaoEventos,
   ConversaoInbound,
   ConversaoMeetingBroker,
   ConversaoOutbound,
   DistMercado,
+  EventosCusto,
   HorizonteCrescimento,
   InvestimentoMidia,
   MetricaOperacional,
@@ -52,6 +54,8 @@ export type ConversoesInboundData = {
   leadBroker: ConversaoInbound[];
   blackBox: ConversaoInbound[];
   meetingBroker: ConversaoMeetingBroker;
+  eventosCusto: EventosCusto;
+  eventos: ConversaoEventos[];
 };
 
 export type ConversoesOutboundData = {

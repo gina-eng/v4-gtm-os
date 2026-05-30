@@ -31,17 +31,21 @@ import {
   premissaConversaoInbound,
   premissaConversaoOutbound,
   premissaMeetingBroker,
+  premissaEventosCusto,
+  premissaConversaoEventos,
   premissaDistSplit,
   premissaInvestimentoMes,
 } from "@/db/schema";
 import {
   CONVERSAO_BLACK_BOX_DEFAULT,
   CONVERSAO_LEAD_BROKER_DEFAULT,
+  CONVERSAO_EVENTOS_DEFAULT,
   CONVERSAO_MEETING_BROKER_DEFAULT,
   CONVERSAO_OUTBOUND_INDICACAO_DEFAULT,
   CONVERSAO_OUTBOUND_PROSPECCAO_DEFAULT,
   CONVERSAO_OUTBOUND_RECOMENDACAO_DEFAULT,
   CONVERSAO_OUTBOUND_RECOVERY_DEFAULT,
+  EVENTOS_CUSTO_DEFAULT,
   DIST_MERCADO_DEFAULT,
   HORIZONTE_CRESCIMENTO_DEFAULT,
   INVESTIMENTO_MIDIA_DEFAULT,
@@ -50,9 +54,11 @@ import {
   RECEITA_PRODUTO_DEFAULT,
   TIERS_CLIENTE_DEFAULT,
   TIME_COMERCIAL_DEFAULT,
+  type ConversaoEventos,
   type ConversaoInbound,
   type ConversaoMeetingBroker,
   type ConversaoOutbound,
+  type EventosCusto,
   DIST_SPLIT_DEFAULT,
   type DistMercado,
   type DistSplitHorizonte,
@@ -121,6 +127,8 @@ export function matrizDefaultBlocks(): PremissasBlocks {
       leadBroker: CONVERSAO_LEAD_BROKER_DEFAULT,
       blackBox: CONVERSAO_BLACK_BOX_DEFAULT,
       meetingBroker: CONVERSAO_MEETING_BROKER_DEFAULT,
+      eventosCusto: EVENTOS_CUSTO_DEFAULT,
+      eventos: CONVERSAO_EVENTOS_DEFAULT,
     },
     conversoesOutbound: {
       indicacao: CONVERSAO_OUTBOUND_INDICACAO_DEFAULT,
@@ -178,7 +186,7 @@ export async function getPremissasByEntityIds(
 async function loadBlocksForPremissaIds(
   premissaIds: string[],
 ): Promise<Map<string, PremissasBlocks>> {
-  const [time, cargos, horiz, tiers, inbound, outbound, mb, split, investMes] = await Promise.all([
+  const [time, cargos, horiz, tiers, inbound, outbound, mb, evCusto, evConv, split, investMes] = await Promise.all([
     db.select().from(premissaTimeComercial).where(inArray(premissaTimeComercial.premissaId, premissaIds)),
     db.select().from(premissaCargo).where(inArray(premissaCargo.premissaId, premissaIds)),
     db.select().from(premissaHorizonte).where(inArray(premissaHorizonte.premissaId, premissaIds)),
@@ -186,6 +194,8 @@ async function loadBlocksForPremissaIds(
     db.select().from(premissaConversaoInbound).where(inArray(premissaConversaoInbound.premissaId, premissaIds)),
     db.select().from(premissaConversaoOutbound).where(inArray(premissaConversaoOutbound.premissaId, premissaIds)),
     db.select().from(premissaMeetingBroker).where(inArray(premissaMeetingBroker.premissaId, premissaIds)),
+    db.select().from(premissaEventosCusto).where(inArray(premissaEventosCusto.premissaId, premissaIds)),
+    db.select().from(premissaConversaoEventos).where(inArray(premissaConversaoEventos.premissaId, premissaIds)),
     db.select().from(premissaDistSplit).where(inArray(premissaDistSplit.premissaId, premissaIds)),
     db.select().from(premissaInvestimentoMes).where(inArray(premissaInvestimentoMes.premissaId, premissaIds)),
   ]);
@@ -206,6 +216,8 @@ async function loadBlocksForPremissaIds(
   const inboundBy = group(inbound);
   const outboundBy = group(outbound);
   const mbBy = group(mb);
+  const evCustoBy = group(evCusto);
+  const evConvBy = group(evConv);
   const splitBy = group(split);
   const investMesBy = group(investMes);
 
@@ -248,6 +260,7 @@ async function loadBlocksForPremissaIds(
         splitLb: r.splitLb,
         splitBb: r.splitBb,
         splitMt: r.splitMt,
+        splitEv: r.splitEv,
         bbPiso: r.bbPiso,
         regra: r.regra,
       })),
@@ -307,6 +320,17 @@ async function loadBlocksForPremissaIds(
           return r
             ? { custoSql: r.custoSql, cr3: r.cr3, cr4: r.cr4, meta: r.meta, pipeline: r.pipeline }
             : CONVERSAO_MEETING_BROKER_DEFAULT;
+        })(),
+        eventosCusto: (() => {
+          const r = (evCustoBy.get(pid) ?? [])[0];
+          return r
+            ? { custoSql: r.custoSql, meta: r.meta, pipeline: r.pipeline }
+            : EVENTOS_CUSTO_DEFAULT;
+        })(),
+        eventos: (() => {
+          const rows = orderBy(evConvBy.get(pid) ?? [], "tier", TIER_ORDER);
+          if (rows.length === 0) return CONVERSAO_EVENTOS_DEFAULT;
+          return rows.map((r) => ({ tier: r.tier, cr3: r.cr3, cr4: r.cr4 }));
         })(),
       },
       conversoesOutbound: {
@@ -375,6 +399,8 @@ export async function savePremissas(
       tx.delete(premissaConversaoInbound).where(eq(premissaConversaoInbound.premissaId, pid)),
       tx.delete(premissaConversaoOutbound).where(eq(premissaConversaoOutbound.premissaId, pid)),
       tx.delete(premissaMeetingBroker).where(eq(premissaMeetingBroker.premissaId, pid)),
+      tx.delete(premissaEventosCusto).where(eq(premissaEventosCusto.premissaId, pid)),
+      tx.delete(premissaConversaoEventos).where(eq(premissaConversaoEventos.premissaId, pid)),
       tx.delete(premissaDistSplit).where(eq(premissaDistSplit.premissaId, pid)),
       tx.delete(premissaInvestimentoMes).where(eq(premissaInvestimentoMes.premissaId, pid)),
     ]);
@@ -431,6 +457,7 @@ export async function savePremissas(
           splitLb: p6?.splitLb ?? 0,
           splitBb: p6?.splitBb ?? 0,
           splitMt: p6?.splitMt ?? 0,
+          splitEv: p6?.splitEv ?? 0,
           bbPiso: p6?.bbPiso ?? 0,
           regra: p6?.regra ?? "",
           mixIndicacao: p16?.indicacao ?? 0,
@@ -525,6 +552,25 @@ export async function savePremissas(
       pipeline: mb.pipeline,
     });
 
+    // Eventos — custoSql singleton + CR3/CR4 por tier
+    const ev = blocks.conversoesInbound.eventosCusto;
+    await tx.insert(premissaEventosCusto).values({
+      premissaId: pid,
+      custoSql: ev.custoSql,
+      meta: ev.meta,
+      pipeline: ev.pipeline,
+    });
+    if (blocks.conversoesInbound.eventos.length > 0) {
+      await tx.insert(premissaConversaoEventos).values(
+        blocks.conversoesInbound.eventos.map((r) => ({
+          premissaId: pid,
+          tier: r.tier,
+          cr3: r.cr3,
+          cr4: r.cr4,
+        })),
+      );
+    }
+
     // P11–P15 — conversões outbound (subcanal × tier)
     const out = blocks.conversoesOutbound;
     const outboundRows = [
@@ -613,6 +659,8 @@ export type PremissaBlockPatch =
   | { block: "timeComercial"; data: TimeComercialMembro[] }
   | { block: "conversaoInbound"; canal: "lead_broker" | "black_box"; data: ConversaoInbound[] }
   | { block: "meetingBroker"; data: ConversaoMeetingBroker }
+  | { block: "eventosCusto"; data: EventosCusto }
+  | { block: "conversaoEventos"; data: ConversaoEventos[] }
   | { block: "conversaoOutbound"; subcanal: SubcanalOutbound; data: ConversaoOutbound[] };
 
 function applyBlockPatch(base: PremissasBlocks, patch: PremissaBlockPatch): PremissasBlocks {
@@ -649,6 +697,16 @@ function applyBlockPatch(base: PremissasBlocks, patch: PremissaBlockPatch): Prem
       return {
         ...base,
         conversoesInbound: { ...base.conversoesInbound, meetingBroker: patch.data },
+      };
+    case "eventosCusto":
+      return {
+        ...base,
+        conversoesInbound: { ...base.conversoesInbound, eventosCusto: patch.data },
+      };
+    case "conversaoEventos":
+      return {
+        ...base,
+        conversoesInbound: { ...base.conversoesInbound, eventos: patch.data },
       };
     case "conversaoOutbound":
       return {

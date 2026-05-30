@@ -680,8 +680,10 @@ type Investimento = {
   pctProducao: number;
   splitLb: number;
   splitBb: number;
-  /** % alocado em Meeting Broker (inbound de eventos). 0 = não liberado p/ horizonte. */
+  /** % alocado em Meeting Broker (inbound enterprise funil curto). 0 = não liberado p/ horizonte. */
   splitMt: number;
+  /** % alocado em Eventos (inbound multi-tier funil curto). 0 = não liberado p/ horizonte. */
+  splitEv: number;
   bbPiso: number; // R$ — 0 quando não se aplica
   regra: string;
 };
@@ -720,11 +722,16 @@ function InvestimentoMidiaSection({
         setIsEditing(true);
       }}
       onSave={() => {
-        const invalidos = draft.filter((r) => r.splitLb + r.splitBb + r.splitMt > 100.5);
+        const invalidos = draft.filter(
+          (r) => r.splitLb + r.splitBb + r.splitMt + r.splitEv > 100.5,
+        );
         if (invalidos.length > 0) {
           alert(
-            `Soma Split LB + BB + MT deve ser ≤ 100% em cada horizonte. Ajuste: ${invalidos
-              .map((r) => `${r.h} (${(r.splitLb + r.splitBb + r.splitMt).toFixed(1)}%)`)
+            `Soma Split LB + BB + MT + EV deve ser ≤ 100% em cada horizonte. Ajuste: ${invalidos
+              .map(
+                (r) =>
+                  `${r.h} (${(r.splitLb + r.splitBb + r.splitMt + r.splitEv).toFixed(1)}%)`,
+              )
               .join(", ")}.`,
           );
           return;
@@ -739,7 +746,7 @@ function InvestimentoMidiaSection({
       }}
     >
       <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        % Produção = parcela do faturamento investida em mídia. Split LB/BB/MT define a divisão entre Lead Broker, Black Box e Meeting Broker (eventos inbound). Soma deve ser ≤ 100%.
+        % Produção = parcela do faturamento investida em mídia. Splits LB/BB/MT/EV definem a divisão entre Lead Broker, Black Box, Meeting Broker (inbound enterprise) e Eventos (inbound multi-tier). Soma deve ser ≤ 100%.
       </div>
       <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {rows.map((r, idx) => {
@@ -798,12 +805,24 @@ function InvestimentoMidiaSection({
                 </CardField>
                 <CardField
                   label="Split MT"
-                  help="% do investimento em mídia alocado em Meeting Broker (eventos inbound, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte."
+                  help="% do investimento em mídia alocado em Meeting Broker (inbound enterprise, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte."
                 >
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitMt}
                     onChange={(v) => patch(idx, "splitMt", v)}
+                    lockableZero
+                    align="left"
+                  />
+                </CardField>
+                <CardField
+                  label="Split EV"
+                  help="% do investimento em mídia alocado em Eventos (inbound multi-tier, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte."
+                >
+                  <PercentCell
+                    isEditing={isEditing}
+                    value={r.splitEv}
+                    onChange={(v) => patch(idx, "splitEv", v)}
                     lockableZero
                     align="left"
                   />

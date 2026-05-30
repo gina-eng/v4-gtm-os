@@ -265,7 +265,7 @@ export function calcularAtuacao(
     subcanaisAtivos.add("black_box");
   }
   if (tiersAtivos.has("Enterprise")) subcanaisAtivos.add("meeting_broker");
-  if ((p6?.splitMt ?? 0) > 0) subcanaisAtivos.add("eventos");
+  if ((p6?.splitEv ?? 0) > 0) subcanaisAtivos.add("eventos");
 
   const mix = blocks.mixSubcanais.find((m) => m.h === horizonte);
   for (const key of SUBCANAIS_OUTBOUND_KEYS) {

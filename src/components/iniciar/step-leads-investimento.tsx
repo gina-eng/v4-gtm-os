@@ -80,11 +80,16 @@ export function StepLeadsInvestimento({
 
   async function handleContinue() {
     if (saving) return;
-    const splitsInvalidos = invest.filter((r) => r.splitLb + r.splitBb + r.splitMt > 100.5);
+    const splitsInvalidos = invest.filter(
+      (r) => r.splitLb + r.splitBb + r.splitMt + r.splitEv > 100.5,
+    );
     if (splitsInvalidos.length > 0) {
       setError(
-        `Split LB + BB + MT deve ser ≤ 100% em cada horizonte. Ajuste: ${splitsInvalidos
-          .map((r) => `${r.h} (${(r.splitLb + r.splitBb + r.splitMt).toFixed(1)}%)`)
+        `Split LB + BB + MT + EV deve ser ≤ 100% em cada horizonte. Ajuste: ${splitsInvalidos
+          .map(
+            (r) =>
+              `${r.h} (${(r.splitLb + r.splitBb + r.splitMt + r.splitEv).toFixed(1)}%)`,
+          )
           .join(", ")}.`,
       );
       return;
@@ -236,7 +241,7 @@ export function StepLeadsInvestimento({
           </h3>
         </header>
         <div className="px-4 py-2 text-[11px] text-muted-foreground border-b border-border/60">
-          % Produção = parcela do faturamento investida em mídia. Split LB/BB/MT define a divisão entre Lead Broker, Black Box e Meeting Broker (eventos inbound). Soma deve ser ≤ 100%.
+          % Produção = parcela do faturamento investida em mídia. Splits LB/BB/MT/EV definem a divisão entre Lead Broker, Black Box, Meeting Broker (inbound enterprise) e Eventos (inbound multi-tier). Soma deve ser ≤ 100%.
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -269,7 +274,13 @@ export function StepLeadsInvestimento({
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split MT
-                    <FieldHelp text="% do investimento em mídia alocado em Meeting Broker (eventos inbound, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte." position="bottom" />
+                    <FieldHelp text="% do investimento em mídia alocado em Meeting Broker (inbound enterprise, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte." position="bottom" />
+                  </span>
+                </th>
+                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
+                  <span className="inline-flex items-center gap-1 justify-end">
+                    Split EV
+                    <FieldHelp text="% do investimento em mídia alocado em Eventos (inbound multi-tier, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
@@ -314,6 +325,15 @@ export function StepLeadsInvestimento({
                       value={r.splitMt}
                       matrizValue={matrizInvest[idx]?.splitMt}
                       onChange={(v) => patchInvest(idx, "splitMt", v)}
+                      lockableZero
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-xs text-right">
+                    <PercentCell
+                      isEditing
+                      value={r.splitEv}
+                      matrizValue={matrizInvest[idx]?.splitEv}
+                      onChange={(v) => patchInvest(idx, "splitEv", v)}
                       lockableZero
                     />
                   </td>

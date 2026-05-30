@@ -268,18 +268,20 @@ export type InvestimentoMidia = {
   pctProducao: number;
   splitLb: number;
   splitBb: number;
-  /** % do budget de mídia dedicado a Meeting Broker / Eventos (inbound curto, SQL→SAL→WON). 0 = não liberado para o horizonte. */
+  /** % do budget de mídia dedicado a Meeting Broker (inbound curto enterprise, SQL→SAL→WON). 0 = não liberado para o horizonte. */
   splitMt: number;
+  /** % do budget de mídia dedicado a Eventos (inbound curto multi-tier, SQL→SAL→WON). 0 = não liberado para o horizonte. */
+  splitEv: number;
   bbPiso: number;
   regra: string;
 };
 
 export const INVESTIMENTO_MIDIA_DEFAULT: InvestimentoMidia[] = [
-  { h: "H1", pctProducao: 16.8, splitLb: 100, splitBb: 0, splitMt: 0, bbPiso: 0, regra: "Max inbound, out complementa" },
-  { h: "H2", pctProducao: 17.0, splitLb: 100, splitBb: 0, splitMt: 0, bbPiso: 0, regra: "" },
-  { h: "H3", pctProducao: 15.5, splitLb: 80, splitBb: 20, splitMt: 0, bbPiso: 30_000, regra: "BB entra" },
-  { h: "H4", pctProducao: 15.6, splitLb: 75, splitBb: 25, splitMt: 0, bbPiso: 30_000, regra: "" },
-  { h: "H5", pctProducao: 17.5, splitLb: 62.5, splitBb: 27.5, splitMt: 10, bbPiso: 30_000, regra: "Ent: 10% budget → MeetingBroker" },
+  { h: "H1", pctProducao: 16.8, splitLb: 100, splitBb: 0, splitMt: 0, splitEv: 0, bbPiso: 0, regra: "Max inbound, out complementa" },
+  { h: "H2", pctProducao: 17.0, splitLb: 100, splitBb: 0, splitMt: 0, splitEv: 0, bbPiso: 0, regra: "" },
+  { h: "H3", pctProducao: 15.5, splitLb: 80, splitBb: 20, splitMt: 0, splitEv: 0, bbPiso: 30_000, regra: "BB entra" },
+  { h: "H4", pctProducao: 15.6, splitLb: 75, splitBb: 25, splitMt: 0, splitEv: 0, bbPiso: 30_000, regra: "" },
+  { h: "H5", pctProducao: 17.5, splitLb: 62.5, splitBb: 27.5, splitMt: 10, splitEv: 0, bbPiso: 30_000, regra: "Ent: 10% budget → MeetingBroker" },
 ];
 
 // ============================================================
@@ -333,6 +335,34 @@ export const CONVERSAO_MEETING_BROKER_DEFAULT: ConversaoMeetingBroker = {
   meta: "~2 deals/tri",
   pipeline: "Empilha mensal, converte ~trimestral",
 };
+
+// Eventos: inbound de funil curto (invest → SQL → SAL → WON) — multi-tier.
+// custoSql é singleton; CR3/CR4 são por tier (ao contrário do MB que tem CR3/CR4 fixos).
+export type EventosCusto = {
+  custoSql: number;
+  meta: string;
+  pipeline: string;
+};
+
+export const EVENTOS_CUSTO_DEFAULT: EventosCusto = {
+  custoSql: 5_000,
+  meta: "",
+  pipeline: "",
+};
+
+export type ConversaoEventos = {
+  tier: Tier;
+  cr3: number;
+  cr4: number;
+};
+
+export const CONVERSAO_EVENTOS_DEFAULT: ConversaoEventos[] = [
+  { tier: "Tiny", cr3: 80, cr4: 30 },
+  { tier: "Small", cr3: 80, cr4: 30 },
+  { tier: "Medium", cr3: 80, cr4: 25 },
+  { tier: "Large", cr3: 80, cr4: 20 },
+  { tier: "Enterprise", cr3: 80, cr4: 15 },
+];
 
 // ============================================================
 // Conversões Outbound — P11 a P15 (5 subcanais)

@@ -248,7 +248,9 @@ export function calcularCanalTier(
     splitLb: number;
     splitBb: number;
     splitMt: number;
+    splitEv: number;
     bbOn: boolean;
+    mtOn: boolean;
     evOn: boolean;
     somaSplit: number;
     enterpriseAtivo: boolean;
@@ -264,11 +266,16 @@ export function calcularCanalTier(
     const splitLb = p6?.splitLb ?? 100;
     const splitBb = p6?.splitBb ?? 0;
     const splitMt = p6?.splitMt ?? 0;
-    const bbOn = splitBb > 0 && (p6?.bbPiso ?? 0) > 0;
-    const evOn = splitMt > 0;
-    const somaSplit =
-      splitLb + (bbOn ? splitBb : 0) + (evOn ? splitMt : 0) || 1;
+    const splitEv = p6?.splitEv ?? 0;
     const enterpriseAtivo = (pcts.Enterprise ?? 0) > 0;
+    const bbOn = splitBb > 0 && (p6?.bbPiso ?? 0) > 0;
+    const mtOn = splitMt > 0 && enterpriseAtivo;
+    const evOn = splitEv > 0;
+    const somaSplit =
+      splitLb +
+        (bbOn ? splitBb : 0) +
+        (mtOn ? splitMt : 0) +
+        (evOn ? splitEv : 0) || 1;
     const pctProducaoFallback = (p6?.pctProducao ?? 0) / 100;
     const value: PerHorizonte = {
       p6,
@@ -277,7 +284,9 @@ export function calcularCanalTier(
       splitLb,
       splitBb,
       splitMt,
+      splitEv,
       bbOn,
+      mtOn,
       evOn,
       somaSplit,
       enterpriseAtivo,
@@ -294,6 +303,8 @@ export function calcularCanalTier(
     SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
   );
   const mb = blocks.conversoesInbound.meetingBroker;
+  const eventosCusto = blocks.conversoesInbound.eventosCusto;
+  const eventosConvByTier = byTier(blocks.conversoesInbound.eventos);
 
   // Investimento real declarado no setup (meses fechados); override manual
   // (`investimentoMensal`) só se aplica a meses futuros — em fechado, o que
@@ -341,11 +352,21 @@ export function calcularCanalTier(
       investidoReal > 0
         ? investidoReal
         : override ?? target * ctx.pctProducaoFallback;
-    const mbBudgetMes = ctx.enterpriseAtivo ? investTotal * (MB_BUDGET_PCT / 100) : 0;
-    const mediaBudget = investTotal - mbBudgetMes;
-    const lbBudgetMes = mediaBudget * (ctx.splitLb / ctx.somaSplit);
-    const bbBudgetMes = ctx.bbOn ? mediaBudget * (ctx.splitBb / ctx.somaSplit) : 0;
-    const evBudgetMes = ctx.evOn ? mediaBudget * (ctx.splitMt / ctx.somaSplit) : 0;
+    // Splits LB/BB/MT/EV vivem em P6 e somam ≤ 100% do budget de mídia.
+    // Fallback: se ninguém configurou splitMt mas há Enterprise ativo, MB
+    // ainda recebe 10% (compatibilidade com versões anteriores).
+    const splitMtEff = ctx.mtOn
+      ? ctx.splitMt
+      : ctx.enterpriseAtivo
+        ? MB_BUDGET_PCT
+        : 0;
+    const somaSplitEff = ctx.mtOn
+      ? ctx.somaSplit
+      : ctx.somaSplit + (ctx.enterpriseAtivo ? MB_BUDGET_PCT : 0);
+    const lbBudgetMes = investTotal * (ctx.splitLb / somaSplitEff);
+    const bbBudgetMes = ctx.bbOn ? investTotal * (ctx.splitBb / somaSplitEff) : 0;
+    const mbBudgetMes = splitMtEff > 0 ? investTotal * (splitMtEff / somaSplitEff) : 0;
+    const evBudgetMes = ctx.evOn ? investTotal * (ctx.splitEv / somaSplitEff) : 0;
 
     // Inbound por tier → acumula receita inbound do mês.
     const porTier: Array<{
@@ -384,13 +405,14 @@ export function calcularCanalTier(
       }
 
       // Eventos (inbound funil curto: invest → SQL → SAL → WON) — para todos os
-      // tiers. Custo por SQL = cpmqlMt; cr3/cr4 herdados da conversão LB do tier.
+      // tiers. Custo por SQL = eventosCusto.custoSql (singleton); cr3/cr4 vêm do
+      // bloco premissa_conversao_eventos do tier.
       const evCanal = zeroCanal();
-      if (evBudgetMes > 0 && info && info.cpmqlMt > 0) {
+      if (evBudgetMes > 0 && eventosCusto.custoSql > 0) {
         evCanal.invest = evBudgetMes * share;
-        const sqls = evCanal.invest / info.cpmqlMt;
+        const sqls = evCanal.invest / eventosCusto.custoSql;
         evCanal.leads = sqls;
-        const convEv = lbByTier.get(tier);
+        const convEv = eventosConvByTier.get(tier);
         const cr3 = (convEv?.cr3 ?? 0) / 100;
         const cr4 = (convEv?.cr4 ?? 0) / 100;
         evCanal.won = sqls * cr3 * cr4;
@@ -777,6 +799,7 @@ export function calcularPorSubCanal(
   const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
   const bbByTier = byTier(blocks.conversoesInbound.blackBox);
   const mb = blocks.conversoesInbound.meetingBroker;
+  const eventosConvByTier = byTier(blocks.conversoesInbound.eventos);
   // Mix de outbound varia por horizonte — promoção automática (calcularCanalTier)
   // já calcula o horizonte efetivo do mês; aqui só lemos esse horizonte.
   const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
@@ -858,11 +881,12 @@ export function calcularPorSubCanal(
         a.receitaExecutar += c.receita * execP;
       }
 
-      // Inbound Eventos: funil curto (invest → SQL → SAL → WON), cr3/cr4 via LB do tier.
+      // Inbound Eventos: funil curto (invest → SQL → SAL → WON), cr3/cr4
+      // vêm do bloco premissa_conversao_eventos do tier.
       {
         const c = t.ev;
         const a = acc["eventos"];
-        const convEv = lbByTier.get(t.tier);
+        const convEv = eventosConvByTier.get(t.tier);
         a.invest += c.invest;
         a.leads += c.leads;
         a.sql += c.leads;
@@ -957,6 +981,7 @@ export function calcularPorTier(
   // Mix por horizonte efetivo do mês (promovido por calcularCanalTier).
   const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
   const mb = blocks.conversoesInbound.meetingBroker;
+  const eventosConvByTier = byTier(blocks.conversoesInbound.eventos);
 
   const resultado: LinhaTier[] = [];
 
@@ -985,7 +1010,7 @@ export function calcularPorTier(
     }
     // Eventos: igual MB — d.ev.leads já é a contagem de SQLs.
     if (d.ev.leads > 0) {
-      const evConv = lbByTier.get(d.tier);
+      const evConv = eventosConvByTier.get(d.tier);
       sql += d.ev.leads;
       sal += d.ev.leads * ((evConv?.cr3 ?? 0) / 100);
     }
@@ -1119,6 +1144,7 @@ export function calcularPorSubCanalPorTier(
   const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
   const bbByTier = byTier(blocks.conversoesInbound.blackBox);
   const mb = blocks.conversoesInbound.meetingBroker;
+  const eventosConvByTier = byTier(blocks.conversoesInbound.eventos);
   // Mix por horizonte efetivo do mês (promovido por calcularCanalTier).
   const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
   const outByTierBySub = new Map(
@@ -1198,10 +1224,10 @@ export function calcularPorSubCanalPorTier(
         ...decomp(d.mb.won, d.mb.receita),
       });
     }
-    // Eventos — funil curto inbound (SQL → SAL → Won), cr3 via LB do tier.
+    // Eventos — funil curto inbound (SQL → SAL → Won), cr3 do bloco premissa_conversao_eventos.
     {
       const sqls = d.ev.leads;
-      const evConv = lbByTier.get(d.tier);
+      const evConv = eventosConvByTier.get(d.tier);
       out.push({
         mes: d.mes,
         subcanal: "eventos",
