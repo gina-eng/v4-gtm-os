@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info, Lock } from "lucide-react";
 import { CurrencyCell, PercentCell } from "@/components/premissas/editable-cell";
@@ -11,9 +11,7 @@ import type {
   DistMercado,
   Horizonte,
   InvestimentoMidia,
-  TierCliente,
 } from "@/lib/premissas/matriz-defaults";
-import { calcularP7, HORIZONTES_ORDEM } from "@/lib/premissas/p7-derivado";
 
 type Props = {
   organizationId: string;
@@ -23,12 +21,10 @@ type Props = {
   initialInvest: InvestimentoMidia[];
   matrizDist: DistMercado[];
   matrizInvest: InvestimentoMidia[];
-  /** Tiers da unidade (vêm da Matriz; usados pra derivar P7 ponderado). */
-  tiers: TierCliente[];
   fromMatriz: boolean;
 };
 
-const HORIZONTES: Horizonte[] = HORIZONTES_ORDEM;
+const HORIZONTES: Horizonte[] = ["H1", "H2", "H3", "H4", "H5"];
 
 function horizonteIndex(h: Horizonte): number {
   return HORIZONTES.indexOf(h);
@@ -46,7 +42,6 @@ export function StepLeadsInvestimento({
   initialInvest,
   matrizDist,
   matrizInvest,
-  tiers,
   fromMatriz,
 }: Props) {
   const router = useRouter();
@@ -83,12 +78,17 @@ export function StepLeadsInvestimento({
     .filter((r) => tierAtivo(r.entraHorizonte, horizonteAtual))
     .reduce((acc, r) => acc + r.pctMercado, 0);
 
-  // P7 — recalcula a partir do mix atual da unidade (dist) × tiers da Matriz.
-  // Sai do hard-coded antigo: agora reflete em tempo real qualquer ajuste em P4.
-  const p7Linhas = useMemo(() => calcularP7(dist, tiers), [dist, tiers]);
-
   async function handleContinue() {
     if (saving) return;
+    const splitsInvalidos = invest.filter((r) => r.splitLb + r.splitBb + r.splitMt > 100.5);
+    if (splitsInvalidos.length > 0) {
+      setError(
+        `Split LB + BB + MT deve ser ≤ 100% em cada horizonte. Ajuste: ${splitsInvalidos
+          .map((r) => `${r.h} (${(r.splitLb + r.splitBb + r.splitMt).toFixed(1)}%)`)
+          .join(", ")}.`,
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -236,7 +236,7 @@ export function StepLeadsInvestimento({
           </h3>
         </header>
         <div className="px-4 py-2 text-[11px] text-muted-foreground border-b border-border/60">
-          % Produção = parcela do faturamento investida em mídia. Split LB/BB define a divisão entre Lead Broker e Black Box.
+          % Produção = parcela do faturamento investida em mídia. Split LB/BB/MT define a divisão entre Lead Broker, Black Box e Meeting Broker (eventos inbound). Soma deve ser ≤ 100%.
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -264,6 +264,12 @@ export function StepLeadsInvestimento({
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split BB
                     <FieldHelp text="% do investimento em mídia alocado em Black Box (outbound estruturado — SDR + ferramentas)." position="bottom" />
+                  </span>
+                </th>
+                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
+                  <span className="inline-flex items-center gap-1 justify-end">
+                    Split MT
+                    <FieldHelp text="% do investimento em mídia alocado em Meeting Broker (eventos inbound, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
@@ -303,6 +309,15 @@ export function StepLeadsInvestimento({
                     />
                   </td>
                   <td className="px-2 py-2 text-xs text-right">
+                    <PercentCell
+                      isEditing
+                      value={r.splitMt}
+                      matrizValue={matrizInvest[idx]?.splitMt}
+                      onChange={(v) => patchInvest(idx, "splitMt", v)}
+                      lockableZero
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-xs text-right">
                     <CurrencyCell
                       isEditing
                       value={r.bbPiso}
@@ -327,57 +342,6 @@ export function StepLeadsInvestimento({
               ))}
             </tbody>
           </table>
-        </div>
-      </section>
-
-      {/* ============= P7 — CPL e TCV Ponderado (derivado, read-only) ============= */}
-      <section className="rounded border border-border bg-card overflow-hidden mt-5">
-        <header className="px-4 py-2.5 border-b border-border flex items-center gap-2">
-          <span aria-hidden className="inline-block w-0.5 h-3.5 bg-accent rounded-sm" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-            P7 — CPL e TCV Médio Ponderado por Horizonte
-          </h3>
-          <span className="inline-flex items-center rounded bg-muted text-muted-foreground px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap">
-            Derivado · Somente leitura
-          </span>
-        </header>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  Horizonte
-                </th>
-                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1 justify-end">
-                    CPL LB Pond.
-                    <FieldHelp text="CPL Lead Broker ponderado pelo mix de tiers ativos no horizonte. Derivado de Tiers & Receita + Distribuição de Mercado." position="bottom" />
-                  </span>
-                </th>
-                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1 justify-end">
-                    TCV Médio Pond.
-                    <FieldHelp text="TCV médio ponderado pelo mix de tiers ativos no horizonte. Derivado de Receita por Produto + Distribuição de Mercado." position="bottom" />
-                  </span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {p7Linhas.map((r, idx) => (
-                <tr
-                  key={r.h}
-                  className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-                >
-                  <td className="px-2 py-2 text-xs font-medium text-accent">{r.h}</td>
-                  <td className="px-2 py-2 text-xs text-right tabular-nums">{formatBRL(r.cplLbPond)}</td>
-                  <td className="px-2 py-2 text-xs text-right tabular-nums">{formatBRL(r.tcvMedPond)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-          Calculado automaticamente a partir das premissas dos passos Tiers &amp; Receita (CPL/TCV por tier) e da Distribuição de Mercado acima. Não é editável.
         </div>
       </section>
 

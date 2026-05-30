@@ -1,0 +1,1 @@
+ALTER TABLE "premissa_tier" ADD COLUMN "cpmql_mt" double precision DEFAULT 5000 NOT NULL;

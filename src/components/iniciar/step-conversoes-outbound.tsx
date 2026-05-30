@@ -20,10 +20,9 @@ type CanalKey = keyof ConversoesOutboundData;
 
 const CANAIS: Array<{ key: CanalKey; title: string }> = [
   { key: "indicacao", title: "P11 — Outbound: Indicação" },
-  { key: "eventos", title: "P12 — Outbound: Eventos" },
-  { key: "recovery", title: "P13 — Outbound: Recovery" },
-  { key: "recomendacao", title: "P14 — Outbound: Recomendação" },
-  { key: "prospeccao", title: "P15 — Outbound: Prospecção Ativa" },
+  { key: "recovery", title: "P12 — Outbound: Recovery" },
+  { key: "recomendacao", title: "P13 — Outbound: Recomendação" },
+  { key: "prospeccao", title: "P14 — Outbound: Prospecção Ativa" },
 ];
 
 export function StepConversoesOutbound({ organizationId, initial, matriz, fromMatriz }: Props) {

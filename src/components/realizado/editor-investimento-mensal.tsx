@@ -76,10 +76,26 @@ export function EditorInvestimentoMensal({
   const mesAncora = getMesAncora(dataInicio ?? null);
   const isAntesDeOperar = (mes: string) => mes < mesAncora;
 
-  const baselinePct = useMemo(() => {
+  // baseline % do horizonte vigente da unidade (estampado no header e usado
+  // pro pace anual quando não tem horizonte específico).
+  const baselinePctAtual = useMemo(() => {
     const p6 = investimentoMidia.find((i) => i.h === horizonteAtual);
     return p6?.pctProducao ?? 0;
   }, [investimentoMidia, horizonteAtual]);
+
+  // baseline % POR mês — usa o pctProducao do horizonte do mês (que pode
+  // mudar quando a unidade é promovida). Sem isso, o delta "vs base" ficava
+  // comparando AGO/SET/OUT contra o pctProducao do H1, mesmo a unidade já
+  // estando em H2 nesses meses.
+  const baselinePctByMes = useMemo(() => {
+    const pctByH = new Map(investimentoMidia.map((i) => [i.h, i.pctProducao]));
+    const m = new Map<string, number>();
+    for (const mes of MESES) {
+      const horMes = rampUpByMes.get(mes)?.horizonte ?? horizonteAtual;
+      m.set(mes, pctByH.get(horMes) ?? 0);
+    }
+    return m;
+  }, [investimentoMidia, rampUpByMes, horizonteAtual]);
 
   // Target por mês (para calcular o % derivado e o baseline de investimento).
   const targetByMes = useMemo(() => {
@@ -104,11 +120,16 @@ export function EditorInvestimentoMensal({
     isAntesDeOperar(mes) ||
     (isFechado(mes) && (investidoRealByMes.get(mes) ?? 0) > 0);
 
-  // Estado: sempre 12 valores absolutos (R$). Prioridade:
+  // Estado: sempre 12 valores absolutos (R$). Regra do display:
   //   1. mês antes da operação → 0 (travado)
   //   2. mês fechado com investido > 0 → valor do realizado (travado)
-  //   3. override do banco (investimentoMensal)
-  //   4. fallback baseline (target × pctProducao do horizonte)
+  //   3. **default = baseline** (target × pctProducao do horizonte do mês)
+  //   4. override do banco SOMENTE se diferir do baseline em mais de 1%
+  //      — assim valores salvos por código antigo (que não promovia o
+  //      pctProducao quando a unidade subia de horizonte) são tratados como
+  //      "auto" e recalculados pelo baseline novo. Se a unidade quiser de
+  //      fato customizar, ela edita o número e o save persiste como override
+  //      real (já que vai divergir do baseline).
   const buildInitial = (): Record<string, number> => {
     const byMes = new Map(investimentoMensal.map((p) => [p.mes, p.investimento]));
     const out: Record<string, number> = {};
@@ -121,8 +142,29 @@ export function EditorInvestimentoMensal({
         out[mes] = investidoRealByMes.get(mes) ?? 0;
         continue;
       }
+      const target = targetByMes.get(mes) ?? 0;
+      const baselineMes = baselinePctByMes.get(mes) ?? baselinePctAtual;
+      const baseline = target * (baselineMes / 100);
       const override = byMes.get(mes);
-      out[mes] = override ?? (targetByMes.get(mes) ?? 0) * (baselinePct / 100);
+      if (override === undefined) {
+        out[mes] = baseline;
+        continue;
+      }
+      // Se o override salvo bate com o baseline (qualquer valor "auto"
+      // anterior), recalcula com o baseline atual.
+      const tol = Math.max(1, baseline * 0.01);
+      // Se o mês está em horizonte diferente do horizonteAtual da unidade,
+      // o override salvo veio de antes da promoção — descarta e recalcula.
+      const horMes = rampUpByMes.get(mes)?.horizonte ?? horizonteAtual;
+      if (horMes !== horizonteAtual) {
+        out[mes] = baseline;
+        continue;
+      }
+      if (Math.abs(override - baseline) <= tol) {
+        out[mes] = baseline;
+      } else {
+        out[mes] = override;
+      }
     }
     return out;
   };
@@ -136,7 +178,7 @@ export function EditorInvestimentoMensal({
     setValores(next);
     lastSavedRef.current = next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [investimentoMensal, baselinePct, targetByMes, investidoRealByMes]);
+  }, [investimentoMensal, baselinePctByMes, baselinePctAtual, targetByMes, investidoRealByMes]);
 
   function patchMes(mes: string, novoValor: number) {
     setValores((prev) => ({ ...prev, [mes]: novoValor }));
@@ -156,10 +198,19 @@ export function EditorInvestimentoMensal({
       try {
         // Meses read-only (realizado) não vão no payload — o valor lá é a
         // fonte da verdade e mora em /iniciar/realizado-historico.
-        const payload = MESES.filter((mes) => !isReadOnlyMes(mes)).map((mes) => ({
-          mes,
-          investimento: valores[mes] ?? 0,
-        }));
+        // Também filtra valores que BATEM com o baseline atual (target ×
+        // pctProducao do horizonte do mês) — esses são "default" e devem
+        // ser recalculados a cada load, não persistidos. Só sobe pro banco
+        // o que o usuário REALMENTE editou (diff vs baseline > 1%).
+        const payload = MESES.filter((mes) => !isReadOnlyMes(mes))
+          .filter((mes) => {
+            const target = targetByMes.get(mes) ?? 0;
+            const baselineMes = baselinePctByMes.get(mes) ?? baselinePctAtual;
+            const baseline = target * (baselineMes / 100);
+            const tol = Math.max(1, (baseline * 1) / 100);
+            return Math.abs((valores[mes] ?? 0) - baseline) > tol;
+          })
+          .map((mes) => ({ mes, investimento: valores[mes] ?? 0 }));
         const res = await fetch(`/api/units/${organizationId}/investimento-mensal`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -252,8 +303,8 @@ export function EditorInvestimentoMensal({
                     <span>{mesCurto(mes)}</span>
                     {h && (
                       <span
-                        className={`text-[9px] font-semibold mt-0.5 ${
-                          isTransition ? "text-accent" : "text-muted-foreground/70"
+                        className={`text-[9px] font-bold mt-0.5 tracking-wider ${
+                          isTransition ? "text-warning" : "text-warning/85"
                         }`}
                       >
                         {h}
@@ -310,7 +361,7 @@ export function EditorInvestimentoMensal({
                     value={valores[mes] ?? 0}
                     onChange={(v) => patchMes(mes, v)}
                     step={1000}
-                    inputClassName="w-20"
+                    inputClassName="w-full min-w-0"
                   />
                 </td>
               );
@@ -333,11 +384,15 @@ export function EditorInvestimentoMensal({
             {MESES.map((mes) => {
               const target = targetByMes.get(mes) ?? 0;
               const pct = target > 0 ? ((valores[mes] ?? 0) / target) * 100 : 0;
-              const deltaAbs = pct - baselinePct;
+              // Baseline POR mês: pctProducao do horizonte vigente naquele mês
+              // (pode ser diferente de horizonteAtual depois de promoção).
+              const baselineMes = baselinePctByMes.get(mes) ?? baselinePctAtual;
+              const horMes = rampUpByMes.get(mes)?.horizonte ?? horizonteAtual;
+              const deltaAbs = pct - baselineMes;
               // Delta relativo vs baseline. Quando baseline=0, mostra absoluto
               // pra evitar divisão por zero (e o sinal já indica direção).
               const deltaRel =
-                baselinePct > 0 ? (deltaAbs / baselinePct) * 100 : deltaAbs;
+                baselineMes > 0 ? (deltaAbs / baselineMes) * 100 : deltaAbs;
               const significante = Math.abs(deltaAbs) > 0.05;
               const corPrincipal = !significante
                 ? "text-muted-foreground"
@@ -358,7 +413,7 @@ export function EditorInvestimentoMensal({
                   className="px-3 py-2 text-right tabular-nums"
                   title={
                     target > 0
-                      ? `Pace atual: ${formatPercent(pct, 1)} · baseline ${horizonteAtual}: ${formatPercent(baselinePct, 1)}`
+                      ? `Pace atual: ${formatPercent(pct, 1)} · baseline ${horMes}: ${formatPercent(baselineMes, 1)}`
                       : undefined
                   }
                 >
@@ -381,9 +436,13 @@ export function EditorInvestimentoMensal({
             })}
             {(() => {
               const pct = targetAno > 0 ? pctAno : 0;
-              const deltaAbs = pct - baselinePct;
+              // Comparativo anual usa o baseline do horizonte vigente da
+              // unidade (snapshot do começo do ano). Se a unidade promoveu
+              // durante o ano, o delta mostra o quanto desviou do baseline
+              // INICIAL — útil pra ver o efeito do crescimento.
+              const deltaAbs = pct - baselinePctAtual;
               const deltaRel =
-                baselinePct > 0 ? (deltaAbs / baselinePct) * 100 : deltaAbs;
+                baselinePctAtual > 0 ? (deltaAbs / baselinePctAtual) * 100 : deltaAbs;
               const significante = Math.abs(deltaAbs) > 0.05;
               const deltaLabel = significante
                 ? `${deltaRel > 0 ? "+" : ""}${deltaRel.toFixed(Math.abs(deltaRel) >= 10 ? 0 : 1)}%`
@@ -412,8 +471,9 @@ export function EditorInvestimentoMensal({
       </table>
       <div className="border-t border-border bg-muted/20 py-2.5">
         <p className="sticky left-0 inline-block px-4 text-[10px] text-muted-foreground">
-          Baseline do horizonte {horizonteAtual}: {formatPercent(baselinePct, 1)} da produção.
-          Meses não editados começam com esse pace.
+          Baseline do horizonte {horizonteAtual}: {formatPercent(baselinePctAtual, 1)} da produção.
+          Meses não editados começam com o pace do horizonte vigente no mês
+          (promoções aplicam o pctProducao do novo horizonte automaticamente).
         </p>
       </div>
     </div>

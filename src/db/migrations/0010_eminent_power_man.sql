@@ -1,0 +1,1 @@
+ALTER TABLE "premissa_cargo" DROP COLUMN "extra";

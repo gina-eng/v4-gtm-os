@@ -52,29 +52,22 @@ export function ConversoesTab({ canEdit, blocks, persist }: Props) {
         onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "indicacao", data })}
       />
       <OutboundCRSection
-        title="P12 — Outbound: Eventos"
+        title="P12 — Outbound: Recovery"
         badge={<SectionBadge>Premissa 12</SectionBadge>}
-        seed={outbound.eventos}
-        canEdit={canEdit}
-        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "eventos", data })}
-      />
-      <OutboundCRSection
-        title="P13 — Outbound: Recovery"
-        badge={<SectionBadge>Premissa 13</SectionBadge>}
         seed={outbound.recovery}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recovery", data })}
       />
       <OutboundCRSection
-        title="P14 — Outbound: Recomendação"
-        badge={<SectionBadge>Premissa 14</SectionBadge>}
+        title="P13 — Outbound: Recomendação"
+        badge={<SectionBadge>Premissa 13</SectionBadge>}
         seed={outbound.recomendacao}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recomendacao", data })}
       />
       <OutboundCRSection
-        title="P15 — Outbound: Prospecção Ativa"
-        badge={<SectionBadge>Premissa 15</SectionBadge>}
+        title="P14 — Outbound: Prospecção Ativa"
+        badge={<SectionBadge>Premissa 14</SectionBadge>}
         seed={outbound.prospeccao}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "prospeccao", data })}
@@ -372,7 +365,7 @@ function OutboundCRSection({
 // ============================================================
 
 function mixTotal(r: MixOutboundHorizonte): number {
-  return r.indicacao + r.eventos + r.recovery + r.recomendacao + r.prospeccao;
+  return r.indicacao + r.recovery + r.recomendacao + r.prospeccao;
 }
 
 function MixSubcanaisSection({
@@ -422,11 +415,10 @@ function MixSubcanaisSection({
             <tr className="border-b border-border">
               <Th help="Horizonte da unidade (H1–H5).">Horizonte</Th>
               <Th align="right" help="% dos leads outbound originados de indicações de clientes.">Indicação</Th>
-              <Th align="right" help="% dos leads outbound originados de eventos próprios ou de mercado.">Eventos</Th>
               <Th align="right" help="% dos leads outbound originados de recuperação de clientes inativos.">Recovery</Th>
               <Th align="right" help="% dos leads outbound originados de recomendação ativa (parceiros).">Recomendação</Th>
               <Th align="right" help="% dos leads outbound originados de prospecção fria (cold calls/email).">Prospecção</Th>
-              <Th align="right" help="Soma dos 5 subcanais — deve totalizar 100% por horizonte.">Total</Th>
+              <Th align="right" help="Soma dos 4 subcanais — deve totalizar 100% por horizonte.">Total</Th>
             </tr>
           </thead>
           <tbody>
@@ -439,7 +431,7 @@ function MixSubcanaisSection({
                   className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
                 >
                   <td className="px-2 py-2 text-xs font-medium text-accent">{r.h}</td>
-                  {(["indicacao", "eventos", "recovery", "recomendacao", "prospeccao"] as const).map((key) => (
+                  {(["indicacao", "recovery", "recomendacao", "prospeccao"] as const).map((key) => (
                     <td key={key} className="px-2 py-2 text-xs text-right">
                       <PercentCell
                         isEditing={isEditing}

@@ -56,7 +56,6 @@ export type ConversoesInboundData = {
 
 export type ConversoesOutboundData = {
   indicacao: ConversaoOutbound[];
-  eventos: ConversaoOutbound[];
   recovery: ConversaoOutbound[];
   recomendacao: ConversaoOutbound[];
   prospeccao: ConversaoOutbound[];

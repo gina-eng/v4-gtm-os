@@ -19,7 +19,6 @@ import {
   CONVERSAO_BLACK_BOX_DEFAULT,
   CONVERSAO_MEETING_BROKER_DEFAULT,
   CONVERSAO_OUTBOUND_INDICACAO_DEFAULT,
-  CONVERSAO_OUTBOUND_EVENTOS_DEFAULT,
   CONVERSAO_OUTBOUND_RECOVERY_DEFAULT,
   CONVERSAO_OUTBOUND_RECOMENDACAO_DEFAULT,
   CONVERSAO_OUTBOUND_PROSPECCAO_DEFAULT,
@@ -48,7 +47,6 @@ const blocks: PremissasBlocks = {
   },
   conversoesOutbound: {
     indicacao: CONVERSAO_OUTBOUND_INDICACAO_DEFAULT,
-    eventos: CONVERSAO_OUTBOUND_EVENTOS_DEFAULT,
     recovery: CONVERSAO_OUTBOUND_RECOVERY_DEFAULT,
     recomendacao: CONVERSAO_OUTBOUND_RECOMENDACAO_DEFAULT,
     prospeccao: CONVERSAO_OUTBOUND_PROSPECCAO_DEFAULT,
@@ -82,7 +80,7 @@ for (const l of outbound) {
 }
 for (const [mes, r] of Array.from(byMes.entries()).sort()) {
   console.log(
-    `  ${mes}  indic=${Math.round(r.out_indicacao ?? 0).toString().padStart(5)} event=${Math.round(r.out_eventos ?? 0).toString().padStart(5)} recov=${Math.round(r.out_recovery ?? 0).toString().padStart(5)} recom=${Math.round(r.out_recomendacao ?? 0).toString().padStart(5)} prosp=${Math.round(r.out_prospeccao ?? 0).toString().padStart(5)}`,
+    `  ${mes}  indic=${Math.round(r.out_indicacao ?? 0).toString().padStart(5)} recov=${Math.round(r.out_recovery ?? 0).toString().padStart(5)} recom=${Math.round(r.out_recomendacao ?? 0).toString().padStart(5)} prosp=${Math.round(r.out_prospeccao ?? 0).toString().padStart(5)}`,
   );
 }
 
@@ -95,7 +93,7 @@ for (const l of outbound) {
 }
 for (const [mes, r] of Array.from(byMesWon.entries()).sort()) {
   console.log(
-    `  ${mes}  indic=${(r.out_indicacao ?? 0).toFixed(2).padStart(6)} event=${(r.out_eventos ?? 0).toFixed(2).padStart(6)} recov=${(r.out_recovery ?? 0).toFixed(2).padStart(6)} recom=${(r.out_recomendacao ?? 0).toFixed(2).padStart(6)} prosp=${(r.out_prospeccao ?? 0).toFixed(2).padStart(6)}`,
+    `  ${mes}  indic=${(r.out_indicacao ?? 0).toFixed(2).padStart(6)} recov=${(r.out_recovery ?? 0).toFixed(2).padStart(6)} recom=${(r.out_recomendacao ?? 0).toFixed(2).padStart(6)} prosp=${(r.out_prospeccao ?? 0).toFixed(2).padStart(6)}`,
   );
 }
 

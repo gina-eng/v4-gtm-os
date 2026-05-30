@@ -38,7 +38,6 @@ import {
   CONVERSAO_BLACK_BOX_DEFAULT,
   CONVERSAO_LEAD_BROKER_DEFAULT,
   CONVERSAO_MEETING_BROKER_DEFAULT,
-  CONVERSAO_OUTBOUND_EVENTOS_DEFAULT,
   CONVERSAO_OUTBOUND_INDICACAO_DEFAULT,
   CONVERSAO_OUTBOUND_PROSPECCAO_DEFAULT,
   CONVERSAO_OUTBOUND_RECOMENDACAO_DEFAULT,
@@ -125,7 +124,6 @@ export function matrizDefaultBlocks(): PremissasBlocks {
     },
     conversoesOutbound: {
       indicacao: CONVERSAO_OUTBOUND_INDICACAO_DEFAULT,
-      eventos: CONVERSAO_OUTBOUND_EVENTOS_DEFAULT,
       recovery: CONVERSAO_OUTBOUND_RECOVERY_DEFAULT,
       recomendacao: CONVERSAO_OUTBOUND_RECOMENDACAO_DEFAULT,
       prospeccao: CONVERSAO_OUTBOUND_PROSPECCAO_DEFAULT,
@@ -235,7 +233,6 @@ async function loadBlocksForPremissaIds(
           turnoverMesPct: r.turnoverMesPct,
           ligacoesMes: r.ligacoesMes,
           conexaoPct: r.conexaoPct,
-          extra: r.extra,
         }),
       ),
       horizontes: orderBy(horizBy.get(pid) ?? [], "h", HORIZONTE_ORDER).map((r) => ({
@@ -250,6 +247,7 @@ async function loadBlocksForPremissaIds(
         pctProducao: r.pctProducao,
         splitLb: r.splitLb,
         splitBb: r.splitBb,
+        splitMt: r.splitMt,
         bbPiso: r.bbPiso,
         regra: r.regra,
       })),
@@ -259,7 +257,6 @@ async function loadBlocksForPremissaIds(
       mixSubcanais: orderBy(horizBy.get(pid) ?? [], "h", HORIZONTE_ORDER).map((r) => ({
         h: r.h,
         indicacao: r.mixIndicacao,
-        eventos: r.mixEventos,
         recovery: r.mixRecovery,
         recomendacao: r.mixRecomendacao,
         prospeccao: r.mixProspeccao,
@@ -269,9 +266,9 @@ async function loadBlocksForPremissaIds(
         faturamentoMin: r.faturamentoMin,
         faturamentoMax: r.faturamentoMax,
         tcvBooking: r.tcvBooking,
-        tcvProdCom: r.tcvProdCom,
         cplLb: r.cplLb,
         cplBb: r.cplBb,
+        cpmqlMt: r.cpmqlMt,
       })),
       receitaProduto: orderBy(tierBy.get(pid) ?? [], "tier", TIER_ORDER).map((r) => ({
         tier: r.tier,
@@ -314,7 +311,6 @@ async function loadBlocksForPremissaIds(
       },
       conversoesOutbound: {
         indicacao: outboundFor(outboundBy.get(pid) ?? [], "indicacao"),
-        eventos: outboundFor(outboundBy.get(pid) ?? [], "eventos"),
         recovery: outboundFor(outboundBy.get(pid) ?? [], "recovery"),
         recomendacao: outboundFor(outboundBy.get(pid) ?? [], "recomendacao"),
         prospeccao: outboundFor(outboundBy.get(pid) ?? [], "prospeccao"),
@@ -413,7 +409,6 @@ export async function savePremissas(
           turnoverMesPct: m.turnoverMesPct,
           ligacoesMes: m.ligacoesMes,
           conexaoPct: m.conexaoPct,
-          extra: m.extra,
         })),
       );
     }
@@ -435,10 +430,10 @@ export async function savePremissas(
           pctProducao: p6?.pctProducao ?? 0,
           splitLb: p6?.splitLb ?? 0,
           splitBb: p6?.splitBb ?? 0,
+          splitMt: p6?.splitMt ?? 0,
           bbPiso: p6?.bbPiso ?? 0,
           regra: p6?.regra ?? "",
           mixIndicacao: p16?.indicacao ?? 0,
-          mixEventos: p16?.eventos ?? 0,
           mixRecovery: p16?.recovery ?? 0,
           mixRecomendacao: p16?.recomendacao ?? 0,
           mixProspeccao: p16?.prospeccao ?? 0,
@@ -459,9 +454,9 @@ export async function savePremissas(
           faturamentoMin: p2.faturamentoMin,
           faturamentoMax: p2.faturamentoMax,
           tcvBooking: p2.tcvBooking,
-          tcvProdCom: p2.tcvProdCom,
           cplLb: p2.cplLb,
           cplBb: p2.cplBb,
+          cpmqlMt: p2.cpmqlMt,
           saberPct: p3?.saberPct ?? 0,
           saberAt: p3?.saberAt ?? 0,
           terPct: p3?.terPct ?? 0,
@@ -534,7 +529,6 @@ export async function savePremissas(
     const out = blocks.conversoesOutbound;
     const outboundRows = [
       ...out.indicacao.map((c) => ({ subcanal: "indicacao" as const, ...c })),
-      ...out.eventos.map((c) => ({ subcanal: "eventos" as const, ...c })),
       ...out.recovery.map((c) => ({ subcanal: "recovery" as const, ...c })),
       ...out.recomendacao.map((c) => ({ subcanal: "recomendacao" as const, ...c })),
       ...out.prospeccao.map((c) => ({ subcanal: "prospeccao" as const, ...c })),

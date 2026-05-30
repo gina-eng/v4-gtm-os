@@ -16,12 +16,11 @@ type Props = {
   fromMatriz: boolean;
 };
 
-const COLS = ["indicacao", "eventos", "recovery", "recomendacao", "prospeccao"] as const;
+const COLS = ["indicacao", "recovery", "recomendacao", "prospeccao"] as const;
 type ColKey = (typeof COLS)[number];
 
 const COL_LABEL: Record<ColKey, string> = {
   indicacao: "Indicação",
-  eventos: "Eventos",
   recovery: "Recovery",
   recomendacao: "Recomendação",
   prospeccao: "Prospecção",
@@ -29,14 +28,13 @@ const COL_LABEL: Record<ColKey, string> = {
 
 const COL_HELP: Record<ColKey, string> = {
   indicacao: "% dos leads outbound originados de indicações de clientes.",
-  eventos: "% dos leads outbound originados de eventos próprios ou de mercado.",
   recovery: "% dos leads outbound originados de recuperação de clientes inativos.",
   recomendacao: "% dos leads outbound originados de recomendação ativa (parceiros).",
   prospeccao: "% dos leads outbound originados de prospecção fria (cold call/email).",
 };
 
 function mixTotal(r: MixOutboundHorizonte): number {
-  return r.indicacao + r.eventos + r.recovery + r.recomendacao + r.prospeccao;
+  return r.indicacao + r.recovery + r.recomendacao + r.prospeccao;
 }
 
 export function StepMixSubcanais({ organizationId, initial, matriz, fromMatriz }: Props) {

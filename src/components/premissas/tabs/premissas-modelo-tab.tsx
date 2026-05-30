@@ -62,18 +62,13 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks
 
   return (
     <>
-      {/* Linha unificada — TIME COMERCIAL (CAC dinâmico) + P7 (derivado, read-only).
-          Ambas seções têm conteúdo estreito; lado-a-lado economiza espaço vertical. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <TimeComercialSection
-          canEdit={canEdit}
-          team={team}
-          onTeamChange={setTeam}
-          cacContext={cacContext}
-          onPersist={(rows) => persist({ block: "timeComercial", data: rows.map(toMembroBlock) })}
-        />
-        <CplTcvPondSection />
-      </div>
+      <TimeComercialSection
+        canEdit={canEdit}
+        team={team}
+        onTeamChange={setTeam}
+        cacContext={cacContext}
+        onPersist={(rows) => persist({ block: "timeComercial", data: rows.map(toMembroBlock) })}
+      />
 
       {/* P17 — capacidade / operação */}
       <CapacidadeSection
@@ -103,6 +98,7 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks
       <TiersClienteSection
         canEdit={canEdit}
         initial={blocks.tiersCliente}
+        produtos={blocks.receitaProduto}
         onPersist={(rows) => persist({ block: "tiersCliente", data: rows })}
       />
 
@@ -367,7 +363,6 @@ function defaultMetricFor(cargo: string): MetricaOperacional {
     turnoverMesPct: 1.7,
     ligacoesMes: 0,
     conexaoPct: 0,
-    extra: "",
   };
 }
 
@@ -475,19 +470,13 @@ function CapacidadeSection({
                   <FieldHelp text="Taxa de conexão das ligações em %. Use 0 para cargos sem cadência de ligação." position="bottom" />
                 </span>
               </Th>
-              <Th>
-                <span className="inline-flex items-center gap-1">
-                  Extra
-                  <FieldHelp text="Observações qualitativas livres — não entra em fórmulas." position="bottom" />
-                </span>
-              </Th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={CAP_NUM_COLS.length + 5}
+                  colSpan={CAP_NUM_COLS.length + 4}
                   className="px-4 py-6 text-center text-xs text-muted-foreground"
                 >
                   Nenhum cargo cadastrado no TIME COMERCIAL. Adicione um membro acima para liberar a edição.
@@ -535,12 +524,6 @@ function CapacidadeSection({
                       digits={0}
                     />
                   </td>
-                  <TextCell
-                    value={r.extra}
-                    isEditing={isEditing}
-                    onChange={(v) => patch(r.cargo, "extra", v)}
-                    className="px-1.5 max-w-[8rem]"
-                  />
                 </tr>
               ))
             )}
@@ -697,6 +680,8 @@ type Investimento = {
   pctProducao: number;
   splitLb: number;
   splitBb: number;
+  /** % alocado em Meeting Broker (inbound de eventos). 0 = não liberado p/ horizonte. */
+  splitMt: number;
   bbPiso: number; // R$ — 0 quando não se aplica
   regra: string;
 };
@@ -735,6 +720,15 @@ function InvestimentoMidiaSection({
         setIsEditing(true);
       }}
       onSave={() => {
+        const invalidos = draft.filter((r) => r.splitLb + r.splitBb + r.splitMt > 100.5);
+        if (invalidos.length > 0) {
+          alert(
+            `Soma Split LB + BB + MT deve ser ≤ 100% em cada horizonte. Ajuste: ${invalidos
+              .map((r) => `${r.h} (${(r.splitLb + r.splitBb + r.splitMt).toFixed(1)}%)`)
+              .join(", ")}.`,
+          );
+          return;
+        }
         setSaved(draft);
         setIsEditing(false);
         void onPersist(draft);
@@ -745,7 +739,7 @@ function InvestimentoMidiaSection({
       }}
     >
       <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        % Produção = parcela do faturamento investida em mídia. Split LB/BB define a divisão entre Lead Broker e Black Box.
+        % Produção = parcela do faturamento investida em mídia. Split LB/BB/MT define a divisão entre Lead Broker, Black Box e Meeting Broker (eventos inbound). Soma deve ser ≤ 100%.
       </div>
       <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {rows.map((r, idx) => {
@@ -798,6 +792,18 @@ function InvestimentoMidiaSection({
                     isEditing={isEditing}
                     value={r.splitBb}
                     onChange={(v) => patch(idx, "splitBb", v)}
+                    lockableZero
+                    align="left"
+                  />
+                </CardField>
+                <CardField
+                  label="Split MT"
+                  help="% do investimento em mídia alocado em Meeting Broker (eventos inbound, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte."
+                >
+                  <PercentCell
+                    isEditing={isEditing}
+                    value={r.splitMt}
+                    onChange={(v) => patch(idx, "splitMt", v)}
                     lockableZero
                     align="left"
                   />
@@ -873,25 +879,34 @@ type TierCliente = {
   tier: "Tiny" | "Small" | "Medium" | "Large" | "Enterprise";
   faturamentoMin: number;
   faturamentoMax: number | null;
+  /** Ponderado pela receita realizada por produto (P3). Calculado automaticamente. */
   tcvBooking: number;
-  tcvProdCom: number;
   cplLb: number;
   cplBb: number;
+  cpmqlMt: number;
 };
 
 function TiersClienteSection({
   canEdit,
   initial,
+  produtos,
   onPersist,
 }: {
   canEdit: boolean;
   initial: TierCliente[];
+  produtos: Produto[];
   onPersist: (rows: TierCliente[]) => Promise<boolean>;
 }) {
   const [saved, setSaved] = useState<TierCliente[]>(initial);
   const [draft, setDraft] = useState<TierCliente[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
+
+  const tcvByTier = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of produtos) map.set(p.tier, tcvPonderado(p));
+    return map;
+  }, [produtos]);
 
   function patch<K extends keyof TierCliente>(idx: number, key: K, v: TierCliente[K]) {
     setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
@@ -908,9 +923,14 @@ function TiersClienteSection({
         setIsEditing(true);
       }}
       onSave={() => {
-        setSaved(draft);
+        // TCV-Booking é ponderado pela receita realizada por produto (P3) — sobrescreve no save.
+        const rowsToSave = draft.map((r) => ({
+          ...r,
+          tcvBooking: tcvByTier.get(r.tier) ?? r.tcvBooking,
+        }));
+        setSaved(rowsToSave);
         setIsEditing(false);
-        void onPersist(draft);
+        void onPersist(rowsToSave);
       }}
       onCancel={() => {
         setDraft(saved);
@@ -924,54 +944,57 @@ function TiersClienteSection({
               <Th help="Classificação do cliente por porte: Tiny → Small → Medium → Large → Enterprise.">Tier</Th>
               <Th align="right" help="Piso da faixa de faturamento anual do cliente neste tier (em R$).">Fat. Min</Th>
               <Th align="right" help="Teto da faixa de faturamento anual (em R$). Marque 'Sem teto' para faixas abertas à direita (ex: Enterprise R$500M+).">Fat. Máx</Th>
-              <Th align="right" help="Total Contract Value no momento do fechamento — soma de todos os produtos contratados.">TCV-Booking</Th>
-              <Th align="right" help="TCV considerando apenas Produção Comercial (sem upsells ou renovação).">TCV Prod.Com.</Th>
-              <Th align="right" help="Custo Por Lead via Lead Broker — leads de mídia paga inbound (Meta/Google).">CPL LB</Th>
-              <Th align="right" help="Custo Por Lead via Black Box — outbound estruturado. Padrão R$700.">CPL BB</Th>
+              <Th align="right" help="TCV Booking Ponderado pela receita realizada por produto (Saber% × Saber TM) + (Ter% × Ter TM) + (Executar% × Executar TM). Calculado automaticamente a partir de P3.">TCV-Booking Pond.</Th>
+              <Th align="right" help="Custo Por MQL via Lead Broker — leads de mídia paga inbound (Meta/Google).">CPMQL LB</Th>
+              <Th align="right" help="Custo Por MQL via Black Box — outbound estruturado. Padrão R$700.">CPMQL BB</Th>
+              <Th align="right" help="Custo Por MQL via Meeting Broker — inbound de eventos. Default = custo SQL (R$5.000).">CPMQL MT</Th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => (
-              <tr
-                key={r.tier}
-                className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-              >
-                <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.tier}</td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell
-                    isEditing={isEditing}
-                    value={r.faturamentoMin}
-                    onChange={(v) => patch(idx, "faturamentoMin", v)}
-                    step={100_000}
-                  />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <NullableCurrencyCell
-                    isEditing={isEditing}
-                    value={r.faturamentoMax}
-                    onChange={(v) => patch(idx, "faturamentoMax", v)}
-                    step={100_000}
-                  />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing} value={r.tcvBooking} onChange={(v) => patch(idx, "tcvBooking", v)} />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing} value={r.tcvProdCom} onChange={(v) => patch(idx, "tcvProdCom", v)} />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing} value={r.cplLb} onChange={(v) => patch(idx, "cplLb", v)} step={10} />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing} value={r.cplBb} onChange={(v) => patch(idx, "cplBb", v)} step={10} />
-                </td>
-              </tr>
-            ))}
+            {rows.map((r, idx) => {
+              const tcvPond = tcvByTier.get(r.tier) ?? r.tcvBooking;
+              return (
+                <tr
+                  key={r.tier}
+                  className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
+                >
+                  <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.tier}</td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell
+                      isEditing={isEditing}
+                      value={r.faturamentoMin}
+                      onChange={(v) => patch(idx, "faturamentoMin", v)}
+                      step={100_000}
+                    />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <NullableCurrencyCell
+                      isEditing={isEditing}
+                      value={r.faturamentoMax}
+                      onChange={(v) => patch(idx, "faturamentoMax", v)}
+                      step={100_000}
+                    />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right text-muted-foreground">
+                    {formatBRL(tcvPond)}
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing} value={r.cplLb} onChange={(v) => patch(idx, "cplLb", v)} step={10} />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing} value={r.cplBb} onChange={(v) => patch(idx, "cplBb", v)} step={10} />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing} value={r.cpmqlMt} onChange={(v) => patch(idx, "cpmqlMt", v)} step={100} />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
       <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        Tiny: BB piso R$30K/mês. CPL BB = R$700 padrão para todos os tiers.
+        Tiny: BB piso R$30K/mês. CPMQL BB = R$700 padrão para todos os tiers. CPMQL MT = R$5.000 (custo SQL). TCV-Booking é recalculado a partir de P3 ao salvar.
       </div>
     </EditableSection>
   );
@@ -1063,13 +1086,13 @@ function ReceitaProdutoSection({
             <tr className="border-b border-border">
               <Th help="Tier de cliente (mesmo da seção anterior).">Tier</Th>
               <Th align="right" help="% dos clientes deste tier que adquirem o produto Saber.">Saber %</Th>
-              <Th align="right" help="Average Ticket — ticket médio do produto Saber neste tier.">Saber AT</Th>
+              <Th align="right" help="Ticket Médio — ticket médio do produto Saber neste tier.">Saber TM</Th>
               <Th align="right" help="% dos clientes deste tier que adquirem o produto Ter.">Ter %</Th>
-              <Th align="right" help="Average Ticket — ticket médio do produto Ter neste tier.">Ter AT</Th>
+              <Th align="right" help="Ticket Médio — ticket médio do produto Ter neste tier.">Ter TM</Th>
               <Th align="right" help="% dos clientes deste tier que adquirem o produto Executar.">Executar %</Th>
-              <Th align="right" help="Average Ticket — ticket médio do produto Executar neste tier.">Executar AT</Th>
+              <Th align="right" help="Ticket Médio — ticket médio do produto Executar neste tier.">Executar TM</Th>
               <Th align="right" help="Soma de Saber% + Ter% + Executar% no tier. Deve totalizar 100%.">Soma %</Th>
-              <Th align="right" help="TCV Ponderado = (Saber% × Saber AT) + (Ter% × Ter AT) + (Executar% × Executar AT). Calculado automaticamente.">TCV Pond.</Th>
+              <Th align="right" help="TCV Ponderado = (Saber% × Saber TM) + (Ter% × Ter TM) + (Executar% × Executar TM). Calculado automaticamente.">TCV Pond.</Th>
             </tr>
           </thead>
           <tbody>
@@ -1346,57 +1369,6 @@ function DistribuicaoLeadsSection({
   );
 }
 
-// ============================================================
-// P7 — CPL e TCV MÉDIO PONDERADO POR HORIZONTE (read-only / derivado)
-// ============================================================
-
-function CplTcvPondSection() {
-  const linhas = [
-    { h: "H1", cplLbPond: 637, tcvMedPond: 22_389 },
-    { h: "H2", cplLbPond: 637, tcvMedPond: 22_389 },
-    { h: "H3", cplLbPond: 843, tcvMedPond: 27_233 },
-    { h: "H4", cplLbPond: 971, tcvMedPond: 30_944 },
-    { h: "H5", cplLbPond: 1_042, tcvMedPond: 34_316 },
-  ];
-  return (
-    <EditableSection
-      title="P7 — CPL e TCV Médio Ponderado por Horizonte"
-      badge={<SectionBadge>Premissa 07 · Derivado</SectionBadge>}
-      canEdit={false}
-      isEditing={false}
-      onEdit={() => {}}
-      onSave={() => {}}
-      onCancel={() => {}}
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <Th help="Horizonte da unidade (H1–H5).">Horizonte</Th>
-              <Th align="right" help="CPL Lead Broker ponderado pelo mix de tiers ativos no horizonte. Derivado de P2 + P4 — não editável.">CPL LB Pond.</Th>
-              <Th align="right" help="TCV médio ponderado pelo mix de tiers ativos no horizonte. Derivado de P3 + P4 — não editável.">TCV Médio Pond.</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {linhas.map((r, idx) => (
-              <tr
-                key={r.h}
-                className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-              >
-                <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.h}</td>
-                <td className="px-1.5 py-2 text-xs text-right tabular-nums">{formatBRL(r.cplLbPond)}</td>
-                <td className="px-1.5 py-2 text-xs text-right tabular-nums">{formatBRL(r.tcvMedPond)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        Calculado automaticamente a partir de P2 (CPL por tier) e P4 (split de tier por horizonte). Não é editável.
-      </div>
-    </EditableSection>
-  );
-}
 
 // ============================================================
 // Helpers internos
@@ -1429,38 +1401,3 @@ function Th({
   );
 }
 
-/** Célula de texto genérica — read-only vira span, editing vira input. */
-function TextCell({
-  value,
-  isEditing,
-  onChange,
-  placeholder = "—",
-  className = "px-1.5 py-2",
-}: {
-  value: string;
-  isEditing: boolean;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  if (!isEditing) {
-    return (
-      <td className={`${className} text-xs text-muted-foreground`}>
-        {value ? value : <span className="text-muted-foreground/40">{placeholder}</span>}
-      </td>
-    );
-  }
-  return (
-    <td className={`${className} text-xs`}>
-      <span className="inline-flex items-center px-1.5 py-0.5 border border-dashed border-warning bg-warning/5 rounded w-full">
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="bg-transparent text-xs focus:outline-none text-foreground w-full min-w-0"
-        />
-      </span>
-    </td>
-  );
-}

@@ -5,8 +5,6 @@ import { StepLeadsInvestimento } from "@/components/iniciar/step-leads-investime
 import type {
   DistMercado,
   InvestimentoMidia,
-  ReceitaProduto,
-  TierCliente,
 } from "@/lib/premissas/matriz-defaults";
 
 export const dynamic = "force-dynamic";
@@ -16,14 +14,10 @@ export default async function LeadsInvestimentoPage() {
   if (!session.activeOrganization) redirect("/");
 
   const orgId = session.activeOrganization.id;
-  const [leadsInv, tiersReceita] = await Promise.all([
-    getStepValues(orgId, "leads-investimento"),
-    getStepValues(orgId, "tiers-receita"),
-  ]);
+  const leadsInv = await getStepValues(orgId, "leads-investimento");
 
   const v = leadsInv.values as { distMercado: DistMercado[]; investimentoMidia: InvestimentoMidia[] };
   const m = leadsInv.matrizDefault as { distMercado: DistMercado[]; investimentoMidia: InvestimentoMidia[] };
-  const tr = tiersReceita.values as { tiers: TierCliente[]; produtos: ReceitaProduto[] };
 
   return (
     <StepLeadsInvestimento
@@ -33,7 +27,6 @@ export default async function LeadsInvestimentoPage() {
       initialInvest={v.investimentoMidia}
       matrizDist={m.distMercado}
       matrizInvest={m.investimentoMidia}
-      tiers={tr.tiers}
       fromMatriz={leadsInv.fromMatriz}
     />
   );

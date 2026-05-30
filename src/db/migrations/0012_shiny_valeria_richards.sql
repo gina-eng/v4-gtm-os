@@ -1,0 +1,1 @@
+ALTER TABLE "premissa_tier" DROP COLUMN "tcv_prod_com";

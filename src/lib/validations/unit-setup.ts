@@ -77,7 +77,6 @@ export const metricaOperacionalSchema = z.object({
   turnoverMesPct: z.number().min(0).max(100),
   ligacoesMes: z.number().min(0).max(1_000_000),
   conexaoPct: z.number().min(0).max(100),
-  extra: z.string().trim().max(255),
 });
 
 export const metricasOperacionaisSchema = z.array(metricaOperacionalSchema).min(1);
@@ -93,9 +92,9 @@ export const tierClienteSchema = z
     // null = aberto à direita (ex: Enterprise "R$500M+")
     faturamentoMax: z.number().min(0).nullable(),
     tcvBooking: z.number().min(0),
-    tcvProdCom: z.number().min(0),
     cplLb: z.number().min(0),
     cplBb: z.number().min(0),
+    cpmqlMt: z.number().min(0),
   })
   .refine(
     (v) => v.faturamentoMax === null || v.faturamentoMax >= v.faturamentoMin,
@@ -159,14 +158,20 @@ const distMercadoArraySchema = z
     }
   });
 
-export const investimentoMidiaSchema = z.object({
-  h: horizonteEnum,
-  pctProducao: z.number().min(0).max(100),
-  splitLb: z.number().min(0).max(100),
-  splitBb: z.number().min(0).max(100),
-  bbPiso: z.number().min(0),
-  regra: z.string().trim().max(255),
-});
+export const investimentoMidiaSchema = z
+  .object({
+    h: horizonteEnum,
+    pctProducao: z.number().min(0).max(100),
+    splitLb: z.number().min(0).max(100),
+    splitBb: z.number().min(0).max(100),
+    splitMt: z.number().min(0).max(100),
+    bbPiso: z.number().min(0),
+    regra: z.string().trim().max(255),
+  })
+  .refine((v) => v.splitLb + v.splitBb + v.splitMt <= 100.5, {
+    message: "splitLb + splitBb + splitMt deve ser ≤ 100%",
+    path: ["splitMt"],
+  });
 
 export const leadsInvestimentoSchema = z.object({
   distMercado: distMercadoArraySchema,
@@ -219,7 +224,6 @@ const outboundCanalSchema = z.array(conversaoOutboundSchema).min(1);
 
 export const conversoesOutboundSchema = z.object({
   indicacao: outboundCanalSchema,
-  eventos: outboundCanalSchema,
   recovery: outboundCanalSchema,
   recomendacao: outboundCanalSchema,
   prospeccao: outboundCanalSchema,
@@ -232,7 +236,6 @@ export const conversoesOutboundSchema = z.object({
 export const mixSubcanaisRowSchema = z.object({
   h: horizonteEnum,
   indicacao: z.number().min(0).max(100),
-  eventos: z.number().min(0).max(100),
   recovery: z.number().min(0).max(100),
   recomendacao: z.number().min(0).max(100),
   prospeccao: z.number().min(0).max(100),
@@ -244,11 +247,7 @@ export const mixSubcanaisSchema = z
   .superRefine((arr, ctx) => {
     arr.forEach((row, i) => {
       const total =
-        row.indicacao +
-        row.eventos +
-        row.recovery +
-        row.recomendacao +
-        row.prospeccao;
+        row.indicacao + row.recovery + row.recomendacao + row.prospeccao;
       if (Math.abs(total - 100) > 0.5) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

@@ -206,7 +206,6 @@ export function concatRealizadoMatriz(
 
 const SUBCANAIS_OUTBOUND_KEYS = [
   "out_indicacao",
-  "out_eventos",
   "out_recovery",
   "out_recomendacao",
   "out_prospeccao",
@@ -214,7 +213,6 @@ const SUBCANAIS_OUTBOUND_KEYS = [
 
 type MixOutboundField =
   | "indicacao"
-  | "eventos"
   | "recovery"
   | "recomendacao"
   | "prospeccao";
@@ -224,7 +222,6 @@ const SUBCANAL_OUTBOUND_TO_MIX: Record<
   MixOutboundField
 > = {
   out_indicacao: "indicacao",
-  out_eventos: "eventos",
   out_recovery: "recovery",
   out_recomendacao: "recomendacao",
   out_prospeccao: "prospeccao",
@@ -268,6 +265,7 @@ export function calcularAtuacao(
     subcanaisAtivos.add("black_box");
   }
   if (tiersAtivos.has("Enterprise")) subcanaisAtivos.add("meeting_broker");
+  if ((p6?.splitMt ?? 0) > 0) subcanaisAtivos.add("eventos");
 
   const mix = blocks.mixSubcanais.find((m) => m.h === horizonte);
   for (const key of SUBCANAIS_OUTBOUND_KEYS) {

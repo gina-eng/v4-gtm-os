@@ -57,7 +57,6 @@ export const TIME_COMERCIAL_DEFAULT: TimeComercialMembro[] = [
 // - turnoverMesPct:  turnover mensal em %
 // - ligacoesMes:     volume médio de ligações/mês (0 = não se aplica ao cargo)
 // - conexaoPct:      taxa de conexão das ligações em % (0 = não se aplica ao cargo)
-// - extra:           observação qualitativa livre — não entra em fórmulas
 // ============================================================
 
 export type MetricaOperacional = {
@@ -71,7 +70,6 @@ export type MetricaOperacional = {
   turnoverMesPct: number;
   ligacoesMes: number;
   conexaoPct: number;
-  extra: string;
 };
 
 export const METRICAS_OPERACIONAIS_DEFAULT: MetricaOperacional[] = [
@@ -86,7 +84,6 @@ export const METRICAS_OPERACIONAIS_DEFAULT: MetricaOperacional[] = [
     turnoverMesPct: 2.1,
     ligacoesMes: 3_500,
     conexaoPct: 40,
-    extra: "",
   },
   {
     cargo: "BDR",
@@ -99,7 +96,6 @@ export const METRICAS_OPERACIONAIS_DEFAULT: MetricaOperacional[] = [
     turnoverMesPct: 1.7,
     ligacoesMes: 4_000,
     conexaoPct: 30,
-    extra: "",
   },
   {
     cargo: "SDR",
@@ -112,7 +108,6 @@ export const METRICAS_OPERACIONAIS_DEFAULT: MetricaOperacional[] = [
     turnoverMesPct: 1.7,
     ligacoesMes: 2_660,
     conexaoPct: 50,
-    extra: "",
   },
   {
     cargo: "CLOSER",
@@ -125,7 +120,6 @@ export const METRICAS_OPERACIONAIS_DEFAULT: MetricaOperacional[] = [
     turnoverMesPct: 1.7,
     ligacoesMes: 0,
     conexaoPct: 0,
-    extra: "",
   },
   {
     cargo: "KAM",
@@ -138,7 +132,6 @@ export const METRICAS_OPERACIONAIS_DEFAULT: MetricaOperacional[] = [
     turnoverMesPct: 0.8,
     ligacoesMes: 0,
     conexaoPct: 0,
-    extra: "",
   },
 ];
 
@@ -179,18 +172,20 @@ export type TierCliente = {
   tier: Tier;
   faturamentoMin: number;
   faturamentoMax: number | null;
+  /** Ponderado por receita realizada por produto (Saber%·TM + Ter%·TM + Executar%·TM). Calculado automaticamente a partir de P3. */
   tcvBooking: number;
-  tcvProdCom: number;
   cplLb: number;
   cplBb: number;
+  /** CPMQL via Meeting Broker / Inbound de eventos — default = custoSql. */
+  cpmqlMt: number;
 };
 
 export const TIERS_CLIENTE_DEFAULT: TierCliente[] = [
-  { tier: "Tiny", faturamentoMin: 600_000, faturamentoMax: 1_200_000, tcvBooking: 25_500, tcvProdCom: 17_500, cplLb: 421, cplBb: 700 },
-  { tier: "Small", faturamentoMin: 1_200_000, faturamentoMax: 2_500_000, tcvBooking: 40_300, tcvProdCom: 26_300, cplLb: 810, cplBb: 700 },
-  { tier: "Medium", faturamentoMin: 2_500_000, faturamentoMax: 50_000_000, tcvBooking: 62_500, tcvProdCom: 34_500, cplLb: 1_152, cplBb: 700 },
-  { tier: "Large", faturamentoMin: 50_000_000, faturamentoMax: 500_000_000, tcvBooking: 80_800, tcvProdCom: 49_500, cplLb: 1_608, cplBb: 700 },
-  { tier: "Enterprise", faturamentoMin: 500_000_000, faturamentoMax: null, tcvBooking: 153_160, tcvProdCom: 64_660, cplLb: 1_683, cplBb: 700 },
+  { tier: "Tiny", faturamentoMin: 600_000, faturamentoMax: 1_200_000, tcvBooking: 25_500, cplLb: 421, cplBb: 700, cpmqlMt: 5_000 },
+  { tier: "Small", faturamentoMin: 1_200_000, faturamentoMax: 2_500_000, tcvBooking: 40_300, cplLb: 810, cplBb: 700, cpmqlMt: 5_000 },
+  { tier: "Medium", faturamentoMin: 2_500_000, faturamentoMax: 50_000_000, tcvBooking: 62_500, cplLb: 1_152, cplBb: 700, cpmqlMt: 5_000 },
+  { tier: "Large", faturamentoMin: 50_000_000, faturamentoMax: 500_000_000, tcvBooking: 80_800, cplLb: 1_608, cplBb: 700, cpmqlMt: 5_000 },
+  { tier: "Enterprise", faturamentoMin: 500_000_000, faturamentoMax: null, tcvBooking: 153_160, cplLb: 1_683, cplBb: 700, cpmqlMt: 5_000 },
 ];
 
 // ============================================================
@@ -273,16 +268,18 @@ export type InvestimentoMidia = {
   pctProducao: number;
   splitLb: number;
   splitBb: number;
+  /** % do budget de mídia dedicado a Meeting Broker / Eventos (inbound curto, SQL→SAL→WON). 0 = não liberado para o horizonte. */
+  splitMt: number;
   bbPiso: number;
   regra: string;
 };
 
 export const INVESTIMENTO_MIDIA_DEFAULT: InvestimentoMidia[] = [
-  { h: "H1", pctProducao: 16.8, splitLb: 100, splitBb: 0, bbPiso: 0, regra: "Max inbound, out complementa" },
-  { h: "H2", pctProducao: 17.0, splitLb: 100, splitBb: 0, bbPiso: 0, regra: "" },
-  { h: "H3", pctProducao: 15.5, splitLb: 80, splitBb: 20, bbPiso: 30_000, regra: "BB entra" },
-  { h: "H4", pctProducao: 15.6, splitLb: 75, splitBb: 25, bbPiso: 30_000, regra: "" },
-  { h: "H5", pctProducao: 17.5, splitLb: 62.5, splitBb: 37.5, bbPiso: 30_000, regra: "Ent: 10% budget → MeetingBroker" },
+  { h: "H1", pctProducao: 16.8, splitLb: 100, splitBb: 0, splitMt: 0, bbPiso: 0, regra: "Max inbound, out complementa" },
+  { h: "H2", pctProducao: 17.0, splitLb: 100, splitBb: 0, splitMt: 0, bbPiso: 0, regra: "" },
+  { h: "H3", pctProducao: 15.5, splitLb: 80, splitBb: 20, splitMt: 0, bbPiso: 30_000, regra: "BB entra" },
+  { h: "H4", pctProducao: 15.6, splitLb: 75, splitBb: 25, splitMt: 0, bbPiso: 30_000, regra: "" },
+  { h: "H5", pctProducao: 17.5, splitLb: 62.5, splitBb: 27.5, splitMt: 10, bbPiso: 30_000, regra: "Ent: 10% budget → MeetingBroker" },
 ];
 
 // ============================================================
@@ -362,14 +359,6 @@ export const CONVERSAO_OUTBOUND_INDICACAO_DEFAULT: ConversaoOutbound[] = [
   { tier: "Enterprise", cr1: 18, cr3: 80, cr4: 15, cr6: 85, cr7: 108 },
 ];
 
-export const CONVERSAO_OUTBOUND_EVENTOS_DEFAULT: ConversaoOutbound[] = [
-  { tier: "Tiny", cr1: 30, cr3: 80, cr4: 30, cr6: 96, cr7: 108 },
-  { tier: "Small", cr1: 25, cr3: 80, cr4: 30, cr6: 95, cr7: 108 },
-  { tier: "Medium", cr1: 25, cr3: 80, cr4: 25, cr6: 94, cr7: 108 },
-  { tier: "Large", cr1: 20, cr3: 80, cr4: 20, cr6: 94, cr7: 108 },
-  { tier: "Enterprise", cr1: 15, cr3: 80, cr4: 15, cr6: 85, cr7: 108 },
-];
-
 export const CONVERSAO_OUTBOUND_RECOVERY_DEFAULT: ConversaoOutbound[] = [
   { tier: "Tiny", cr1: 10, cr3: 80, cr4: 25, cr6: 96, cr7: 108 },
   { tier: "Small", cr1: 10, cr3: 80, cr4: 25, cr6: 95, cr7: 108 },
@@ -397,25 +386,25 @@ export const CONVERSAO_OUTBOUND_PROSPECCAO_DEFAULT: ConversaoOutbound[] = [
 // ============================================================
 // Mix Subcanais Outbound por Horizonte (P16)
 //
-// Distribuição dos leads outbound entre os 5 subcanais em cada horizonte.
-// A soma de cada linha deve totalizar 100%.
+// Distribuição dos leads outbound entre os 4 subcanais em cada horizonte.
+// A soma de cada linha deve totalizar 100%. Eventos foi movido para Inbound
+// (funil curto SQL→SAL→WON) — orçado via P6.splitMt e custo via P2.cpmqlMt.
 // ============================================================
 
 export type MixOutboundHorizonte = {
   h: Horizonte;
   indicacao: number;
-  eventos: number;
   recovery: number;
   recomendacao: number;
   prospeccao: number;
 };
 
 export const MIX_OUTBOUND_DEFAULT: MixOutboundHorizonte[] = [
-  { h: "H1", indicacao: 25, eventos: 0, recovery: 20, recomendacao: 25, prospeccao: 30 },
-  { h: "H2", indicacao: 25, eventos: 0, recovery: 20, recomendacao: 25, prospeccao: 30 },
-  { h: "H3", indicacao: 20, eventos: 20, recovery: 20, recomendacao: 20, prospeccao: 20 },
-  { h: "H4", indicacao: 35, eventos: 10, recovery: 20, recomendacao: 25, prospeccao: 10 },
-  { h: "H5", indicacao: 35, eventos: 10, recovery: 20, recomendacao: 25, prospeccao: 10 },
+  { h: "H1", indicacao: 25, recovery: 20, recomendacao: 25, prospeccao: 30 },
+  { h: "H2", indicacao: 25, recovery: 20, recomendacao: 25, prospeccao: 30 },
+  { h: "H3", indicacao: 30, recovery: 20, recomendacao: 25, prospeccao: 25 },
+  { h: "H4", indicacao: 40, recovery: 20, recomendacao: 25, prospeccao: 15 },
+  { h: "H5", indicacao: 40, recovery: 20, recomendacao: 25, prospeccao: 15 },
 ];
 
 // ============================================================

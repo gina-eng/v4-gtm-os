@@ -550,7 +550,7 @@ function BowtieGravata({
                   y={projRowY}
                   textAnchor={anchor}
                   dominantBaseline="central"
-                  className="fill-muted-foreground"
+                  className="fill-warning"
                   style={{ fontSize: 10, fontWeight: 500, letterSpacing: 0.3 }}
                 >
                   {s.proj === null ? "Proj: —" : `Proj: ${formatInt(s.proj)}`}
@@ -604,7 +604,7 @@ function BowtieGravata({
                 y={s.labelY + 32}
                 textAnchor={s.anchor}
                 dominantBaseline="central"
-                className="fill-muted-foreground"
+                className="fill-warning"
                 style={{ fontSize: 10, fontWeight: 500, letterSpacing: 0.3 }}
               >
                 {s.proj === null ? "Proj: —" : `Proj: ${formatInt(s.proj)}`}
@@ -642,7 +642,7 @@ function BowtieGravata({
               y={CY + 20}
               textAnchor="middle"
               dominantBaseline="central"
-              className="fill-muted-foreground"
+              className="fill-warning"
               style={{ fontSize: 10, fontWeight: 500 }}
             >
               {c.projPct === null ? "Proj: —" : `Proj: ${Math.round(c.projPct)}%`}
@@ -708,7 +708,7 @@ function BowtieGravata({
                         y={blockTop + 28}
                         textAnchor={anchor}
                         dominantBaseline="central"
-                        className="fill-muted-foreground"
+                        className="fill-warning"
                         style={{ fontSize: 10, fontWeight: 500 }}
                       >
                         {cost.proj === null ? "Proj: —" : `Proj: ${formatBRL(cost.proj)}`}

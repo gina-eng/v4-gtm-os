@@ -372,6 +372,7 @@ function TabelaCanalSubCanal({
       subtitulo="investimento, funil e decomposição da receita por produto (P3) — cada sub-canal abre o detalhe por tier de cliente"
       horizonteByMes={horizonteByMes}
       transicoesMeses={transicoesMeses}
+      skipMesesHeader
     >
       <SecaoCanal
         canalLabel="Inbound"
@@ -381,6 +382,7 @@ function TabelaCanalSubCanal({
         getTier={getTier}
         tiersAtivosPorSub={tiersAtivosPorSub}
         isFechadoByMes={isFechadoByMes}
+        horizonteByMes={horizonteByMes}
       />
       <SecaoCanal
         canalLabel="Outbound"
@@ -390,6 +392,7 @@ function TabelaCanalSubCanal({
         getTier={getTier}
         tiersAtivosPorSub={tiersAtivosPorSub}
         isFechadoByMes={isFechadoByMes}
+        horizonteByMes={horizonteByMes}
       />
     </TabelaChrome>
   );
@@ -415,6 +418,7 @@ function SecaoCanal({
   getTier,
   tiersAtivosPorSub,
   isFechadoByMes,
+  horizonteByMes,
 }: {
   canalLabel: string;
   subcanais: readonly (typeof SUB_CANAIS)[number][];
@@ -423,20 +427,41 @@ function SecaoCanal({
   getTier: (sub: SubCanalKey, tier: Tier, mes: string) => LinhaSubCanalTier | undefined;
   tiersAtivosPorSub: Map<SubCanalKey, Tier[]>;
   isFechadoByMes: Map<string, boolean>;
+  horizonteByMes?: Map<string, Horizonte>;
 }) {
   const colSpanTotal = 1 + MESES.length + 1;
   return (
     <tbody>
       {/* Banner do CANAL — sticky-top:36 (logo abaixo do thead h-9). bg-accent
-          sólido pra ficar bem visível durante todo o scroll da seção. */}
-      <tr className="border-y border-border">
-        <td
-          colSpan={colSpanTotal}
-          className="sticky top-9 z-30 bg-accent h-9 align-middle"
-        >
-          <span className="sticky left-0 inline-block px-3 text-[11px] uppercase tracking-wider font-semibold text-accent-foreground">
+          sólido pra ficar bem visível durante todo o scroll da seção. Cada
+          coluna repete o mês + horizonte vigente, com o nome do canal sticky
+          à esquerda — assim a info de H1/H2/H3 acompanha cada bloco. */}
+      <tr className="border-y border-border bg-accent text-accent-foreground">
+        <td className="sticky top-9 left-0 z-40 bg-accent h-9 align-middle">
+          <span className="inline-block px-3 text-[11px] uppercase tracking-wider font-semibold">
             {canalLabel}
           </span>
+        </td>
+        {MESES.map((mes) => {
+          const h = horizonteByMes?.get(mes);
+          return (
+            <td
+              key={mes}
+              className="sticky top-9 z-30 bg-accent h-9 px-3 text-right text-[10px] uppercase tracking-wider tabular-nums align-middle"
+            >
+              <div className="flex flex-col items-end leading-tight">
+                <span className="font-medium">{mesCurto(mes)}</span>
+                {h && (
+                  <span className="text-[9px] font-bold tracking-wider text-warning">
+                    {h}
+                  </span>
+                )}
+              </div>
+            </td>
+          );
+        })}
+        <td className="sticky top-9 z-30 bg-accent h-9 px-3 text-right text-[10px] uppercase tracking-wider font-semibold border-l-2 border-border align-middle">
+          Total 2026
         </td>
       </tr>
       {subcanais.map((sub) => {
@@ -509,7 +534,7 @@ function SubCanalBlock({
         const rowBg = m.emphasize ? "bg-muted/30 font-semibold" : "hover:bg-muted/20";
         const labelPad = m.indent ? "pl-10 pr-3" : "px-6";
         return (
-          <tr key={m.label} className={`border-b border-border/60 ${rowBg}`}>
+          <tr key={m.field} className={`border-b border-border/60 ${rowBg}`}>
             <td className={`sticky left-0 z-10 ${labelBg} border-r border-border ${labelPad} py-2 text-xs text-foreground`}>
               {m.label}
             </td>
@@ -563,7 +588,7 @@ function SubCanalBlock({
                   const labelPad = m.indent ? "pl-20 pr-3" : "pl-16 pr-3";
                   return (
                     <tr
-                      key={`${sub.key}-${tier}-${m.label}`}
+                      key={`${sub.key}-${tier}-${m.field}`}
                       className={`border-b border-border/40 ${rowBg}`}
                     >
                       <td className={`sticky left-0 z-10 ${labelBg} border-r border-border ${labelPad} py-1.5 text-[11px] text-muted-foreground`}>
@@ -676,6 +701,9 @@ function TabelaChrome({
   rodape,
   horizonteByMes,
   transicoesMeses,
+  /** Quando true, omite o thead com os meses — útil quando o tbody já tem
+   *  um banner (ex.: Canal × Sub-canal) que duplica essa info. */
+  skipMesesHeader = false,
   children,
 }: {
   titulo: string;
@@ -686,6 +714,7 @@ function TabelaChrome({
   horizonteByMes?: Map<string, Horizonte>;
   /** Conjunto de meses onde houve transição de horizonte — recebem borda accent. */
   transicoesMeses?: Set<string>;
+  skipMesesHeader?: boolean;
   children: React.ReactNode;
 }) {
   const showH = horizonteByMes !== undefined;
@@ -720,46 +749,48 @@ function TabelaChrome({
           })}
           <col style={{ width: PCT_TOTAL }} />
         </colgroup>
-        <thead>
-          <tr>
-            {/* Corner cell — sticky em ambos os eixos, z-index mais alto pra cobrir
-                tudo na interseção. */}
-            <th className="sticky top-0 left-0 z-50 bg-table-header text-table-header-foreground px-3 py-2 text-left text-[10px] uppercase tracking-wider border-r border-border"></th>
-            {MESES.map((mes) => {
-              const h = horizonteByMes?.get(mes);
-              const isTransition = transicoesMeses?.has(mes) ?? false;
-              return (
-                <th
-                  key={mes}
-                  className={`sticky top-0 z-40 bg-table-header text-table-header-foreground h-auto font-medium px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums ${
-                    isTransition ? "border-l-2 border-l-accent" : ""
-                  }`}
-                  title={
-                    h
-                      ? `${formatMesPt(mes)} — premissas aplicadas: ${h}`
-                      : formatMesPt(mes)
-                  }
-                >
-                  <div className="flex flex-col items-end leading-tight">
-                    <span>{mesCurto(mes)}</span>
-                    {showH && h && (
-                      <span
-                        className={`text-[9px] font-semibold mt-0.5 ${
-                          isTransition ? "text-accent" : "text-muted-foreground/70"
-                        }`}
-                      >
-                        {h}
-                      </span>
-                    )}
-                  </div>
-                </th>
-              );
-            })}
-            <th className="sticky top-0 z-40 bg-accent/15 text-accent h-auto px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border">
-              {totalLabel}
-            </th>
-          </tr>
-        </thead>
+        {!skipMesesHeader && (
+          <thead>
+            <tr>
+              {/* Corner cell — sticky em ambos os eixos, z-index mais alto pra cobrir
+                  tudo na interseção. */}
+              <th className="sticky top-0 left-0 z-50 bg-table-header text-table-header-foreground px-3 py-2 text-left text-[10px] uppercase tracking-wider border-r border-border"></th>
+              {MESES.map((mes) => {
+                const h = horizonteByMes?.get(mes);
+                const isTransition = transicoesMeses?.has(mes) ?? false;
+                return (
+                  <th
+                    key={mes}
+                    className={`sticky top-0 z-40 bg-table-header text-table-header-foreground h-auto font-medium px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums ${
+                      isTransition ? "border-l-2 border-l-accent" : ""
+                    }`}
+                    title={
+                      h
+                        ? `${formatMesPt(mes)} — premissas aplicadas: ${h}`
+                        : formatMesPt(mes)
+                    }
+                  >
+                    <div className="flex flex-col items-end leading-tight">
+                      <span>{mesCurto(mes)}</span>
+                      {showH && h && (
+                        <span
+                          className={`text-[9px] font-bold mt-0.5 tracking-wider ${
+                            isTransition ? "text-warning" : "text-warning/85"
+                          }`}
+                        >
+                          {h}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
+              <th className="sticky top-0 z-40 bg-accent/15 text-accent h-auto px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border">
+                {totalLabel}
+              </th>
+            </tr>
+          </thead>
+        )}
         {/* Os filhos passam seus próprios <tbody> — necessário pra sticky-top
             dos banners de sub-canal stickear DENTRO do escopo do sub-canal. */}
         {children}

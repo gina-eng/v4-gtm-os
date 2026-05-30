@@ -171,12 +171,6 @@ export function StepMetricasOperacionais({
                     <FieldHelp text="Taxa de conexão das ligações em %. Use 0 para cargos sem cadência de ligação." position="bottom" />
                   </span>
                 </th>
-                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    Extra
-                    <FieldHelp text="Observações qualitativas livres — não entra em fórmulas." position="bottom" />
-                  </span>
-                </th>
               </tr>
             </thead>
             <tbody>
@@ -228,24 +222,13 @@ export function StepMetricasOperacionais({
                       digits={0}
                     />
                   </td>
-                  <td className="px-2 py-2 text-xs">
-                    <span className="inline-flex items-center px-2 py-0.5 border border-dashed border-warning bg-warning/5 rounded">
-                      <input
-                        type="text"
-                        value={r.extra}
-                        onChange={(e) => patch(idx, "extra", e.target.value)}
-                        placeholder="—"
-                        className="bg-transparent text-xs focus:outline-none text-foreground w-full min-w-0"
-                      />
-                    </span>
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-          Valores quantitativos serão usados em fórmulas downstream (capacity, CAC dinâmico). Use o campo <em>Extra</em> para observações qualitativas.
+          Valores quantitativos serão usados em fórmulas downstream (capacity, CAC dinâmico).
         </div>
       </section>
 

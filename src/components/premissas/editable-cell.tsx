@@ -123,9 +123,10 @@ function cellAlignClass(align: BaseProps["align"]) {
 }
 
 function editingWrapperClass(align: BaseProps["align"]) {
-  // Wrapper visual com borda pontilhada amarela — padding apertado pra caber
-  // mais colunas em tabelas largas (P17 Métricas tem 11 colunas, etc.).
-  return `inline-flex items-center justify-${
+  // Wrapper visual com borda pontilhada amarela — `flex max-w-full` permite
+  // que a caixa encolha junto com a célula quando a tabela fica responsiva
+  // (colunas em %). O `min-w-0` evita que o flex item force overflow.
+  return `flex max-w-full min-w-0 items-center justify-${
     align === "left" ? "start" : align === "center" ? "center" : "end"
   } gap-1 px-1.5 py-0.5 border border-dashed border-warning bg-warning/5 rounded`;
 }

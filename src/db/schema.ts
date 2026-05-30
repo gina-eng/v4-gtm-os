@@ -317,7 +317,6 @@ export const premissaCargo = pgTable(
     turnoverMesPct: doublePrecision("turnover_mes_pct").notNull(),
     ligacoesMes: integer("ligacoes_mes").notNull(),
     conexaoPct: doublePrecision("conexao_pct").notNull(),
-    extra: text("extra").notNull().default(""),
   },
   (table) => [uniqueIndex("idx_prem_cargo_unique").on(table.premissaId, table.cargo)],
 );
@@ -340,11 +339,11 @@ export const premissaHorizonte = pgTable(
     pctProducao: doublePrecision("pct_producao").notNull(),
     splitLb: doublePrecision("split_lb").notNull(),
     splitBb: doublePrecision("split_bb").notNull(),
+    splitMt: doublePrecision("split_mt").notNull().default(0),
     bbPiso: doublePrecision("bb_piso").notNull(),
     regra: text("regra").notNull().default(""),
     // P16 — Mix Subcanais Outbound (% por horizonte)
     mixIndicacao: doublePrecision("mix_indicacao").notNull(),
-    mixEventos: doublePrecision("mix_eventos").notNull(),
     mixRecovery: doublePrecision("mix_recovery").notNull(),
     mixRecomendacao: doublePrecision("mix_recomendacao").notNull(),
     mixProspeccao: doublePrecision("mix_prospeccao").notNull(),
@@ -365,9 +364,9 @@ export const premissaTier = pgTable(
     faturamentoMin: doublePrecision("faturamento_min").notNull(),
     faturamentoMax: doublePrecision("faturamento_max"),
     tcvBooking: doublePrecision("tcv_booking").notNull(),
-    tcvProdCom: doublePrecision("tcv_prod_com").notNull(),
     cplLb: doublePrecision("cpl_lb").notNull(),
     cplBb: doublePrecision("cpl_bb").notNull(),
+    cpmqlMt: doublePrecision("cpmql_mt").notNull().default(5000),
     // P3 — Receita por Produto/Tier
     saberPct: doublePrecision("saber_pct").notNull(),
     saberAt: doublePrecision("saber_at").notNull(),
@@ -491,7 +490,7 @@ export const premissaMeetingBroker = pgTable(
 //
 // `subcanal` é varchar livre (em vez dos enums separados inbound/outbound) pra
 // caber as 8 chaves de SUB_CANAIS num único campo: lead_broker, black_box,
-// meeting_broker, out_indicacao, out_eventos, out_recovery, out_recomendacao,
+// meeting_broker, eventos, out_indicacao, out_recovery, out_recomendacao,
 // out_prospeccao.
 // ============================================================
 

@@ -1,0 +1,1 @@
+ALTER TABLE "premissa_horizonte" ADD COLUMN "split_mt" double precision DEFAULT 0 NOT NULL;

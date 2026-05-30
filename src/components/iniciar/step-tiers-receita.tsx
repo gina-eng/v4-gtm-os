@@ -66,13 +66,19 @@ export function StepTiersReceita({
     setSaving(true);
     setError(null);
     try {
+      // tcvBooking é ponderado pela receita realizada por produto — calculado a partir de P3.
+      const prodByTier = new Map(produtos.map((p) => [p.tier, p] as const));
+      const tiersComputed = tiers.map((t) => {
+        const prod = prodByTier.get(t.tier);
+        return { ...t, tcvBooking: prod ? tcvPond(prod) : t.tcvBooking };
+      });
       const res = await fetch(`/api/units/${organizationId}/setup`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           step: "tiers-receita",
           // Tiers seguem fixos da Matriz; apenas Receita por Produto é editável.
-          data: { tiers, produtos },
+          data: { tiers: tiersComputed, produtos },
         }),
       });
       if (!res.ok) {
@@ -143,65 +149,69 @@ export function StepTiersReceita({
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    TCV-Booking
-                    <FieldHelp text="Total Contract Value registrado no momento do fechamento — soma de todos os produtos contratados." position="bottom" />
+                    TCV-Booking Pond.
+                    <FieldHelp text="TCV Booking Ponderado pela receita realizada por produto (Saber% × Saber TM) + (Ter% × Ter TM) + (Executar% × Executar TM). Calculado automaticamente a partir de P3." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    TCV Prod.Com.
-                    <FieldHelp text="TCV considerando apenas Produção Comercial (sem upsells ou renovação)." position="bottom" />
+                    CPMQL LB
+                    <FieldHelp text="Custo Por MQL via Lead Broker — leads de mídia paga inbound (Meta/Google)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    CPL LB
-                    <FieldHelp text="Custo Por Lead via Lead Broker — leads de mídia paga inbound (Meta/Google)." position="bottom" />
+                    CPMQL BB
+                    <FieldHelp text="Custo Por MQL via Black Box — outbound estruturado (SDR/BDR + ferramentas). Padrão R$700." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    CPL BB
-                    <FieldHelp text="Custo Por Lead via Black Box — outbound estruturado (SDR/BDR + ferramentas). Padrão R$700." position="bottom" />
+                    CPMQL MT
+                    <FieldHelp text="Custo Por MQL via Meeting Broker — inbound de eventos. Default = custo SQL (R$5.000)." position="bottom" />
                   </span>
                 </th>
               </tr>
             </thead>
             <tbody>
-              {tiers.map((r, idx) => (
-                <tr
-                  key={r.tier}
-                  className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-                >
-                  <td className="px-2 py-2 text-xs font-medium text-accent">{r.tier}</td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell
-                      isEditing={false}
-                      value={r.faturamentoMin}
-                      onChange={() => {}}
-                    />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <NullableCurrencyCell
-                      isEditing={false}
-                      value={r.faturamentoMax}
-                      onChange={() => {}}
-                    />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={false} value={r.tcvBooking} onChange={() => {}} />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={false} value={r.tcvProdCom} onChange={() => {}} />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={false} value={r.cplLb} onChange={() => {}} />
-                  </td>
-                  <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={false} value={r.cplBb} onChange={() => {}} />
-                  </td>
-                </tr>
-              ))}
+              {tiers.map((r, idx) => {
+                const prod = produtos.find((p) => p.tier === r.tier);
+                const tcvBookingPond = prod ? tcvPond(prod) : r.tcvBooking;
+                return (
+                  <tr
+                    key={r.tier}
+                    className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
+                  >
+                    <td className="px-2 py-2 text-xs font-medium text-accent">{r.tier}</td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell
+                        isEditing={false}
+                        value={r.faturamentoMin}
+                        onChange={() => {}}
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <NullableCurrencyCell
+                        isEditing={false}
+                        value={r.faturamentoMax}
+                        onChange={() => {}}
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell isEditing={false} value={tcvBookingPond} onChange={() => {}} />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell isEditing={false} value={r.cplLb} onChange={() => {}} />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell isEditing={false} value={r.cplBb} onChange={() => {}} />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell isEditing={false} value={r.cpmqlMt} onChange={() => {}} />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -236,8 +246,8 @@ export function StepTiersReceita({
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    Saber AT
-                    <FieldHelp text="Average Ticket — ticket médio do produto Saber neste tier." position="bottom" />
+                    Saber TM
+                    <FieldHelp text="Ticket Médio — ticket médio do produto Saber neste tier." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
@@ -248,8 +258,8 @@ export function StepTiersReceita({
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    Ter AT
-                    <FieldHelp text="Average Ticket — ticket médio do produto Ter neste tier." position="bottom" />
+                    Ter TM
+                    <FieldHelp text="Ticket Médio — ticket médio do produto Ter neste tier." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
@@ -260,8 +270,8 @@ export function StepTiersReceita({
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    Executar AT
-                    <FieldHelp text="Average Ticket — ticket médio do produto Executar neste tier." position="bottom" />
+                    Executar TM
+                    <FieldHelp text="Ticket Médio — ticket médio do produto Executar neste tier." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
@@ -273,7 +283,7 @@ export function StepTiersReceita({
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     TCV Pond.
-                    <FieldHelp text="TCV Ponderado: (Saber% × Saber AT) + (Ter% × Ter AT) + (Executar% × Executar AT). Calculado automaticamente." position="bottom" />
+                    <FieldHelp text="TCV Ponderado: (Saber% × Saber TM) + (Ter% × Ter TM) + (Executar% × Executar TM). Calculado automaticamente." position="bottom" />
                   </span>
                 </th>
               </tr>
