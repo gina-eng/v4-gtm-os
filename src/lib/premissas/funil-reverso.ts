@@ -490,6 +490,7 @@ export type LinhaRampUp = {
   investLb: number;
   investBb: number;
   investMb: number;
+  investEv: number;
   investTotal: number;
   /** investTotal ÷ target × 100. */
   pctInvest: number;
@@ -645,6 +646,7 @@ export function calcularRampUp(
       investLb,
       investBb,
       investMb,
+      investEv,
       investTotal,
       pctInvest: target > 0 ? (investTotal / target) * 100 : 0,
       recInbound,
@@ -1084,6 +1086,7 @@ export function agregarRampUpMatriz(conjuntos: LinhaRampUp[][]): LinhaRampUp[] {
       cur.investLb += l.investLb;
       cur.investBb += l.investBb;
       cur.investMb += l.investMb;
+      cur.investEv += l.investEv;
       cur.investTotal += l.investTotal;
       cur.recInbound += l.recInbound;
       cur.recOutbound += l.recOutbound;

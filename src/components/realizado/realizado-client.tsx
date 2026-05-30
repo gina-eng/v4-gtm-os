@@ -660,9 +660,10 @@ function TabelaReceita({
 
 const METRICAS_INVESTIMENTO: Array<MetricRampUp> = [
   { label: "Investimento Total", get: (l) => l.investTotal, fmt: "money", emphasize: true },
-  { label: "Lead Broker", get: (l) => l.investLb, fmt: "money", indent: true, help: "Investimento alocado em Lead Broker (P3)." },
-  { label: "Black Box", get: (l) => l.investBb, fmt: "money", indent: true, help: "Investimento alocado em Black Box (P3)." },
-  { label: "Meeting Broker", get: (l) => l.investMb, fmt: "money", indent: true, help: "Investimento alocado em Meeting Broker (P3)." },
+  { label: "Lead Broker", get: (l) => l.investLb, fmt: "money", indent: true, help: "Investimento alocado em Lead Broker (P6 splitLb)." },
+  { label: "Black Box", get: (l) => l.investBb, fmt: "money", indent: true, help: "Investimento alocado em Black Box (P6 splitBb)." },
+  { label: "Meeting Broker", get: (l) => l.investMb, fmt: "money", indent: true, help: "Investimento alocado em Meeting Broker (P6 splitMt — enterprise)." },
+  { label: "Eventos", get: (l) => l.investEv, fmt: "money", indent: true, help: "Investimento alocado em Eventos (P6 splitEv — multi-tier)." },
 ];
 
 function TabelaInvestimentoTotal({
