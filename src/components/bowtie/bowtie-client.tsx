@@ -63,9 +63,6 @@ export function BowtieClient({
   subcanaisAtivos,
 }: Props) {
   const isMatriz = mode === "matriz";
-  const eyebrow = isMatriz
-    ? "V4 OS · CONSOLIDADO DA REDE · 2026"
-    : `${organizationName} · FUNIL BOWTIE 2026`;
 
   // ---------- Estado dos filtros ----------
   // Default: mês vigente já selecionado pra facilitar o uso. O usuário pode
@@ -136,51 +133,21 @@ export function BowtieClient({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Header */}
-      <div>
-        <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">
-          {eyebrow}
-        </div>
-        <div className="flex items-baseline gap-3 flex-wrap">
-          <h1 className="text-2xl font-semibold text-foreground">Funil Bowtie 2026</h1>
-          {isMatriz ? (
-            <span className="text-xs text-muted-foreground">
-              {unitCount} unidade{unitCount === 1 ? "" : "s"} consolidadas — read-only
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">
-              Edição do realizado disponível na tabela abaixo
-            </span>
-          )}
-        </div>
-        <div className="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground flex-wrap">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded border border-accent/60 bg-accent/15" />
-            <span>
-              <strong className="text-foreground">Projetado</strong> — input do modelo (Premissas + Forecast)
-            </span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded bg-accent" />
-            <span>
-              <strong className="text-foreground">Realizado</strong> — output preenchido na tabela abaixo
-            </span>
-          </span>
-        </div>
+      {/* Header — título à esquerda, filtros à direita */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <h1 className="text-2xl font-semibold text-foreground">Funil Bowtie 2026</h1>
+        <BowtieFiltros
+          meses={meses}
+          setMeses={setMeses}
+          tiers={tiers}
+          setTiers={setTiers}
+          canais={canais}
+          setCanais={setCanais}
+          subcanais={subcanais}
+          setSubcanais={setSubcanais}
+          subcanaisDisponiveis={subcanaisDisponiveis}
+        />
       </div>
-
-      {/* Filtros */}
-      <BowtieFiltros
-        meses={meses}
-        setMeses={setMeses}
-        tiers={tiers}
-        setTiers={setTiers}
-        canais={canais}
-        setCanais={setCanais}
-        subcanais={subcanais}
-        setSubcanais={setSubcanais}
-        subcanaisDisponiveis={subcanaisDisponiveis}
-      />
 
       {/* Gravata + cards de estágio — mesmo wrapper pra garantir que cada
           ponto da gravata fique alinhado com a coluna do card abaixo. */}
@@ -444,7 +411,7 @@ function BowtieGravata({
       ],
     },
     {
-      x: 751.55, phase: "ACTIVATION", topY: 157, bottomY: 291,
+      x: 751.55, phase: "ONBOARDING", topY: 157, bottomY: 291,
       real: null, proj: null, costs: [],
     },
     {
@@ -454,6 +421,35 @@ function BowtieGravata({
     {
       x: 999.689, phase: "EXPANSION", topY: 115, bottomY: 333,
       real: null, proj: null, costs: [],
+    },
+  ];
+
+  // Labels extras: rótulos que não correspondem a lentes específicas mas
+  // ficam ancorados em algum ponto da forma do bowtie. Renderizam com
+  // labelY próprio (mais baixo que os phase labels principais) pra não
+  // colidir visualmente.
+  const extraLabels: Array<{
+    x: number;
+    phase: string;
+    real: number | null;
+    proj: number | null;
+    /** y do texto (eixo vertical do bloco label/real/proj). */
+    labelY: number;
+    /** Onde a linha tracejada toca o topo da forma do bowtie. */
+    topY: number;
+    anchor: "start" | "middle" | "end";
+  }> = [
+    {
+      // Borda esquerda do wing entre WON e ONBOARDING (top-left do shape).
+      // Coords extraídas do path filter9: "M645.962 170.684..." — onde a
+      // linha tracejada toca exatamente o canto superior esquerdo da forma.
+      x: 645,
+      phase: "ACTIVATION",
+      real: null,
+      proj: null,
+      labelY: 100,
+      topY: 170,
+      anchor: "start",
     },
   ];
 
@@ -563,6 +559,59 @@ function BowtieGravata({
             );
           });
         })()}
+
+        {/* Labels extras (ACTIVATION etc.) — bloco label+real+proj com
+            labelY próprio, posicionado mais baixo que os phase labels
+            principais pra encaixar visualmente. */}
+        {extraLabels.map((s, i) => {
+          const TEXT_GAP = 6;
+          const textX =
+            s.anchor === "end" ? s.x - TEXT_GAP : s.anchor === "start" ? s.x + TEXT_GAP : s.x;
+          return (
+            <g key={`extra-${i}`}>
+              <line
+                x1={s.x}
+                y1={s.labelY + 32}
+                x2={s.x}
+                y2={s.topY}
+                stroke="hsl(var(--accent))"
+                strokeOpacity={0.7}
+                strokeWidth={1.2}
+                strokeDasharray="4 3"
+              />
+              <text
+                x={textX}
+                y={s.labelY}
+                textAnchor={s.anchor}
+                dominantBaseline="central"
+                className="fill-foreground"
+                style={{ fontSize: 12, fontWeight: 600, letterSpacing: 1.5 }}
+              >
+                {s.phase}
+              </text>
+              <text
+                x={textX}
+                y={s.labelY + 18}
+                textAnchor={s.anchor}
+                dominantBaseline="central"
+                className="fill-foreground"
+                style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3 }}
+              >
+                {s.real === null ? "—" : formatInt(s.real)}
+              </text>
+              <text
+                x={textX}
+                y={s.labelY + 32}
+                textAnchor={s.anchor}
+                dominantBaseline="central"
+                className="fill-muted-foreground"
+                style={{ fontSize: 10, fontWeight: 500, letterSpacing: 0.3 }}
+              >
+                {s.proj === null ? "Proj: —" : `Proj: ${formatInt(s.proj)}`}
+              </text>
+            </g>
+          );
+        })}
 
         {/* CR1..CR7 dentro dos wings (espaços largos entre as lentes).
             Real em destaque, label CR# como tag, projetado em cinza embaixo. */}

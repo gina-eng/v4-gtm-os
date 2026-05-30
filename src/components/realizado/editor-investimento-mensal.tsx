@@ -50,9 +50,12 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const DEBOUNCE_MS = 800;
 const MESES = MESES_ANO_2026 as readonly string[];
-const W_LABEL = 220;
-const W_MES = 116;
-const W_TOTAL = 132;
+// Larguras em % — tabela cresce/encolhe com o container. Mesmas proporções
+// usadas nas outras tabelas do forecast pra todos os cards alinharem.
+const PCT_LABEL = "14%";
+const PCT_MES = "6.5%";
+const PCT_TOTAL = "8%";
+const MIN_TABLE_WIDTH = 1400;
 
 function mesCurto(mes: string): string {
   return formatMesPt(mes).split(" ")[0] ?? mes;
@@ -186,10 +189,7 @@ export function EditorInvestimentoMensal({
   const pctAno = targetAno > 0 ? (investAno / targetAno) * 100 : 0;
 
   return (
-    <div
-      className="rounded border border-border bg-card mb-5"
-      style={{ width: W_LABEL + 12 * W_MES + W_TOTAL }}
-    >
+    <div className="rounded border border-border bg-card mb-5 w-full">
       <div className="border-b border-border bg-muted/20 py-2.5">
         <div className="sticky left-0 inline-flex items-baseline gap-2 px-4 flex-wrap">
           <h2 className="text-xs uppercase tracking-wider font-semibold text-foreground">
@@ -213,22 +213,22 @@ export function EditorInvestimentoMensal({
       </div>
 
       <table
-        className="text-sm border-collapse table-fixed"
-        style={{ width: W_LABEL + 12 * W_MES + W_TOTAL }}
+        className="text-sm border-collapse table-fixed w-full"
+        style={{ minWidth: MIN_TABLE_WIDTH }}
       >
         <colgroup>
-          <col style={{ width: W_LABEL }} />
+          <col style={{ width: PCT_LABEL }} />
           {MESES.map((m) => {
             const isTransition = transicoesMeses?.has(m) ?? false;
             return (
               <col
                 key={m}
-                style={{ width: W_MES }}
+                style={{ width: PCT_MES }}
                 className={isTransition ? "border-l-2 border-l-accent" : undefined}
               />
             );
           })}
-          <col style={{ width: W_TOTAL }} />
+          <col style={{ width: PCT_TOTAL }} />
         </colgroup>
         <thead>
           <tr>

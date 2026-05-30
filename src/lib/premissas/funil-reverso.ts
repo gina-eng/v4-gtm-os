@@ -26,7 +26,6 @@ import type { PremissasBlocks } from "@/db/repositories/premissas";
 import {
   calcularRealizadoVsProjetado,
   getMesAncora,
-  horizonteEfetivo,
   MESES_ANO_2026,
 } from "@/lib/realizado/projecao";
 
@@ -116,19 +115,21 @@ export function calcularCurvaTarget(
   }
   // Fallback: planejamento sem realizado ainda → faixaMin do horizonteAtual,
   // capitalizando mês a mês. Promoção segue a mesma regra de
-  // `calcularRealizadoVsProjetado`: o horizonte exibido é o vivo no início do
-  // mês; cruzar faixaMax promove pro próximo mês, não pra o próprio.
+  // `calcularRealizadoVsProjetado`: 3 meses CONSECUTIVOS acima do faixaMax
+  // do horizonte vivo atual pra promover (subindo só um degrau por vez).
   const h = horizontes.find((x) => x.h === horizonteAtual);
   const ancora = h?.faixaMin ?? 0;
   const horizontesByH = new Map(horizontes.map((c) => [c.h, c] as const));
   const mesAncora = getMesAncora(opts.dataInicio);
   const HORIZONTE_ORDER: Horizonte[] = ["H1", "H2", "H3", "H4", "H5"];
   const idxH = (x: Horizonte) => HORIZONTE_ORDER.indexOf(x);
+  const MESES_PARA_PROMOVER = 3;
   const meses = MESES_ANO_2026 as readonly string[];
   const idxAnc = meses.indexOf(mesAncora);
   const out: LinhaTarget[] = [];
   let valorAnterior = 0;
   let horizonteVivo: Horizonte = horizonteAtual;
+  let mesesAcimaConsec = 0;
   for (let idx = 0; idx < meses.length; idx++) {
     const mes = meses[idx];
     if (idx < idxAnc) {
@@ -149,8 +150,22 @@ export function calcularCurvaTarget(
       horizonte: horizonteVivo,
       isFechado: false,
     });
-    const novoH = horizonteEfetivo(valor, horizontes, horizonteAtual);
-    if (idxH(novoH) > idxH(horizonteVivo)) horizonteVivo = novoH;
+    // Avalia 3-meses-consecutivos contra o faixaMax do horizonte vivo.
+    const config = horizontesByH.get(horizonteVivo);
+    if (config && config.faixaMax !== null) {
+      if (valor > config.faixaMax) {
+        mesesAcimaConsec += 1;
+        if (mesesAcimaConsec >= MESES_PARA_PROMOVER) {
+          const proxIdx = idxH(horizonteVivo) + 1;
+          if (proxIdx < HORIZONTE_ORDER.length) {
+            horizonteVivo = HORIZONTE_ORDER[proxIdx];
+          }
+          mesesAcimaConsec = 0;
+        }
+      } else {
+        mesesAcimaConsec = 0;
+      }
+    }
   }
   return out;
 }

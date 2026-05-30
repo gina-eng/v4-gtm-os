@@ -48,9 +48,15 @@ type Props = {
 
 const TIER_ORDER: readonly Tier[] = ["Tiny", "Small", "Medium", "Large", "Enterprise"];
 
-const W_LABEL = 220;
-const W_MES = 116;
-const W_TOTAL = 132;
+// Larguras em % — tabelas crescem/encolhem com o container. Label e Total
+// ganham um pouco mais que cada mês (acomoda labels longos + valores
+// totais). Soma: 14 + 12·6.5 + 8 = 100%.
+const PCT_LABEL = "14%";
+const PCT_MES = "6.5%";
+const PCT_TOTAL = "8%";
+// Piso pra evitar colunas ilegíveis em telas pequenas — abaixo disso o
+// wrapper de scroll horizontal escora.
+const MIN_TABLE_WIDTH = 1400;
 const MESES = MESES_ANO_2026 as readonly string[];
 
 function mesCurto(mes: string): string {
@@ -79,9 +85,6 @@ export function ForecastClient({
   dataInicio,
 }: Props) {
   const isMatriz = mode === "matriz";
-  const eyebrow = isMatriz
-    ? "V4 OS · CONSOLIDADO DA REDE · 2026"
-    : `${organizationName} · FORECAST 2026`;
 
   const targetAno = linhasRampUp.reduce((a, l) => a + l.target, 0);
   const investAno = linhasRampUp.reduce((a, l) => a + l.investTotal, 0);
@@ -145,18 +148,16 @@ export function ForecastClient({
       : "Funil reverso 2026 a partir das premissas da unidade.";
 
   return (
-    // Wrapper trava a largura na MESMA largura das tabelas (1744px =
-    // W_LABEL + 12·W_MES + W_TOTAL). Assim os 4 summary cards no topo
-    // alinham exatamente com a borda direita das tabelas. Em telas menores,
-    // o overflow-x-auto interno escora o scroll horizontal das tabelas.
-    <div className="w-full" style={{ maxWidth: W_LABEL + 12 * W_MES + W_TOTAL }}>
+    // Wrapper full-width — tabelas são responsivas (width: 100% com
+    // MIN_TABLE_WIDTH) e crescem com o espaço disponível. O scroll horizontal
+    // unificado só aparece em telas menores que MIN_TABLE_WIDTH.
+    <div className="w-full">
       <>
-        <div className="mb-4">
-          <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">
-            {eyebrow}
-          </div>
-          <div className="flex items-end justify-between gap-3 flex-wrap">
-            <div className="flex items-end gap-3 flex-wrap">
+        {/* Header — divisão 50/50: esquerda com título + subtítulo + botão;
+            direita com os 4 summary cards. */}
+        <div className="mb-4 grid grid-cols-2 gap-6 items-start">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-semibold text-foreground">Forecast 2026</h1>
               {!isMatriz && horizonteAtual && (
                 <span
@@ -180,17 +181,23 @@ export function ForecastClient({
                   </span>
                 ))}
             </div>
+            <p className="text-sm text-muted-foreground">{subtitulo}</p>
             {!isMatriz && (
               <Link
                 href="/iniciar/realizado-historico"
-                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2.5 py-1"
+                className="self-start inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2.5 py-1"
               >
                 Editar realizado mensal
                 <ExternalLink className="h-3 w-3" />
               </Link>
             )}
           </div>
-          <p className="text-sm text-muted-foreground mt-1">{subtitulo}</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <SummaryCard label="Target do ano" value={formatBRLk(targetAno)} help="Soma do faturamento-alvo dos 12 meses." />
+            <SummaryCard label="Investimento total" value={formatBRLk(investAno)} help="Soma do investimento em mídia no ano." />
+            <SummaryCard label="Receita gerada" value={formatBRLk(receitaAno)} help="Soma da receita total (IB + OB)." />
+            <SummaryCard label="Pico de headcount" value={formatInt(picoHc)} help="Maior HC total exigido em um mês (P17)." />
+          </div>
         </div>
 
         {isMatriz && (
@@ -205,13 +212,6 @@ export function ForecastClient({
             </span>
           </div>
         )}
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          <SummaryCard label="Target do ano" value={formatBRLk(targetAno)} help="Soma do faturamento-alvo dos 12 meses." />
-          <SummaryCard label="Investimento total" value={formatBRLk(investAno)} help="Soma do investimento em mídia no ano." />
-          <SummaryCard label="Receita gerada" value={formatBRLk(receitaAno)} help="Soma da receita total (IB + OB)." />
-          <SummaryCard label="Pico de headcount" value={formatInt(picoHc)} help="Maior HC total exigido em um mês (P17)." />
-        </div>
 
         {/* Único wrapper de scroll horizontal pra TODAS as tabelas — assim
             elas rolam em sincronia no eixo X dentro do limite da página. */}
@@ -690,14 +690,10 @@ function TabelaChrome({
 }) {
   const showH = horizonteByMes !== undefined;
   return (
-    // Largura fixa = W_LABEL + 12·W_MES + W_TOTAL (1744px). Sem isso, o
-    // header bar do card poderia esticar levemente a depender do conteúdo
-    // do título, criando "degraus" no canto direito entre as 4 tabelas.
-    // O scroll horizontal unificado fica num wrapper externo.
-    <div
-      className="rounded border border-border bg-card mb-5"
-      style={{ width: W_LABEL + 12 * W_MES + W_TOTAL }}
-    >
+    // Card full-width (w-full) — tabela interna usa width: 100% com
+    // MIN_TABLE_WIDTH. O scroll horizontal unificado fica num wrapper externo
+    // que abraça todas as tabelas, então elas rolam juntas se preciso.
+    <div className="rounded border border-border bg-card mb-5 w-full">
       {/* Header do card — texto sticky-left pra ficar visível durante scroll
           horizontal; o bg do bar acompanha a largura da tabela. */}
       <div className="border-b border-border bg-muted/20 py-2.5">
@@ -707,22 +703,22 @@ function TabelaChrome({
         </div>
       </div>
       <table
-        className="text-sm border-collapse table-fixed"
-        style={{ width: W_LABEL + 12 * W_MES + W_TOTAL }}
+        className="text-sm border-collapse table-fixed w-full"
+        style={{ minWidth: MIN_TABLE_WIDTH }}
       >
         <colgroup>
-          <col style={{ width: W_LABEL }} />
+          <col style={{ width: PCT_LABEL }} />
           {MESES.map((m) => {
             const isTransition = transicoesMeses?.has(m) ?? false;
             return (
               <col
                 key={m}
-                style={{ width: W_MES }}
+                style={{ width: PCT_MES }}
                 className={isTransition ? "border-l-2 border-l-accent" : undefined}
               />
             );
           })}
-          <col style={{ width: W_TOTAL }} />
+          <col style={{ width: PCT_TOTAL }} />
         </colgroup>
         <thead>
           <tr>

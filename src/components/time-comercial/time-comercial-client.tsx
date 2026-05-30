@@ -169,12 +169,9 @@ export function TimeComercialClient({
     : null;
 
   return (
-    <div className="max-w-screen-2xl">
+    <div className="w-full">
       {/* ===== Cabeçalho ===== */}
       <div className="mb-4">
-        <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">
-          {organizationName} · TIME COMERCIAL · 2026
-        </div>
         <div className="flex items-end justify-between gap-3 flex-wrap">
           <div className="flex items-end gap-3 flex-wrap">
             <h1 className="text-2xl font-semibold text-foreground">Time Comercial</h1>

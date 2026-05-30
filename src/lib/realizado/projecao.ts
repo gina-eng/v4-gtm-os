@@ -194,17 +194,23 @@ export function getMesBaseForecast(
   return base;
 }
 
+/** Nº de meses consecutivos acima do faixaMax pra promover ao próximo horizonte. */
+const MESES_PARA_PROMOVER = 3;
+
 /**
  * Monta a tabela mês-a-mês de forecast (rolling) para o ano modelado.
  *
  * Regra de promoção (importante):
- * - O `horizonteAplicado` de um mês é o horizonte vivo no INÍCIO dele — ou
- *   seja, herdado do mês anterior. Quando um mês fechado ultrapassa
- *   `faixaMax`, a promoção vale a partir do mês SEGUINTE (não retroage no
- *   próprio mês que cruzou a faixa).
- * - Exemplo: unidade H1 (faixaMax 60k). Maio fecha em 61k → maio é exibido
- *   como H1 (a unidade viveu maio em H1); junho já entra em H2 e aplica as
- *   premissas de H2 (taxa, splits, mix, pct produção).
+ * - A unidade só sobe de horizonte depois de **3 meses CONSECUTIVOS** com
+ *   faturamento acima do `faixaMax` do horizonte vivo atual. Qualquer mês
+ *   que cair pra dentro da faixa zera a contagem (não acumula).
+ * - O `horizonteAplicado` de um mês é o horizonte vivo no INÍCIO dele —
+ *   herdado do mês anterior. A promoção começa a valer no mês SEGUINTE ao
+ *   3º mês consecutivo acima do teto (não retroage).
+ * - Exemplo: unidade H1 (faixaMax 60k). Mar 70k → cont=1; Abr 80k → cont=2;
+ *   Mai 90k → cont=3 → promoção. Jun entra em H2 e aplica as premissas
+ *   novas (taxa, splits, mix, pct produção). Depois de promover, a contagem
+ *   zera e passa a comparar contra o faixaMax do novo horizonte (H2 = 150k).
  *
  * Demais regras:
  * - **Mês-base** = mês fechado mais recente com faturamento. Projeções partem
@@ -232,16 +238,44 @@ export function calcularRealizadoVsProjetado(
     ? realizadoByMes.get(mesBase)?.faturamento ?? 0
     : 0;
 
-  // `horizonteVivo` = patamar conquistado pela unidade, atualizado APÓS cada
-  // mês que cruza `faixaMax`. Começa no horizonte cadastrado (piso); só sobe.
+  // `horizonteVivo` = patamar conquistado pela unidade. Só sobe; nunca regride.
   let horizonteVivo: Horizonte = horizonteAtual;
+  // Contador de meses consecutivos acima do faixaMax do horizonte vivo atual.
+  let mesesAcimaConsec = 0;
   // `valor` = último faturamento vivo da curva interna; capitaliza mês a mês
   // mesmo quando o mês corrente é fechado-sem-dado (preserva a aritmética).
   let valor = 0;
-  const promover = (v: number) => {
+  /**
+   * Avalia um mês contra o faixaMax do horizonte vivo atual.
+   * - Valor > faixaMax → incrementa contador; ao atingir 3 consecutivos,
+   *   promove pro próximo horizonte (subindo um degrau, nunca pulando) e
+   *   reseta a contagem pra começar a comparar contra o novo faixaMax.
+   * - Valor ≤ faixaMax → reseta contador.
+   * - H5 (faixaMax=null) é o teto — não promove, contagem fica zerada.
+   * - Valor ≤ 0 (mês fechado sem dado) — ignora, NÃO reseta contagem
+   *   (preserva o que já foi conquistado).
+   */
+  const avaliarMes = (v: number) => {
     if (v <= 0) return;
-    const novoH = horizonteEfetivo(v, horizontes, horizonteAtual);
-    if (idxHorizonte(novoH) > idxHorizonte(horizonteVivo)) horizonteVivo = novoH;
+    const config = horizontesByH.get(horizonteVivo);
+    if (!config) return;
+    if (config.faixaMax === null) {
+      mesesAcimaConsec = 0;
+      return;
+    }
+    if (v > config.faixaMax) {
+      mesesAcimaConsec += 1;
+      if (mesesAcimaConsec >= MESES_PARA_PROMOVER) {
+        const idxAtual = idxHorizonte(horizonteVivo);
+        const proxIdx = idxAtual + 1;
+        if (proxIdx < HORIZONTE_ORDER.length) {
+          horizonteVivo = HORIZONTE_ORDER[proxIdx];
+        }
+        mesesAcimaConsec = 0;
+      }
+    } else {
+      mesesAcimaConsec = 0;
+    }
   };
 
   const linhas: LinhaRealizadoProjetado[] = [];
@@ -263,7 +297,7 @@ export function calcularRealizadoVsProjetado(
 
     if (mes < mesBase) {
       // Antes do mês-base: mostra realizado. O horizonte exibido é o vivo no
-      // início do mês (=horizonteVivo antes da promoção causada por este mês).
+      // início do mês (= horizonteVivo antes da avaliação causada por este mês).
       linhas.push({
         mes,
         realizado,
@@ -273,7 +307,7 @@ export function calcularRealizadoVsProjetado(
       });
       if (realizado > 0) {
         valor = realizado;
-        promover(realizado); // promove pro próximo mês.
+        avaliarMes(realizado);
       }
       continue;
     }
@@ -287,28 +321,31 @@ export function calcularRealizadoVsProjetado(
         isProjetado: false,
         horizonteAplicado: horizonteVivo,
       });
-      promover(valorBase);
+      avaliarMes(valorBase);
       continue;
     }
 
     // mes > mesBase — capitaliza com a taxa do horizonte vivo no início do
-    // mês. Se o mês ANTERIOR cruzou faixaMax, este mês já cresce na taxa nova.
+    // mês. Se o mês ANTERIOR cruzou faixaMax (3 consecutivos), este mês já
+    // cresce na taxa nova.
     const taxa = horizontesByH.get(horizonteVivo)?.crescMensalPct ?? 0;
     valor = Math.round(valor * (1 + taxa / 100));
 
     if (isMesFechado) {
-      // Fechado sem dado (post-base, fat=0). Mantém valor virtual silencioso.
+      // Fechado sem dado (post-base, fat=0). Mantém valor virtual silencioso
+      // e NÃO conta nem reseta (sem signal).
       linhas.push({
         mes,
         realizado: 0,
         projetado: 0,
         isProjetado: false,
-        horizonteAplicado: null,
+        horizonteAplicado: horizonteVivo,
       });
       continue;
     }
 
-    // Futuro: o horizonte do mês é o vivo no início; promoção acontece DEPOIS.
+    // Futuro: o horizonte do mês é o vivo no início; promoção (se houver)
+    // acontece DEPOIS via avaliarMes.
     linhas.push({
       mes,
       realizado,
@@ -316,7 +353,7 @@ export function calcularRealizadoVsProjetado(
       isProjetado: true,
       horizonteAplicado: horizonteVivo,
     });
-    promover(valor);
+    avaliarMes(valor);
   }
 
   return linhas;

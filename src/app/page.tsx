@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Check, Info, Rocket } from "lucide-react";
+import { ArrowRight, Info, Rocket } from "lucide-react";
 import { requireAuth } from "@/lib/auth/current-user";
 import type { AuthSession } from "@/lib/auth/types";
 import {
@@ -75,32 +75,15 @@ function UnitHome({
   if (setup.allDone) {
     return (
       <>
-        <div className="flex items-center justify-between mb-4 gap-4">
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">
-              {name}
-            </div>
-            <h1 className="text-xl font-semibold text-foreground">Bem-vindo de volta</h1>
-          </div>
-        </div>
-
-        <section className="rounded border border-success/40 bg-success/5 px-5 py-4 flex items-center gap-4 mb-5">
-          <div className="h-10 w-10 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
-            <Check className="h-5 w-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-foreground">Setup inicial concluído</div>
-            <div className="text-xs text-muted-foreground">
-              Seus 4 passos estão preenchidos. Você pode revisar a qualquer momento.
-            </div>
-          </div>
+        <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
+          <h1 className="text-xl font-semibold text-foreground">Bem-vindo de volta</h1>
           <Link
             href="/iniciar/resumo"
             className="inline-flex items-center gap-1.5 h-9 px-3 rounded text-sm border border-border hover:bg-muted"
           >
-            Revisar o preenchimento
+            Revisar o preenchimento inicial
           </Link>
-        </section>
+        </div>
 
         {resumo && <ResumoTable resumo={resumo} />}
       </>

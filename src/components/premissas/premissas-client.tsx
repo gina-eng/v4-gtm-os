@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Filter, Calendar, AlertCircle } from "lucide-react";
+import { ChevronDown, Filter, Calendar } from "lucide-react";
 import { useSession } from "@/lib/auth/auth-context";
 import { PremissasModeloTab } from "./tabs/premissas-modelo-tab";
 import { ConversoesTab } from "./tabs/conversoes-tab";
@@ -47,7 +47,6 @@ type ClientProps = {
 export function PremissasClient({ cacContext, blocks }: ClientProps) {
   const session = useSession();
   const [tab, setTab] = useState<Tab>("premissas");
-  const [alertOpen, setAlertOpen] = useState(true);
 
   // Papel da tela segue o actingMode (matriz "impersonando" unidade vê como unidade):
   // - matriz: edita premissas-modelo e conversões
@@ -60,13 +59,6 @@ export function PremissasClient({ cacContext, blocks }: ClientProps) {
   const hasMultipleUnits =
     actingAsMatriz &&
     (session.isMatrizUser || session.availableOrganizations.length > 1);
-
-  // Eyebrow: na visão de unidade, mostra o nome da unidade em vez do jargão
-  // interno "V4 OS · EP-01 · PREMISSÁRIOS".
-  const unitOrg = !actingAsMatriz
-    ? (session.activeOrganization ?? session.availableOrganizations[0] ?? null)
-    : null;
-  const eyebrow = unitOrg ? `${unitOrg.name} · PREMISSAS` : "V4 OS · EP-01 · PREMISSÁRIOS";
 
   return (
     <>
@@ -94,9 +86,6 @@ export function PremissasClient({ cacContext, blocks }: ClientProps) {
 
       {/* ========== TÍTULO ========== */}
       <div className="mb-4">
-        <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">
-          {eyebrow}
-        </div>
         <div className="flex items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Premissas do Modelo</h1>
@@ -110,27 +99,6 @@ export function PremissasClient({ cacContext, blocks }: ClientProps) {
           </div>
         </div>
       </div>
-
-      {/* ========== ALERT BANNER ========== */}
-      {alertOpen && (
-        <div className="mb-4 rounded border border-destructive/30 bg-destructive/5 px-4 py-2.5 flex items-center gap-3">
-          <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
-          <span className="inline-flex items-center rounded bg-destructive/10 text-destructive px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider">
-            Eficiência
-          </span>
-          <span className="text-xs text-foreground flex-1">
-            3 tiers com LTV/CAC &lt; 3x — premissas de CPL ou CRs precisam de revisão
-          </span>
-          <button
-            type="button"
-            onClick={() => setAlertOpen(false)}
-            aria-label="Recolher alerta"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       {/* ========== TABS ========== */}
       <div className="flex items-end justify-between border-b border-border mb-4">

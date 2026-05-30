@@ -11,9 +11,15 @@ type Props = {
   subtitle?: string;
 };
 
-const W_LABEL = 200;
-const W_MES = 96;
-const W_TOTAL = 116;
+// Larguras em % — tabela cresce/encolhe com a viewport. Label e Total
+// ficam mais largos que cada mês (precisam acomodar nomes longos /
+// valores totais). Soma: 14 + 12·6 + 14 = 100%.
+const PCT_LABEL = "14%";
+const PCT_MES = "6%";
+const PCT_TOTAL = "14%";
+// Piso pra evitar colunas ilegíveis em telas pequenas — abaixo disso o
+// section faz scroll horizontal interno via overflow-x-auto.
+const MIN_WIDTH = 1100;
 const MESES = MESES_ANO_2026 as readonly string[];
 
 type Fmt = "money" | "int" | "pct" | "ratio";
@@ -89,13 +95,16 @@ export function ResumoTable({ resumo, title, subtitle }: Props) {
         <p className="text-[10px] text-muted-foreground mt-0.5">{headerSubtitle}</p>
       </div>
 
-      <table className="text-sm border-collapse table-fixed" style={{ width: "max-content" }}>
+      <table
+        className="text-sm border-collapse table-fixed w-full"
+        style={{ minWidth: MIN_WIDTH }}
+      >
         <colgroup>
-          <col style={{ width: W_LABEL }} />
+          <col style={{ width: PCT_LABEL }} />
           {MESES.map((m) => (
-            <col key={m} style={{ width: W_MES }} />
+            <col key={m} style={{ width: PCT_MES }} />
           ))}
-          <col style={{ width: W_TOTAL }} />
+          <col style={{ width: PCT_TOTAL }} />
         </colgroup>
         <thead>
           <tr>
