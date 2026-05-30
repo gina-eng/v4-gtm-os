@@ -186,7 +186,10 @@ export function EditorInvestimentoMensal({
   const pctAno = targetAno > 0 ? (investAno / targetAno) * 100 : 0;
 
   return (
-    <div className="rounded border border-border bg-card mb-5 w-fit">
+    <div
+      className="rounded border border-border bg-card mb-5"
+      style={{ width: W_LABEL + 12 * W_MES + W_TOTAL }}
+    >
       <div className="border-b border-border bg-muted/20 py-2.5">
         <div className="sticky left-0 inline-flex items-baseline gap-2 px-4 flex-wrap">
           <h2 className="text-xs uppercase tracking-wider font-semibold text-foreground">
@@ -209,7 +212,10 @@ export function EditorInvestimentoMensal({
         </div>
       </div>
 
-      <table className="text-sm border-collapse table-fixed" style={{ width: "max-content" }}>
+      <table
+        className="text-sm border-collapse table-fixed"
+        style={{ width: W_LABEL + 12 * W_MES + W_TOTAL }}
+      >
         <colgroup>
           <col style={{ width: W_LABEL }} />
           {MESES.map((m) => {

@@ -145,11 +145,12 @@ export function ForecastClient({
       : "Funil reverso 2026 a partir das premissas da unidade.";
 
   return (
-    <>
-      {/* Cabeçalho da página com largura limitada — sem isso, ele esticaria
-          até a largura das tabelas (que viram muito mais largas que a viewport
-          pra permitir scroll horizontal no nível da <main>). */}
-      <div className="max-w-screen-2xl">
+    // Wrapper trava a largura na MESMA largura das tabelas (1744px =
+    // W_LABEL + 12·W_MES + W_TOTAL). Assim os 4 summary cards no topo
+    // alinham exatamente com a borda direita das tabelas. Em telas menores,
+    // o overflow-x-auto interno escora o scroll horizontal das tabelas.
+    <div className="w-full" style={{ maxWidth: W_LABEL + 12 * W_MES + W_TOTAL }}>
+      <>
         <div className="mb-4">
           <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">
             {eyebrow}
@@ -211,44 +212,48 @@ export function ForecastClient({
           <SummaryCard label="Receita gerada" value={formatBRLk(receitaAno)} help="Soma da receita total (IB + OB)." />
           <SummaryCard label="Pico de headcount" value={formatInt(picoHc)} help="Maior HC total exigido em um mês (P17)." />
         </div>
-      </div>
 
-      <TabelaReceita
-        rampUpByMes={rampUpByMes}
-        horizonteByMes={horizonteByMes}
-        transicoesMeses={transicoesMeses}
-      />
-      {mode === "unidade" &&
-        organizationId &&
-        horizonteAtual &&
-        investimentoMidia &&
-        investimentoMensal !== undefined && (
-          <EditorInvestimentoMensal
-            organizationId={organizationId}
-            horizonteAtual={horizonteAtual}
-            investimentoMidia={investimentoMidia}
-            investimentoMensal={investimentoMensal}
-            realizadoHistorico={realizadoHistorico ?? []}
+        {/* Único wrapper de scroll horizontal pra TODAS as tabelas — assim
+            elas rolam em sincronia no eixo X dentro do limite da página. */}
+        <div className="overflow-x-auto">
+          <TabelaReceita
             rampUpByMes={rampUpByMes}
             horizonteByMes={horizonteByMes}
             transicoesMeses={transicoesMeses}
-            dataInicio={dataInicio ?? null}
           />
-        )}
-      <TabelaInvestimentoTotal
-        rampUpByMes={rampUpByMes}
-        horizonteByMes={horizonteByMes}
-        transicoesMeses={transicoesMeses}
-      />
-      <TabelaCanalSubCanal
-        subCanalByKey={subCanalByKey}
-        isFechadoByMes={isFechadoByMes}
-        subCanalTierByKey={subCanalTierByKey}
-        tiersAtivosPorSub={tiersAtivosPorSub}
-        horizonteByMes={horizonteByMes}
-        transicoesMeses={transicoesMeses}
-      />
-    </>
+          {mode === "unidade" &&
+            organizationId &&
+            horizonteAtual &&
+            investimentoMidia &&
+            investimentoMensal !== undefined && (
+              <EditorInvestimentoMensal
+                organizationId={organizationId}
+                horizonteAtual={horizonteAtual}
+                investimentoMidia={investimentoMidia}
+                investimentoMensal={investimentoMensal}
+                realizadoHistorico={realizadoHistorico ?? []}
+                rampUpByMes={rampUpByMes}
+                horizonteByMes={horizonteByMes}
+                transicoesMeses={transicoesMeses}
+                dataInicio={dataInicio ?? null}
+              />
+            )}
+          <TabelaInvestimentoTotal
+            rampUpByMes={rampUpByMes}
+            horizonteByMes={horizonteByMes}
+            transicoesMeses={transicoesMeses}
+          />
+          <TabelaCanalSubCanal
+            subCanalByKey={subCanalByKey}
+            isFechadoByMes={isFechadoByMes}
+            subCanalTierByKey={subCanalTierByKey}
+            tiersAtivosPorSub={tiersAtivosPorSub}
+            horizonteByMes={horizonteByMes}
+            transicoesMeses={transicoesMeses}
+          />
+        </div>
+      </>
+    </div>
   );
 }
 
@@ -685,10 +690,14 @@ function TabelaChrome({
 }) {
   const showH = horizonteByMes !== undefined;
   return (
-    // Sem overflow-x-auto interno: o scroll horizontal sobe pra <main> e o
-    // sticky top do thead consegue se ancorar no scroll vertical da página.
-    // `w-fit` faz o card encolher pra largura da tabela (não estica viewport).
-    <div className="rounded border border-border bg-card mb-5 w-fit">
+    // Largura fixa = W_LABEL + 12·W_MES + W_TOTAL (1744px). Sem isso, o
+    // header bar do card poderia esticar levemente a depender do conteúdo
+    // do título, criando "degraus" no canto direito entre as 4 tabelas.
+    // O scroll horizontal unificado fica num wrapper externo.
+    <div
+      className="rounded border border-border bg-card mb-5"
+      style={{ width: W_LABEL + 12 * W_MES + W_TOTAL }}
+    >
       {/* Header do card — texto sticky-left pra ficar visível durante scroll
           horizontal; o bg do bar acompanha a largura da tabela. */}
       <div className="border-b border-border bg-muted/20 py-2.5">
@@ -697,7 +706,10 @@ function TabelaChrome({
           {subtitulo && <span className="text-[10px] text-muted-foreground">— {subtitulo}</span>}
         </div>
       </div>
-      <table className="text-sm border-collapse table-fixed" style={{ width: "max-content" }}>
+      <table
+        className="text-sm border-collapse table-fixed"
+        style={{ width: W_LABEL + 12 * W_MES + W_TOTAL }}
+      >
         <colgroup>
           <col style={{ width: W_LABEL }} />
           {MESES.map((m) => {

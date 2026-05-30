@@ -39,7 +39,7 @@ const CANAIS: readonly CanalGrupo[] = ["inbound", "outbound"];
 const SUBCANAL_LABEL = new Map<SubCanalKey, string>(SUB_CANAIS.map((s) => [s.key, s.label]));
 const SUBCANAL_CANAL = new Map<SubCanalKey, CanalGrupo>(SUB_CANAIS.map((s) => [s.key, s.canal]));
 
-type Pivote = "tier" | "subcanal";
+type Pivote = "tier" | "subcanal" | "canal";
 
 /**
  * /bowtie — visualização do funil bowtie (aquisição) + editor inline do realizado.
@@ -115,6 +115,17 @@ export function BowtieClient({
         };
       });
     }
+    if (pivote === "canal") {
+      return CANAIS.map((c) => {
+        const subFiltro = { ...filtro, canais: [c] };
+        return {
+          key: c,
+          label: c === "inbound" ? "Inbound" : "Outbound",
+          projetado: agregarProjetado(linhasSubCanalTier, subFiltro),
+          realizado: agregarRealizado(realizadoCelulas, subFiltro),
+        };
+      });
+    }
     return subcanaisDisponiveis.map((s) => ({
       key: s,
       label: SUBCANAL_LABEL.get(s) ?? s,
@@ -174,9 +185,6 @@ export function BowtieClient({
       {/* Gravata + cards de estágio — mesmo wrapper pra garantir que cada
           ponto da gravata fique alinhado com a coluna do card abaixo. */}
       <BowtieGravataCards realizado={realizado} projetado={projetado} />
-
-      {/* Conversões + Hit rate (bloco resumo, fora do wrapper da gravata). */}
-      <BowtieCardsConversoes realizado={realizado} projetado={projetado} />
 
       {/* Granularidade */}
       <BowtieGranularidade
@@ -376,39 +384,95 @@ function BowtieGravata({
   realizado: ReturnType<typeof agregarProjetado>;
   projetado: ReturnType<typeof agregarProjetado>;
 }) {
-  // Modo mínimo: SVG do design como fundo + APENAS o valor realizado
-  // centralizado dentro de cada pétala (espaço LARGO entre as lentes finas).
-  // Os centros foram extraídos dos paths dos 8 wings (filter16, 14, 13, 11, 3, 5, 6, 8).
-  const W = 1317;
-  const H = 508;
-  const CY = 254;
+  // Nova estrutura (Group 529): SVG tem 8 LENTES = estágios (volumes
+  // realizados) e 7 WINGS entre elas = conversões (CR1..CR7). Cada CR fica
+  // DENTRO do espaço de wing correspondente, em vez de pílula separada.
+  const W = 1128;
+  const SVG_IMG_H = 449; // altura natural do SVG de fundo
+  const H = 510;         // viewBox total: imagem em cima + custos abaixo
+  const CY = 224;
 
-  // Centros das 8 pétalas (wings) do SVG — os espaços largos onde as
-  // métricas devem ficar. `topY` é o y onde a linha tracejada do phase label
-  // toca o topo da pétala (pra não passar por cima do bowtie).
-  const stages: Array<{ x: number; real: number | null; phase: string; topY: number }> = [
-    { x: 209, real: realizado.leads, phase: "AWARENESS", topY: 117 },
-    { x: 347, real: realizado.mql, phase: "EDUCATION", topY: 145 },
-    { x: 471, real: realizado.sql, phase: "SELECTION", topY: 170 },
-    { x: 593, real: realizado.sal, phase: "SHOW", topY: 188 },
-    { x: 723, real: realizado.won, phase: "CLOSING", topY: 188 },
-    { x: 845, real: null, phase: "ACTIVATION", topY: 170 },
-    { x: 969, real: null, phase: "RETENTION", topY: 145 },
-    { x: 1107, real: null, phase: "EXPANSION", topY: 117 },
+  // 8 lentes = estágios. `cx` é o centro horizontal da lente (extraído do
+  // path). `topY` = topo da lente, pra ancorar a linha tracejada do phase
+  // label sem passar por cima do bowtie.
+  // `labelX`/`labelTopY` (opcionais): override pra desenhar o phase label
+  // em outro x (ex.: CLOSING fica centrado no nó da gravata, não na lente
+  // do WON). Quando `phase` é string vazia, não renderiza o label/linha
+  // (caso do SAL, que perdeu o phase "SHOW").
+  type Cost = { label: string; proj: number | null; real: number | null };
+  const stages: Array<{
+    x: number;
+    real: number | null;
+    proj: number | null;
+    phase: string;
+    topY: number;
+    labelX?: number;
+    labelTopY?: number;
+    /** y do fundo da lente — onde a linha tracejada de custo sai pra baixo. */
+    bottomY: number;
+    /** Custos derivados da etapa (R$). Pode ter mais de um — ex.: WON tem CAC, TM e Fechamento. */
+    costs: Cost[];
+  }> = [
+    {
+      x: 127.838, phase: "AWARENESS", topY: 115, bottomY: 333,
+      real: realizado.leads, proj: projetado.leads,
+      costs: [{ label: "CPL", proj: projetado.custoPorLead, real: null }],
+    },
+    {
+      x: 252.762, phase: "EDUCATION", topY: 139, bottomY: 310,
+      real: realizado.mql, proj: projetado.mql,
+      costs: [{ label: "CPMQL", proj: projetado.custoPorMql, real: null }],
+    },
+    {
+      x: 375.489, phase: "SELECTION", topY: 157, bottomY: 291,
+      real: realizado.sql, proj: projetado.sql,
+      costs: [{ label: "CPSQL", proj: projetado.custoPorSql, real: null }],
+    },
+    {
+      x: 499.089, phase: "", topY: 172, bottomY: 277,
+      real: realizado.sal, proj: projetado.sal,
+      costs: [],
+    },
+    {
+      x: 628.716, phase: "CLOSING", topY: 172, bottomY: 277,
+      labelX: 500, labelTopY: 172,
+      real: realizado.won, proj: projetado.won,
+      costs: [
+        { label: "CAC", proj: projetado.cac, real: null },
+        { label: "TM", proj: projetado.ticketMedio, real: realizado.ticketMedio || null },
+        { label: "Fechamento", proj: projetado.faturamento, real: realizado.faturamento || null },
+      ],
+    },
+    {
+      x: 751.55, phase: "ACTIVATION", topY: 157, bottomY: 291,
+      real: null, proj: null, costs: [],
+    },
+    {
+      x: 874.983, phase: "RETENTION", topY: 139, bottomY: 310,
+      real: null, proj: null, costs: [],
+    },
+    {
+      x: 999.689, phase: "EXPANSION", topY: 115, bottomY: 333,
+      real: null, proj: null, costs: [],
+    },
   ];
 
-  // Conversões CR1..CR7 — uma entre cada par de estágios adjacentes,
-  // posicionadas nas lentes finas. `bottomY` é o y onde a linha tracejada
-  // da tag CR toca a base da pétala (pra não passar por cima do bowtie).
+  // 7 wings = conversões. `x` é o centro do wing (midpoint entre lentes
+  // adjacentes). CR1..CR4 puxam dados de realizado e projetado;
+  // CR5..CR7 ainda em construção.
   const safeDiv = (n: number, d: number) => (d > 0 ? (n / d) * 100 : 0);
-  const conversions: Array<{ x: number; label: string; pct: number | null; bottomY: number }> = [
-    { x: 286, label: "CR1", pct: safeDiv(realizado.mql, realizado.leads), bottomY: 365 },
-    { x: 411, label: "CR2", pct: realizado.cr2, bottomY: 340 },
-    { x: 533, label: "CR3", pct: realizado.cr3, bottomY: 322 },
-    { x: 657, label: "CR4", pct: realizado.cr4, bottomY: 308 },
-    { x: 783, label: "CR5", pct: null, bottomY: 322 },
-    { x: 905, label: "CR6", pct: null, bottomY: 340 },
-    { x: 1030, label: "CR7", pct: null, bottomY: 365 },
+  const conversions: Array<{ x: number; label: string; pct: number | null; projPct: number | null }> = [
+    {
+      x: 190.3, label: "CR1",
+      pct: safeDiv(realizado.mql, realizado.leads),
+      projPct: safeDiv(projetado.mql, projetado.leads),
+    },
+    { x: 314.1, label: "CR2", pct: realizado.cr2, projPct: projetado.cr2 },
+    { x: 437.3, label: "CR3", pct: realizado.cr3, projPct: projetado.cr3 },
+    { x: 563.9, label: "CR4", pct: realizado.cr4, projPct: projetado.cr4 },
+    { x: 690.1, label: "CR5", pct: null, projPct: null },
+    { x: 813.3, label: "CR6", pct: null, projPct: null },
+    { x: 937.3, label: "CR7", pct: null, projPct: null },
   ];
 
   return (
@@ -418,127 +482,194 @@ function BowtieGravata({
         preserveAspectRatio="xMidYMid meet"
         className="block w-full h-auto"
       >
-        {/* SVG de fundo (design fornecido) — embedado como <image>. */}
+        {/* SVG de fundo (design Group 529) — embedado como <image> no topo
+            do viewBox. O viewBox tem altura extra abaixo (H > SVG_IMG_H)
+            pra acomodar o bloco de custos por etapa. */}
         <image
           href="/bowtie-bg.svg"
           x={0}
           y={0}
           width={W}
-          height={H}
+          height={SVG_IMG_H}
           preserveAspectRatio="xMidYMid meet"
         />
 
-        {/* Phase labels acima de cada estágio + linha tracejada accent
-            ligando o label ao topo do valor realizado. */}
+        {/* Phase label + valor realizado + valor projetado acima de cada
+            estágio, com linha tracejada ligando ao topo da lente. SAL não
+            tem phase (string vazia) e CLOSING tem labelX override (centro
+            da gravata). Alinhamento: 3 primeiras à direita da linha, CLOSING
+            centro, 3 últimas à esquerda da linha. */}
         {(() => {
-          const labelY = 50; // centro vertical do texto do label
-          return stages.map((s, i) => (
-            <g key={`phase-${i}`}>
-              <line
-                x1={s.x}
-                y1={labelY + 10}
-                x2={s.x}
-                y2={s.topY}
-                stroke="hsl(var(--accent))"
-                strokeOpacity={0.7}
-                strokeWidth={1.2}
-                strokeDasharray="4 3"
-              />
-              <text
-                x={s.x}
-                y={labelY}
-                textAnchor="middle"
-                dominantBaseline="central"
-                className="fill-foreground"
-                style={{ fontSize: 13, fontWeight: 600, letterSpacing: 1.8 }}
-              >
-                {s.phase}
-              </text>
-            </g>
-          ));
+          const phaseY = 28;
+          const realRowY = 46;
+          const projRowY = 60;
+          const lineStartY = 70;
+          const TEXT_GAP = 6;
+          return stages.map((s, i) => {
+            if (!s.phase) return null;
+            const lx = s.labelX ?? s.x;
+            const lineEndY = s.labelTopY ?? s.topY;
+            const anchor: "start" | "middle" | "end" =
+              i <= 4 ? "start" : "end";
+            const textX =
+              anchor === "end" ? lx - TEXT_GAP : anchor === "start" ? lx + TEXT_GAP : lx;
+            return (
+              <g key={`phase-${i}`}>
+                {/* Linha tracejada começa abaixo do bloco de texto */}
+                <line
+                  x1={lx}
+                  y1={lineStartY}
+                  x2={lx}
+                  y2={lineEndY}
+                  stroke="hsl(var(--accent))"
+                  strokeOpacity={0.7}
+                  strokeWidth={1.2}
+                  strokeDasharray="4 3"
+                />
+                {/* Phase label */}
+                <text
+                  x={textX}
+                  y={phaseY}
+                  textAnchor={anchor}
+                  dominantBaseline="central"
+                  className="fill-foreground"
+                  style={{ fontSize: 12, fontWeight: 600, letterSpacing: 1.5 }}
+                >
+                  {s.phase}
+                </text>
+                {/* Realizado em destaque */}
+                <text
+                  x={textX}
+                  y={realRowY}
+                  textAnchor={anchor}
+                  dominantBaseline="central"
+                  className="fill-foreground"
+                  style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3 }}
+                >
+                  {s.real === null ? "—" : formatInt(s.real)}
+                </text>
+                {/* Projetado em cinza */}
+                <text
+                  x={textX}
+                  y={projRowY}
+                  textAnchor={anchor}
+                  dominantBaseline="central"
+                  className="fill-muted-foreground"
+                  style={{ fontSize: 10, fontWeight: 500, letterSpacing: 0.3 }}
+                >
+                  {s.proj === null ? "Proj: —" : `Proj: ${formatInt(s.proj)}`}
+                </text>
+              </g>
+            );
+          });
         })()}
 
-        {/* Valor realizado centralizado em cada pétala — fonte adapta o
-            tamanho ao comprimento do número pra caber dentro da pétala (que
-            tem ~117px de largura). */}
-        {stages.map((s, i) => {
-          if (s.real === null) return null;
-          const txt = formatInt(s.real);
-          // Largura útil da pétala ≈ 110px no viewBox. Em fontSize 1px cada
-          // dígito ocupa ~0.55px de largura no font default. Calcula tamanho
-          // pra ocupar no máximo ~70px (margem boa pros números não ficarem
-          // poluindo a pétala). Cap em 24px pros valores curtos não inflarem.
-          const fontSize = Math.min(24, Math.floor(70 / (txt.length * 0.55)));
-          return (
+        {/* CR1..CR7 dentro dos wings (espaços largos entre as lentes).
+            Real em destaque, label CR# como tag, projetado em cinza embaixo. */}
+        {conversions.map((c, i) => (
+          <g key={`cr-${i}`}>
             <text
-              key={`val-${i}`}
-              x={s.x}
-              y={CY}
+              x={c.x}
+              y={CY - 14}
               textAnchor="middle"
               dominantBaseline="central"
               className="fill-foreground"
-              style={{ fontSize, fontWeight: 700 }}
+              style={{ fontSize: 18, fontWeight: 700 }}
             >
-              {txt}
+              {c.pct === null ? "—" : `${Math.round(c.pct)}%`}
             </text>
-          );
-        })}
+            <text
+              x={c.x}
+              y={CY + 6}
+              textAnchor="middle"
+              dominantBaseline="central"
+              className="fill-muted-foreground"
+              style={{ fontSize: 9, fontWeight: 600, letterSpacing: 1 }}
+            >
+              {c.label}
+            </text>
+            <text
+              x={c.x}
+              y={CY + 20}
+              textAnchor="middle"
+              dominantBaseline="central"
+              className="fill-muted-foreground"
+              style={{ fontSize: 10, fontWeight: 500 }}
+            >
+              {c.projPct === null ? "Proj: —" : `Proj: ${Math.round(c.projPct)}%`}
+            </text>
+          </g>
+        ))}
 
-        {/* Tags CR1..CR7 — descidas pra abaixo do bowtie pra não competir com
-            os valores realizados. Cada tag tem uma linha tracejada accent
-            ligando o eixo dos valores (y=CY) ao topo da tag. */}
+        {/* Custos abaixo de cada lente — espelha o bloco de cima: linha
+            tracejada accent + label do custo + Real (em destaque) + Proj
+            (cinza). WON pode ter múltiplos custos (CAC, TM, Fechamento)
+            empilhados sob o nó central. */}
         {(() => {
-          const tagY = 455; // centro vertical da tag (abaixo do bowtie body)
-          const tagHalfH = 19;
-          return conversions.map((c, i) => (
-            <g key={`cr-${i}`}>
-              {/* Linha tracejada: da base do bowtie até o topo da tag */}
-              <line
-                x1={c.x}
-                y1={c.bottomY}
-                x2={c.x}
-                y2={tagY - tagHalfH}
-                stroke="hsl(var(--accent))"
-                strokeOpacity={0.7}
-                strokeWidth={1.2}
-                strokeDasharray="4 3"
-              />
-              {/* Pílula da tag */}
-              <g transform={`translate(${c.x}, ${tagY})`}>
-                <rect
-                  x={-24}
-                  y={-tagHalfH}
-                  width={48}
-                  height={tagHalfH * 2}
-                  rx={8}
-                  fill="hsl(var(--accent))"
+          const lineStartGapY = 6;
+          const lineEndY = 360;
+          const firstBlockY = 374;
+          const BLOCK_HEIGHT = 42; // altura por custo (label + real + proj + gap)
+          const TEXT_GAP = 6;
+          return stages.map((s, i) => {
+            if (!s.costs || s.costs.length === 0) return null;
+            const lx = s.labelX ?? s.x;
+            const anchor: "start" | "middle" | "end" =
+              i <= 4 ? "start" : "end";
+            const textX =
+              anchor === "end" ? lx - TEXT_GAP : anchor === "start" ? lx + TEXT_GAP : lx;
+            return (
+              <g key={`cost-${i}`}>
+                <line
+                  x1={lx}
+                  y1={s.bottomY + lineStartGapY}
+                  x2={lx}
+                  y2={lineEndY}
+                  stroke="hsl(var(--accent))"
+                  strokeOpacity={0.7}
+                  strokeWidth={1.2}
+                  strokeDasharray="4 3"
                 />
-                <text
-                  y={-5}
-                  textAnchor="middle"
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 600,
-                    letterSpacing: 0.5,
-                    fill: "hsl(var(--accent-foreground))",
-                  }}
-                >
-                  {c.label}
-                </text>
-                <text
-                  y={12}
-                  textAnchor="middle"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    fill: "hsl(var(--accent-foreground))",
-                  }}
-                >
-                  {c.pct === null ? "—" : `${Math.round(c.pct)}%`}
-                </text>
+                {s.costs.map((cost, j) => {
+                  const blockTop = firstBlockY + j * BLOCK_HEIGHT;
+                  return (
+                    <g key={`cost-${i}-${j}`}>
+                      <text
+                        x={textX}
+                        y={blockTop}
+                        textAnchor={anchor}
+                        dominantBaseline="central"
+                        className="fill-muted-foreground"
+                        style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1 }}
+                      >
+                        {cost.label}
+                      </text>
+                      <text
+                        x={textX}
+                        y={blockTop + 14}
+                        textAnchor={anchor}
+                        dominantBaseline="central"
+                        className="fill-foreground"
+                        style={{ fontSize: 13, fontWeight: 700 }}
+                      >
+                        {cost.real === null ? "—" : formatBRL(cost.real)}
+                      </text>
+                      <text
+                        x={textX}
+                        y={blockTop + 28}
+                        textAnchor={anchor}
+                        dominantBaseline="central"
+                        className="fill-muted-foreground"
+                        style={{ fontSize: 10, fontWeight: 500 }}
+                      >
+                        {cost.proj === null ? "Proj: —" : `Proj: ${formatBRL(cost.proj)}`}
+                      </text>
+                    </g>
+                  );
+                })}
               </g>
-            </g>
-          ));
+            );
+          });
         })()}
       </svg>
     </div>
@@ -550,10 +681,9 @@ function BowtieGravata({
 // ============================================================
 
 /**
- * Wrapper que junta a gravata e os 7 cards de estágio no MESMO grid de 7
- * colunas (sem gap), garantindo que cada ponto do funil fique exatamente sobre
- * a coluna do card correspondente. As bordas internas (`border-l`) separam os
- * cards visualmente sem usar `gap` (que distorceria o alinhamento).
+ * Wrapper da gravata bowtie. Antes tinha um grid de 8 cards embaixo com
+ * realizado/projetado/derivados; agora toda essa informação foi movida pra
+ * dentro do próprio SVG (acima das lentes pro volume; abaixo pros custos).
  */
 function BowtieGravataCards({
   realizado,
@@ -562,108 +692,12 @@ function BowtieGravataCards({
   realizado: ReturnType<typeof agregarProjetado>;
   projetado: ReturnType<typeof agregarProjetado>;
 }) {
-  // 8 estágios em sequência. WON é o 5º (centro do funil). Ticket médio e
-  // faturamento entram como métricas derivadas DENTRO do card WON (não como
-  // estágios separados). Ativação / Retenção / Expansão ficam em construção.
-  const cards: Array<
-    | {
-        kind: "estagio";
-        label: string;
-        value: number;
-        meta: number;
-        formato: "int" | "brl";
-        derivados?: Array<{ label: string; meta: number; value: number | null; formato: "int" | "brl" }>;
-      }
-    | { kind: "placeholder"; label: string }
-  > = [
-    {
-      kind: "estagio",
-      label: "LEADS",
-      value: realizado.leads,
-      meta: projetado.leads,
-      formato: "int",
-      derivados: [
-        { label: "Custo / lead", meta: projetado.custoPorLead, value: null, formato: "brl" },
-      ],
-    },
-    {
-      kind: "estagio",
-      label: "MQL",
-      value: realizado.mql,
-      meta: projetado.mql,
-      formato: "int",
-      derivados: [
-        { label: "Custo / MQL", meta: projetado.custoPorMql, value: null, formato: "brl" },
-      ],
-    },
-    {
-      kind: "estagio",
-      label: "SQL",
-      value: realizado.sql,
-      meta: projetado.sql,
-      formato: "int",
-      derivados: [
-        { label: "Custo / SQL", meta: projetado.custoPorSql, value: null, formato: "brl" },
-      ],
-    },
-    {
-      kind: "estagio",
-      label: "SAL",
-      value: realizado.sal,
-      meta: projetado.sal,
-      formato: "int",
-      derivados: [
-        { label: "Custo / SAL", meta: projetado.custoPorSal, value: null, formato: "brl" },
-      ],
-    },
-    {
-      kind: "estagio",
-      label: "WON (LOGOS)",
-      value: realizado.won,
-      meta: projetado.won,
-      formato: "int",
-      derivados: [
-        { label: "CAC", meta: projetado.cac, value: null, formato: "brl" },
-        { label: "Ticket médio", meta: projetado.ticketMedio, value: realizado.ticketMedio, formato: "brl" },
-        { label: "Faturamento", meta: projetado.faturamento, value: realizado.faturamento, formato: "brl" },
-      ],
-    },
-    { kind: "placeholder", label: "ATIVAÇÃO" },
-    { kind: "placeholder", label: "RETENÇÃO" },
-    { kind: "placeholder", label: "EXPANSÃO" },
-  ];
-
   return (
     <div className="rounded border border-border bg-card overflow-hidden">
       <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
         Bowtie de aquisição & pós-venda
       </div>
-      {/* Gravata: largura cheia, sem padding lateral pra ocupar exatamente o
-          mesmo span horizontal das 8 colunas abaixo. */}
       <BowtieGravata realizado={realizado} projetado={projetado} />
-      {/* Cards de estágio: grid sem gap; cada card ganha border-l (exceto o
-          primeiro) e border-t pra separar do SVG acima. */}
-      <div className="grid grid-cols-8 border-t border-border">
-        {cards.map((c, i) =>
-          c.kind === "estagio" ? (
-            <CardEstagio
-              key={c.label}
-              label={c.label}
-              value={c.value}
-              meta={c.meta}
-              formato={c.formato}
-              withLeftBorder={i > 0}
-              derivados={c.derivados}
-            />
-          ) : (
-            <CardEstagioPlaceholder
-              key={c.label}
-              label={c.label}
-              withLeftBorder={i > 0}
-            />
-          ),
-        )}
-      </div>
     </div>
   );
 }
@@ -895,7 +929,7 @@ function BowtieGranularidade({
     <div className="rounded border border-border bg-card">
       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
         <div className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
-          Granularidade por {pivote === "tier" ? "Tier" : "Sub-canal"}
+          Granularidade por {pivote === "tier" ? "Tier" : pivote === "canal" ? "Canal" : "Sub-canal"}
         </div>
         <div className="inline-flex rounded border border-border overflow-hidden text-[11px]">
           <button
@@ -904,6 +938,13 @@ function BowtieGranularidade({
             className={`px-2 py-1 ${pivote === "tier" ? "bg-accent text-accent-foreground" : "bg-card text-muted-foreground hover:bg-muted/40"}`}
           >
             Tier
+          </button>
+          <button
+            type="button"
+            onClick={() => setPivote("canal")}
+            className={`px-2 py-1 ${pivote === "canal" ? "bg-accent text-accent-foreground" : "bg-card text-muted-foreground hover:bg-muted/40"}`}
+          >
+            Canal
           </button>
           <button
             type="button"
@@ -931,7 +972,7 @@ function BowtieGranularidade({
           </colgroup>
           <thead>
             <tr className="bg-table-header text-table-header-foreground text-[10px] uppercase tracking-wider">
-              <th className="text-left px-3 py-2">{pivote === "tier" ? "Tier" : "Sub-canal"}</th>
+              <th className="text-left px-3 py-2">{pivote === "tier" ? "Tier" : pivote === "canal" ? "Canal" : "Sub-canal"}</th>
               <th className="text-right px-2 py-2">MQL</th>
               <th className="text-right px-2 py-2">MQL→SQL</th>
               <th className="text-right px-2 py-2">SQL</th>
