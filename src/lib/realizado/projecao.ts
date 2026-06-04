@@ -118,7 +118,7 @@ export type LinhaRealizadoProjetado = {
   horizonteAplicado: Horizonte | null;
 };
 
-const HORIZONTE_ORDER = ["H1", "H2", "H3", "H4", "H5"] as const;
+export const HORIZONTE_ORDER = ["H1", "H2", "H3", "H4", "H5"] as const;
 
 /**
  * Determina o horizonte efetivo de um patamar de faturamento.
@@ -195,7 +195,54 @@ export function getMesBaseForecast(
 }
 
 /** Nº de meses consecutivos acima do faixaMax pra promover ao próximo horizonte. */
-const MESES_PARA_PROMOVER = 3;
+export const MESES_PARA_PROMOVER = 3;
+
+/** Índice de um horizonte na ordem H1→H5. -1 se não encontrado. */
+export function idxHorizonte(h: Horizonte): number {
+  return HORIZONTE_ORDER.indexOf(h as (typeof HORIZONTE_ORDER)[number]);
+}
+
+/**
+ * Máquina de estado da promoção de horizonte — fonte única da regra usada tanto
+ * pela curva de crescimento (`calcularRealizadoVsProjetado`) quanto pela passada
+ * forward do funil (`calcularForecast`).
+ *
+ * `avaliar(v)` aplica a regra dos 3 meses consecutivos acima do `faixaMax`:
+ * - `v > faixaMax` → incrementa o contador; ao atingir `MESES_PARA_PROMOVER`,
+ *   sobe um degrau (nunca pula) e zera o contador.
+ * - `v ≤ faixaMax` → zera o contador.
+ * - `faixaMax === null` (H5, teto) → zera o contador, nunca promove.
+ * - `v ≤ 0` (mês fechado sem dado) → no-op; NÃO reseta (preserva o conquistado).
+ */
+export function criarPromotor(horizontes: HorizonteCrescimento[], horizonteInicial: Horizonte) {
+  const byH = new Map(horizontes.map((h) => [h.h, h] as const));
+  let horizonteVivo: Horizonte = horizonteInicial;
+  let consec = 0;
+  return {
+    get horizonteVivo(): Horizonte {
+      return horizonteVivo;
+    },
+    avaliar(v: number): void {
+      if (v <= 0) return;
+      const config = byH.get(horizonteVivo);
+      if (!config) return;
+      if (config.faixaMax === null) {
+        consec = 0;
+        return;
+      }
+      if (v > config.faixaMax) {
+        consec += 1;
+        if (consec >= MESES_PARA_PROMOVER) {
+          const proxIdx = idxHorizonte(horizonteVivo) + 1;
+          if (proxIdx < HORIZONTE_ORDER.length) horizonteVivo = HORIZONTE_ORDER[proxIdx];
+          consec = 0;
+        }
+      } else {
+        consec = 0;
+      }
+    },
+  };
+}
 
 /**
  * Monta a tabela mês-a-mês de forecast (rolling) para o ano modelado.
@@ -238,45 +285,12 @@ export function calcularRealizadoVsProjetado(
     ? realizadoByMes.get(mesBase)?.faturamento ?? 0
     : 0;
 
-  // `horizonteVivo` = patamar conquistado pela unidade. Só sobe; nunca regride.
-  let horizonteVivo: Horizonte = horizonteAtual;
-  // Contador de meses consecutivos acima do faixaMax do horizonte vivo atual.
-  let mesesAcimaConsec = 0;
+  // Promotor = patamar conquistado pela unidade (só sobe; nunca regride). Regra
+  // única compartilhada com `calcularForecast` (ver `criarPromotor`).
+  const promotor = criarPromotor(horizontes, horizonteAtual);
   // `valor` = último faturamento vivo da curva interna; capitaliza mês a mês
   // mesmo quando o mês corrente é fechado-sem-dado (preserva a aritmética).
   let valor = 0;
-  /**
-   * Avalia um mês contra o faixaMax do horizonte vivo atual.
-   * - Valor > faixaMax → incrementa contador; ao atingir 3 consecutivos,
-   *   promove pro próximo horizonte (subindo um degrau, nunca pulando) e
-   *   reseta a contagem pra começar a comparar contra o novo faixaMax.
-   * - Valor ≤ faixaMax → reseta contador.
-   * - H5 (faixaMax=null) é o teto — não promove, contagem fica zerada.
-   * - Valor ≤ 0 (mês fechado sem dado) — ignora, NÃO reseta contagem
-   *   (preserva o que já foi conquistado).
-   */
-  const avaliarMes = (v: number) => {
-    if (v <= 0) return;
-    const config = horizontesByH.get(horizonteVivo);
-    if (!config) return;
-    if (config.faixaMax === null) {
-      mesesAcimaConsec = 0;
-      return;
-    }
-    if (v > config.faixaMax) {
-      mesesAcimaConsec += 1;
-      if (mesesAcimaConsec >= MESES_PARA_PROMOVER) {
-        const idxAtual = idxHorizonte(horizonteVivo);
-        const proxIdx = idxAtual + 1;
-        if (proxIdx < HORIZONTE_ORDER.length) {
-          horizonteVivo = HORIZONTE_ORDER[proxIdx];
-        }
-        mesesAcimaConsec = 0;
-      }
-    } else {
-      mesesAcimaConsec = 0;
-    }
-  };
 
   const linhas: LinhaRealizadoProjetado[] = [];
   for (const mes of MESES_ANO_2026) {
@@ -303,11 +317,11 @@ export function calcularRealizadoVsProjetado(
         realizado,
         projetado: realizado,
         isProjetado: false,
-        horizonteAplicado: realizado > 0 ? horizonteVivo : null,
+        horizonteAplicado: realizado > 0 ? promotor.horizonteVivo : null,
       });
       if (realizado > 0) {
         valor = realizado;
-        avaliarMes(realizado);
+        promotor.avaliar(realizado);
       }
       continue;
     }
@@ -319,16 +333,16 @@ export function calcularRealizadoVsProjetado(
         realizado: valorBase,
         projetado: valorBase,
         isProjetado: false,
-        horizonteAplicado: horizonteVivo,
+        horizonteAplicado: promotor.horizonteVivo,
       });
-      avaliarMes(valorBase);
+      promotor.avaliar(valorBase);
       continue;
     }
 
     // mes > mesBase — capitaliza com a taxa do horizonte vivo no início do
     // mês. Se o mês ANTERIOR cruzou faixaMax (3 consecutivos), este mês já
     // cresce na taxa nova.
-    const taxa = horizontesByH.get(horizonteVivo)?.crescMensalPct ?? 0;
+    const taxa = horizontesByH.get(promotor.horizonteVivo)?.crescMensalPct ?? 0;
     valor = Math.round(valor * (1 + taxa / 100));
 
     if (isMesFechado) {
@@ -339,7 +353,7 @@ export function calcularRealizadoVsProjetado(
         realizado: 0,
         projetado: 0,
         isProjetado: false,
-        horizonteAplicado: horizonteVivo,
+        horizonteAplicado: promotor.horizonteVivo,
       });
       continue;
     }
@@ -351,16 +365,12 @@ export function calcularRealizadoVsProjetado(
       realizado,
       projetado: valor,
       isProjetado: true,
-      horizonteAplicado: horizonteVivo,
+      horizonteAplicado: promotor.horizonteVivo,
     });
-    avaliarMes(valor);
+    promotor.avaliar(valor);
   }
 
   return linhas;
-}
-
-function idxHorizonte(h: Horizonte): number {
-  return HORIZONTE_ORDER.indexOf(h as (typeof HORIZONTE_ORDER)[number]);
 }
 
 /**

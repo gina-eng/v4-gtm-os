@@ -34,6 +34,7 @@ import {
 import type { PremissasBlocks } from "@/db/repositories/premissas";
 import {
   calcularCurvaTarget,
+  calcularForecast,
   calcularRampUp,
   calcularCanalTier,
   calcularPorSubCanal,
@@ -55,6 +56,7 @@ const blocks: PremissasBlocks = {
   distSplit: DIST_SPLIT_DEFAULT,
   investimentoMidia: INVESTIMENTO_MIDIA_DEFAULT,
   investimentoMensal: [],
+  overridesSubcanalMes: [],
   conversoesInbound: {
     leadBroker: CONVERSAO_LEAD_BROKER_DEFAULT,
     blackBox: CONVERSAO_BLACK_BOX_DEFAULT,
@@ -85,15 +87,18 @@ function approx(label: string, got: number, expected: number, tol = 1) {
 }
 
 // ── 1. Curva de target sem realizado (fallback faixaMin) ──────────────────
+// Modelo A: M1 (âncora) = faixaMin; M2 em diante encadeia na RECEITA EFETIVA do
+// funil do mês anterior (não mais faixaMin × (1+taxa)^n puro).
 console.log("== Curva de target — fallback (sem realizado) ==");
 for (const h of ["H1", "H2", "H3", "H4", "H5"] as const) {
-  const curva = calcularCurvaTarget(HORIZONTE_CRESCIMENTO_DEFAULT, h);
+  const curva = calcularCurvaTarget(blocks, h);
+  const fc = calcularForecast(blocks, h);
   const info = HORIZONTE_CRESCIMENTO_DEFAULT.find((x) => x.h === h)!;
   check(`${h}: 12 meses`, curva.length === 12);
   approx(`${h}: M1 = faixaMin`, curva[0]!.target, info.faixaMin);
-  // M2 = faixaMin × (1 + taxa/100)
-  const m2Esperado = Math.round(info.faixaMin * (1 + info.crescMensalPct / 100));
-  approx(`${h}: M2 = M1 × (1 + ${info.crescMensalPct}%)`, curva[1]!.target, m2Esperado);
+  // Modelo A: M2 = receita efetiva (funil) de M1 × (1 + taxa/100).
+  const m2Esperado = Math.round(fc[0]!.effectiveRevenue * (1 + info.crescMensalPct / 100));
+  approx(`${h}: M2 = receita efetiva M1 × (1 + ${info.crescMensalPct}%)`, curva[1]!.target, m2Esperado);
   // Horizonte nunca regride pra baixo do `h` (piso da unidade); pode promover
   // pra cima conforme o patamar cresce e cruza `faixaMax`.
   check(
@@ -111,7 +116,7 @@ const realizado: RealizadoMensal[] = [
   { mes: "2026-02", faturamento: 240_000, investido: 36_000, leadsIb: 60, leadsOb: 95, won: 7 },
   { mes: "2026-03", faturamento: 290_000, investido: 42_000, leadsIb: 70, leadsOb: 110, won: 9 },
 ];
-const curvaH3 = calcularCurvaTarget(HORIZONTE_CRESCIMENTO_DEFAULT, "H3", {
+const curvaH3 = calcularCurvaTarget(blocks, "H3", {
   realizadoHistorico: realizado,
 });
 check("12 meses", curvaH3.length === 12);
@@ -184,8 +189,14 @@ for (const l of ramp) {
 // BB ativo no H3 (splitBb=20, bbPiso=30k)
 const algumBB = ramp.some((l) => l.investBb > 0);
 check("BB ativo em H3", algumBB);
-// MB inativo em H3 (Enterprise não está ativo)
-check("MB inativo em H3", ramp.every((l) => l.investMb === 0));
+// MB inativo enquanto a unidade está em H3 (Enterprise só ativa em horizonte
+// mais alto). Com o Modelo A a unidade promove ao longo do ano (a receita
+// efetiva — inbound + outbound — encadeia e cresce rápido), então nos meses já
+// promovidos a H5 o MB pode ligar — o invariante é "em H3, MB desligado".
+check(
+  "MB inativo enquanto em H3",
+  ramp.filter((l) => l.horizonte === "H3").every((l) => l.investMb === 0),
+);
 
 // ── 4. MB só no H5 ────────────────────────────────────────────────────────
 console.log("\n== MB no H5 (Enterprise ativo) ==");
@@ -213,17 +224,20 @@ check("H5 Canal×Tier = 5 tiers × 12 meses = 60", ctH5.length === 60);
 console.log("\n== Por sub-canal — identidade com Ramp-up ==");
 const sub = calcularPorSubCanal(blocks, "H3", { realizadoHistorico: realizado });
 check("8 sub-canais × 12 meses = 96", sub.length === 96);
-// Soma de receita por mês (todos os sub-canais) = recTotal do mês no Ramp-up
+// Soma de receita por mês (todos os sub-canais) = recTotal do mês no Ramp-up.
+// Só nos meses FUTUROS: em meses fechados o Ramp-up reescala recTotal pro
+// faturamento realizado declarado, enquanto o detalhe por sub-canal mostra o
+// funil bruto — então as duas visões divergem de propósito nos fechados.
 const porMesSub = new Map<string, number>();
 for (const l of sub) porMesSub.set(l.mes, (porMesSub.get(l.mes) ?? 0) + l.receita);
-for (const l of ramp) {
+for (const l of ramp.filter((x) => !x.isFechado)) {
   approx(`${l.mes} Σ receita sub-canal = recTotal`, porMesSub.get(l.mes) ?? 0, l.recTotal, 2);
 }
-// Inbound (LB+BB+MB) por mês = recInbound do Ramp-up
+// Inbound (LB+BB+MB) por mês = recInbound do Ramp-up (idem, só futuros).
 const inboundKeys = new Set(SUB_CANAIS.filter((s) => s.canal === "inbound").map((s) => s.key));
 const porMesIb = new Map<string, number>();
 for (const l of sub) if (inboundKeys.has(l.subcanal)) porMesIb.set(l.mes, (porMesIb.get(l.mes) ?? 0) + l.receita);
-for (const l of ramp) {
+for (const l of ramp.filter((x) => !x.isFechado)) {
   approx(`${l.mes} Σ receita inbound sub = recInbound`, porMesIb.get(l.mes) ?? 0, l.recInbound, 2);
 }
 

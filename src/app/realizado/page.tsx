@@ -94,7 +94,10 @@ export default async function RealizadoPage() {
       linhasSubCanalTier={calcularPorSubCanalPorTier(blocks, unitOrg.horizonteAtual, curvaOpts)}
       investimentoMidia={blocks.investimentoMidia}
       investimentoMensal={blocks.investimentoMensal}
+      overridesSubcanalMes={blocks.overridesSubcanalMes}
       matrizInvestimentoMidia={matrizBlocks.investimentoMidia}
+      matrizDistSplit={matrizBlocks.distSplit}
+      matrizMixSubcanais={matrizBlocks.mixSubcanais}
       realizadoHistorico={realizado}
       dataInicio={unitOrg.dataInicio}
     />

@@ -42,6 +42,7 @@ const blocks: PremissasBlocks = {
   distSplit: DIST_SPLIT_DEFAULT,
   investimentoMidia: INVESTIMENTO_MIDIA_DEFAULT,
   investimentoMensal: [],
+  overridesSubcanalMes: [],
   conversoesInbound: {
     leadBroker: CONVERSAO_LEAD_BROKER_DEFAULT,
     blackBox: CONVERSAO_BLACK_BOX_DEFAULT,

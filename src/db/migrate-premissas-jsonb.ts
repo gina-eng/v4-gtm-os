@@ -63,6 +63,7 @@ async function main() {
       investimentoMidia:
         (row.investimentoMidia as InvestimentoMidia[] | null) ?? base.investimentoMidia,
       investimentoMensal: base.investimentoMensal, // não existia em jsonb — começa vazio
+      overridesSubcanalMes: base.overridesSubcanalMes, // não existia em jsonb — começa vazio
 
       conversoesInbound:
         (row.conversoesInbound as ConversoesInboundData | null) ?? base.conversoesInbound,

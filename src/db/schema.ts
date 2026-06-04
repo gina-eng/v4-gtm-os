@@ -49,6 +49,20 @@ export const subcanalOutboundEnum = pgEnum("subcanal_outbound", [
   "prospeccao",
 ]);
 
+// Subcanal de mídia (8 chaves de `SubCanalKey` em funil-reverso.ts) — usado no
+// override mensal por subcanal. Inbound: lead_broker/black_box/meeting_broker/
+// eventos. Outbound: out_indicacao/out_recovery/out_recomendacao/out_prospeccao.
+export const subcanalMidiaEnum = pgEnum("subcanal_midia", [
+  "lead_broker",
+  "black_box",
+  "meeting_broker",
+  "eventos",
+  "out_indicacao",
+  "out_recovery",
+  "out_recomendacao",
+  "out_prospeccao",
+]);
+
 export const userStatusEnum = pgEnum("user_status", ["pending", "active", "inactive"]);
 export const roleEnum = pgEnum("role", ["admin", "gerente", "coordenador"]);
 export const membershipStatusEnum = pgEnum("membership_status", ["active", "inactive"]);
@@ -398,6 +412,33 @@ export const premissaInvestimentoMes = pgTable(
     investimento: doublePrecision("investimento").notNull(),
   },
   (table) => [uniqueIndex("idx_prem_invest_mes_unique").on(table.premissaId, table.mes)],
+);
+
+// Override do investimento/leads por SUBCANAL, mês a mês (2026). Grão:
+// mês × subcanal (até 8 por mês). `valor` = investimento em R$ para os
+// subcanais inbound (lead_broker/black_box/meeting_broker/eventos) ou nº de
+// leads para os subcanais outbound (out_*) — a semântica é determinada pelo
+// subcanal. Esparso: meses/subcanais ausentes caem no rateio derivado (split
+// P6 inbound / mix P16 outbound) feito pelo funil reverso. Hard cap: a soma
+// por grupo (inbound/outbound) nunca passa do total do mês (Pace / leadsOb).
+export const premissaOverrideSubcanalMes = pgTable(
+  "premissa_override_subcanal_mes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    premissaId: uuid("premissa_id")
+      .notNull()
+      .references(() => premissas.id, { onDelete: "cascade" }),
+    mes: varchar("mes", { length: 7 }).notNull(), // "2026-01" .. "2026-12"
+    subcanal: subcanalMidiaEnum("subcanal").notNull(),
+    valor: doublePrecision("valor").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_prem_override_subcanal_mes_unique").on(
+      table.premissaId,
+      table.mes,
+      table.subcanal,
+    ),
+  ],
 );
 
 // P4 — Split normalizado de leads por horizonte × tier (tabela direita do P4).

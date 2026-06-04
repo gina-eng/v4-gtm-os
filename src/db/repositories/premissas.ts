@@ -35,6 +35,7 @@ import {
   premissaConversaoEventos,
   premissaDistSplit,
   premissaInvestimentoMes,
+  premissaOverrideSubcanalMes,
 } from "@/db/schema";
 import {
   CONVERSAO_BLACK_BOX_DEFAULT,
@@ -68,6 +69,7 @@ import {
   type MetricaOperacional,
   type MixOutboundHorizonte,
   type InvestimentoMes,
+  type OverrideSubcanalMes,
   type ReceitaProduto,
   type Tier,
   type TierCliente,
@@ -95,6 +97,13 @@ export type PremissasBlocks = {
    * Vive em `premissa_investimento_mes`.
    */
   investimentoMensal: InvestimentoMes[];
+  /**
+   * Override do investimento/leads por subcanal × mês. Esparso; subcanais/meses
+   * ausentes caem no rateio derivado (split P6 inbound / mix P16 outbound).
+   * `valor` = R$ (subcanais inbound) ou nº de leads (subcanais outbound).
+   * Vive em `premissa_override_subcanal_mes`.
+   */
+  overridesSubcanalMes: OverrideSubcanalMes[];
   conversoesInbound: ConversoesInboundData;
   conversoesOutbound: ConversoesOutboundData;
   mixSubcanais: MixOutboundHorizonte[];
@@ -123,6 +132,8 @@ export function matrizDefaultBlocks(): PremissasBlocks {
     // Matriz não tem override mensal — começa vazio; o cálculo cai no fallback
     // de P6 por horizonte. Unidades materializam ao editar em /realizado.
     investimentoMensal: [],
+    // Sem override por subcanal — o funil deriva a quebra pelos splits/mix.
+    overridesSubcanalMes: [],
     conversoesInbound: {
       leadBroker: CONVERSAO_LEAD_BROKER_DEFAULT,
       blackBox: CONVERSAO_BLACK_BOX_DEFAULT,
@@ -186,7 +197,7 @@ export async function getPremissasByEntityIds(
 async function loadBlocksForPremissaIds(
   premissaIds: string[],
 ): Promise<Map<string, PremissasBlocks>> {
-  const [time, cargos, horiz, tiers, inbound, outbound, mb, evCusto, evConv, split, investMes] = await Promise.all([
+  const [time, cargos, horiz, tiers, inbound, outbound, mb, evCusto, evConv, split, investMes, overrideSub] = await Promise.all([
     db.select().from(premissaTimeComercial).where(inArray(premissaTimeComercial.premissaId, premissaIds)),
     db.select().from(premissaCargo).where(inArray(premissaCargo.premissaId, premissaIds)),
     db.select().from(premissaHorizonte).where(inArray(premissaHorizonte.premissaId, premissaIds)),
@@ -198,6 +209,7 @@ async function loadBlocksForPremissaIds(
     db.select().from(premissaConversaoEventos).where(inArray(premissaConversaoEventos.premissaId, premissaIds)),
     db.select().from(premissaDistSplit).where(inArray(premissaDistSplit.premissaId, premissaIds)),
     db.select().from(premissaInvestimentoMes).where(inArray(premissaInvestimentoMes.premissaId, premissaIds)),
+    db.select().from(premissaOverrideSubcanalMes).where(inArray(premissaOverrideSubcanalMes.premissaId, premissaIds)),
   ]);
 
   const group = <T extends { premissaId: string }>(rows: T[]): Map<string, T[]> => {
@@ -220,6 +232,7 @@ async function loadBlocksForPremissaIds(
   const evConvBy = group(evConv);
   const splitBy = group(split);
   const investMesBy = group(investMes);
+  const overrideSubBy = group(overrideSub);
 
   const result = new Map<string, PremissasBlocks>();
   for (const pid of premissaIds) {
@@ -267,6 +280,9 @@ async function loadBlocksForPremissaIds(
       investimentoMensal: (investMesBy.get(pid) ?? [])
         .map((r) => ({ mes: r.mes, investimento: r.investimento }))
         .sort((a, b) => a.mes.localeCompare(b.mes)),
+      overridesSubcanalMes: (overrideSubBy.get(pid) ?? [])
+        .map((r) => ({ mes: r.mes, subcanal: r.subcanal, valor: r.valor }))
+        .sort((a, b) => a.mes.localeCompare(b.mes) || a.subcanal.localeCompare(b.subcanal)),
       mixSubcanais: orderBy(horizBy.get(pid) ?? [], "h", HORIZONTE_ORDER).map((r) => ({
         h: r.h,
         indicacao: r.mixIndicacao,
@@ -403,6 +419,7 @@ export async function savePremissas(
       tx.delete(premissaConversaoEventos).where(eq(premissaConversaoEventos.premissaId, pid)),
       tx.delete(premissaDistSplit).where(eq(premissaDistSplit.premissaId, pid)),
       tx.delete(premissaInvestimentoMes).where(eq(premissaInvestimentoMes.premissaId, pid)),
+      tx.delete(premissaOverrideSubcanalMes).where(eq(premissaOverrideSubcanalMes.premissaId, pid)),
     ]);
 
     // Time comercial (grão: pessoa) — preserva ordem via `ord`.
@@ -515,6 +532,19 @@ export async function savePremissas(
           premissaId: pid,
           mes: p.mes,
           investimento: p.investimento,
+        })),
+      );
+    }
+
+    // Override do investimento/leads por subcanal × mês. Esparso; cálculo usa
+    // o rateio derivado (split P6 / mix P16) quando o subcanal não tem override.
+    if (blocks.overridesSubcanalMes.length > 0) {
+      await tx.insert(premissaOverrideSubcanalMes).values(
+        blocks.overridesSubcanalMes.map((o) => ({
+          premissaId: pid,
+          mes: o.mes,
+          subcanal: o.subcanal,
+          valor: o.valor,
         })),
       );
     }
@@ -650,6 +680,7 @@ export type PremissaBlockPatch =
   | { block: "horizontes"; data: HorizonteCrescimento[] }
   | { block: "investimentoMidia"; data: InvestimentoMidia[] }
   | { block: "investimentoMensal"; data: InvestimentoMes[] }
+  | { block: "overridesSubcanalMes"; data: OverrideSubcanalMes[] }
   | { block: "mixSubcanais"; data: MixOutboundHorizonte[] }
   | { block: "tiersCliente"; data: TierCliente[] }
   | { block: "receitaProduto"; data: ReceitaProduto[] }
@@ -671,6 +702,8 @@ function applyBlockPatch(base: PremissasBlocks, patch: PremissaBlockPatch): Prem
       return { ...base, investimentoMidia: patch.data };
     case "investimentoMensal":
       return { ...base, investimentoMensal: patch.data };
+    case "overridesSubcanalMes":
+      return { ...base, overridesSubcanalMes: patch.data };
     case "mixSubcanais":
       return { ...base, mixSubcanais: patch.data };
     case "tiersCliente":

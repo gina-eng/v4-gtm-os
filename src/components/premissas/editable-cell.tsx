@@ -314,7 +314,9 @@ export function NumberCell({
 }
 
 /** Moeda R$ — máscara em tempo real "R$1.234"; sem centavos. */
-export function CurrencyCell(props: BaseProps & { step?: number; lockableZero?: boolean }) {
+export function CurrencyCell(
+  props: BaseProps & { step?: number; max?: number; lockableZero?: boolean },
+) {
   return (
     <NumberCell
       {...props}
@@ -347,7 +349,9 @@ export function PercentCell(
 }
 
 /** Inteiro com separador de milhar "1.234". */
-export function IntegerCell(props: BaseProps & { lockableZero?: boolean }) {
+export function IntegerCell(
+  props: BaseProps & { step?: number; max?: number; lockableZero?: boolean },
+) {
   return (
     <NumberCell
       {...props}

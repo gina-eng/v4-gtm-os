@@ -247,7 +247,7 @@ export function EditorInvestimentoMensal({
             Pace de investimento
           </h2>
           <span className="text-[10px] text-muted-foreground">
-            — meses fechados puxam do realizado; meses futuros são editáveis (R$). O % da produção é derivado
+            — meses fechados puxam do realizado; meses futuros são editáveis (R$). O % da produção é derivado. Mexer num mês reflete nos posteriores (a receita do mês vira a base do seguinte)
           </span>
           <span className="inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ml-2">
             {horizonteAtual}
@@ -474,6 +474,8 @@ export function EditorInvestimentoMensal({
           Baseline do horizonte {horizonteAtual}: {formatPercent(baselinePctAtual, 1)} da produção.
           Meses não editados começam com o pace do horizonte vigente no mês
           (promoções aplicam o pctProducao do novo horizonte automaticamente).
+          A receita efetiva de cada mês é a base do mês seguinte — então aumentar
+          (ou reduzir) o investimento de um mês propaga pra frente.
         </p>
       </div>
     </div>

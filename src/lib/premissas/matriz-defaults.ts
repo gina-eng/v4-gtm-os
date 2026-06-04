@@ -263,6 +263,31 @@ export type InvestimentoMes = {
   investimento: number;
 };
 
+/**
+ * Chave de subcanal de mídia — 4 inbound + 4 outbound. Fonte canônica do tipo
+ * (reexportado por funil-reverso.ts). Espelha o enum `subcanal_midia` do banco.
+ */
+export type SubCanalKey =
+  | "lead_broker"
+  | "black_box"
+  | "meeting_broker"
+  | "eventos"
+  | "out_indicacao"
+  | "out_recovery"
+  | "out_recomendacao"
+  | "out_prospeccao";
+
+/**
+ * Override do investimento/leads de um subcanal num mês. `valor` = R$ para
+ * subcanais inbound (lead_broker/black_box/meeting_broker/eventos) ou nº de
+ * leads para subcanais outbound (out_*). Vive em `premissa_override_subcanal_mes`.
+ */
+export type OverrideSubcanalMes = {
+  mes: string;
+  subcanal: SubCanalKey;
+  valor: number;
+};
+
 export type InvestimentoMidia = {
   h: Horizonte;
   pctProducao: number;

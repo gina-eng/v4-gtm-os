@@ -18,14 +18,16 @@ import type {
   ConversaoInbound,
   ConversaoOutbound,
   Horizonte,
-  HorizonteCrescimento,
   RealizadoMensal,
+  SubCanalKey,
   Tier,
 } from "@/lib/premissas/matriz-defaults";
 import type { PremissasBlocks } from "@/db/repositories/premissas";
 import {
-  calcularRealizadoVsProjetado,
+  criarPromotor,
   getMesAncora,
+  getMesBaseForecast,
+  getUltimoMesFechado,
   MESES_ANO_2026,
 } from "@/lib/realizado/projecao";
 
@@ -54,6 +56,116 @@ const SUBCANAIS_OUTBOUND = [
  */
 export const MB_BUDGET_PCT = 10;
 
+// ============================================================
+// Alocação efetiva por subcanal (override + rateio do restante)
+//
+// Dois helpers puros, fonte única usada tanto pela passada forward (`funilDoMes`)
+// quanto pelos readers — assim a tabela "Por sub-canal" nunca diverge do que o
+// forecast usou. Regra (decisões de produto):
+//  - subcanais com override fixam o valor; o cap é aplicado escalando os
+//    overrides proporcionalmente quando a soma estoura o total (clamp defensivo);
+//  - subcanais SEM override dividem o restante (total − Σ overrides) proporcional
+//    ao peso base (split P6 inbound / mix P16 outbound);
+//  - se TODOS têm override e sobra valor (Σ < total), a sobra é redistribuída
+//    proporcional aos próprios overrides (preserva a identidade Σ = total);
+//  - guardas contra divisão por zero em todos os pontos.
+// ============================================================
+
+type CanalInbound = "lb" | "bb" | "mb" | "ev";
+const CANAIS_INBOUND: readonly CanalInbound[] = ["lb", "bb", "mb", "ev"] as const;
+export type InboundAlloc = Record<CanalInbound, number>;
+
+/**
+ * R$ por canal inbound dado o investimento total do mês, os pesos base de split
+ * (já com on/off + MB-fallback resolvidos pelo chamador) e os overrides em R$.
+ * Σ(retorno) === investTotal (a menos de drift de ponto flutuante).
+ */
+export function alocacaoInboundEfetiva(
+  investTotal: number,
+  splitsBase: InboundAlloc,
+  overrides: Partial<InboundAlloc>,
+): InboundAlloc {
+  const out: InboundAlloc = { lb: 0, bb: 0, mb: 0, ev: 0 };
+  if (investTotal <= 0) return out;
+
+  const editados = CANAIS_INBOUND.filter((c) => overrides[c] !== undefined);
+  const naoEditados = CANAIS_INBOUND.filter((c) => overrides[c] === undefined);
+
+  let somaOverrides = 0;
+  for (const c of editados) somaOverrides += Math.max(0, overrides[c]!);
+
+  // Clamp defensivo: se os overrides estouram o total, escala todos pra caber.
+  if (somaOverrides > investTotal && somaOverrides > 0) {
+    const fator = investTotal / somaOverrides;
+    for (const c of editados) out[c] = Math.max(0, overrides[c]!) * fator;
+    return out;
+  }
+  for (const c of editados) out[c] = Math.max(0, overrides[c]!);
+
+  const restante = investTotal - somaOverrides;
+  if (restante <= 0) return out;
+
+  const pesoNaoEditado = naoEditados.reduce((acc, c) => acc + splitsBase[c], 0);
+  if (naoEditados.length > 0 && pesoNaoEditado > 0) {
+    for (const c of naoEditados) out[c] = restante * (splitsBase[c] / pesoNaoEditado);
+    return out;
+  }
+
+  // Todos editados (ou peso base zero): redistribui a sobra proporcional aos
+  // próprios overrides pra fechar Σ = investTotal.
+  if (somaOverrides > 0) {
+    const fator = investTotal / somaOverrides;
+    for (const c of editados) out[c] = out[c] * fator;
+  }
+  return out;
+}
+
+type SubOutbound = (typeof SUBCANAIS_OUTBOUND)[number];
+export type OutboundMixEff = Record<SubOutbound, number>;
+
+/**
+ * Pesos efetivos (frações 0..1, somam ≤1) por subcanal outbound dado o total de
+ * leadsOb do mês, o mix base P16 (em %) e os overrides de QUANTIDADE DE LEADS.
+ * Devolve pesos (não leads) — os consumidores já fazem `leads = total × peso`.
+ */
+export function mixOutboundEfetivo(
+  leadsObTotal: number,
+  mixBasePct: Partial<Record<SubOutbound, number>>,
+  overridesLeads: Partial<Record<SubOutbound, number>>,
+): OutboundMixEff {
+  const out: OutboundMixEff = { indicacao: 0, recovery: 0, recomendacao: 0, prospeccao: 0 };
+  if (leadsObTotal <= 0) return out;
+
+  const editados = SUBCANAIS_OUTBOUND.filter((s) => overridesLeads[s] !== undefined);
+  const naoEditados = SUBCANAIS_OUTBOUND.filter((s) => overridesLeads[s] === undefined);
+
+  let somaOverrides = 0;
+  for (const s of editados) somaOverrides += Math.max(0, overridesLeads[s]!);
+
+  // Clamp: overrides em leads não podem somar mais que o total de leadsOb.
+  const somaCapada = Math.min(somaOverrides, leadsObTotal);
+  const fatorClamp = somaOverrides > 0 ? somaCapada / somaOverrides : 0;
+  for (const s of editados) {
+    out[s] = (Math.max(0, overridesLeads[s]!) * fatorClamp) / leadsObTotal;
+  }
+
+  const pesoFixo = somaCapada / leadsObTotal;
+  const pesoLivre = Math.max(0, 1 - pesoFixo);
+  if (pesoLivre <= 0) return out;
+
+  const pesoMixNaoEditado = naoEditados.reduce((acc, s) => acc + (mixBasePct[s] ?? 0) / 100, 0);
+  if (naoEditados.length > 0 && pesoMixNaoEditado > 0) {
+    for (const s of naoEditados) {
+      out[s] = pesoLivre * (((mixBasePct[s] ?? 0) / 100) / pesoMixNaoEditado);
+    }
+  } else if (somaCapada > 0) {
+    // Todos editados mas sobra peso livre (Σ overrides < total): redistribui
+    // proporcional aos próprios overrides pra fechar Σ pesos = 1.
+    for (const s of editados) out[s] = out[s] / pesoFixo;
+  }
+  return out;
+}
+
 /** Opções comuns para gerar a curva de target. */
 export type CurvaOpts = {
   /** Realizado mensal da unidade (jan/26 → dez/26). Default: vazio. */
@@ -70,6 +182,8 @@ export type LinhaTarget = {
   /** Mês ISO `"2026-01" .. "2026-12"`. */
   mes: string;
   target: number;
+  /** Meta da matriz — cadeia pura de crescimento (ver `LinhaForecast.metaMatriz`). */
+  metaMatriz: number;
   /**
    * Horizonte efetivo do mês — promovido automaticamente quando a unidade
    * ultrapassa `faixaMax` (não regride pra baixo do `horizonteAtual` da
@@ -81,92 +195,23 @@ export type LinhaTarget = {
 };
 
 /**
- * Gera a curva de target dos 12 meses de 2026.
- *
- * - Se a unidade tem realizado (`faturamento > 0` em algum mês fechado), usa o
- *   Forecast: meses fechados = realizado, meses futuros = projeção a partir do
- *   mês fechado mais recente × `crescMensalPct` do `horizonteAtual`.
- * - Caso contrário (planejamento "do zero"), ancora na `faixaMin` do
- *   horizonteAtual no mês de início da unidade e capitaliza pela mesma taxa.
+ * Curva de target (alvo) dos 12 meses de 2026 — leitor fino sobre
+ * `calcularForecast`. O `target` é o `growthTarget`: o alvo que define o baseline
+ * de mídia, encadeado no **resultado efetivo do funil** do mês anterior
+ * (Modelo A — ver `calcularForecast`). Meses fechados = realizado.
  */
 export function calcularCurvaTarget(
-  horizontes: HorizonteCrescimento[],
+  blocks: PremissasBlocks,
   horizonteAtual: Horizonte,
   opts: CurvaOpts = {},
 ): LinhaTarget[] {
-  const realizado = opts.realizadoHistorico ?? [];
-  const linhas = calcularRealizadoVsProjetado(
-    realizado,
-    horizontes,
-    horizonteAtual,
-    { dataInicio: opts.dataInicio ?? null },
-  );
-  const temBase = linhas.some((l) => l.projetado > 0);
-  if (temBase) {
-    return linhas.map((l) => ({
-      mes: l.mes,
-      target: l.projetado,
-      // `horizonteAplicado` já vem promovido quando o patamar ultrapassa faixaMax;
-      // fallback no horizonteAtual pra meses sem base (antes da âncora etc.).
-      horizonte: l.horizonteAplicado ?? horizonteAtual,
-      isFechado: !l.isProjetado,
-    }));
-  }
-  // Fallback: planejamento sem realizado ainda → faixaMin do horizonteAtual,
-  // capitalizando mês a mês. Promoção segue a mesma regra de
-  // `calcularRealizadoVsProjetado`: 3 meses CONSECUTIVOS acima do faixaMax
-  // do horizonte vivo atual pra promover (subindo só um degrau por vez).
-  const h = horizontes.find((x) => x.h === horizonteAtual);
-  const ancora = h?.faixaMin ?? 0;
-  const horizontesByH = new Map(horizontes.map((c) => [c.h, c] as const));
-  const mesAncora = getMesAncora(opts.dataInicio);
-  const HORIZONTE_ORDER: Horizonte[] = ["H1", "H2", "H3", "H4", "H5"];
-  const idxH = (x: Horizonte) => HORIZONTE_ORDER.indexOf(x);
-  const MESES_PARA_PROMOVER = 3;
-  const meses = MESES_ANO_2026 as readonly string[];
-  const idxAnc = meses.indexOf(mesAncora);
-  const out: LinhaTarget[] = [];
-  let valorAnterior = 0;
-  let horizonteVivo: Horizonte = horizonteAtual;
-  let mesesAcimaConsec = 0;
-  for (let idx = 0; idx < meses.length; idx++) {
-    const mes = meses[idx];
-    if (idx < idxAnc) {
-      out.push({ mes, target: 0, horizonte: horizonteAtual, isFechado: false });
-      continue;
-    }
-    let valor: number;
-    if (idx === idxAnc) {
-      valor = ancora;
-    } else {
-      const taxa = horizontesByH.get(horizonteVivo)?.crescMensalPct ?? 0;
-      valor = Math.round(valorAnterior * (1 + taxa / 100));
-    }
-    valorAnterior = valor;
-    out.push({
-      mes,
-      target: valor,
-      horizonte: horizonteVivo,
-      isFechado: false,
-    });
-    // Avalia 3-meses-consecutivos contra o faixaMax do horizonte vivo.
-    const config = horizontesByH.get(horizonteVivo);
-    if (config && config.faixaMax !== null) {
-      if (valor > config.faixaMax) {
-        mesesAcimaConsec += 1;
-        if (mesesAcimaConsec >= MESES_PARA_PROMOVER) {
-          const proxIdx = idxH(horizonteVivo) + 1;
-          if (proxIdx < HORIZONTE_ORDER.length) {
-            horizonteVivo = HORIZONTE_ORDER[proxIdx];
-          }
-          mesesAcimaConsec = 0;
-        }
-      } else {
-        mesesAcimaConsec = 0;
-      }
-    }
-  }
-  return out;
+  return calcularForecast(blocks, horizonteAtual, opts).map((l) => ({
+    mes: l.mes,
+    target: l.growthTarget,
+    metaMatriz: l.metaMatriz,
+    horizonte: l.horizonte,
+    isFechado: l.isFechado,
+  }));
 }
 
 // ============================================================
@@ -196,6 +241,12 @@ export type LinhaCanalTier = {
   out: CanalValores;
   totalWon: number;
   totalReceita: number;
+  /**
+   * Pesos efetivos por subcanal outbound do mês (já com overrides de leads).
+   * Igual para todos os tiers do mês — os readers usam para re-splitar outbound
+   * por subcanal sem recomputar o mix (evita divergência com o forecast).
+   */
+  mixOutEff: OutboundMixEff;
 };
 
 function byTier<T extends { tier: Tier }>(arr: T[]): Map<Tier, T> {
@@ -219,28 +270,77 @@ function convOutbound(c: ConversaoOutbound | undefined): number {
 }
 
 /**
- * Calcula o detalhe mês × tier × canal a partir das premissas da entidade.
- *
- * O horizonte é **efetivo por mês** (ver `calcularCurvaTarget`): se a unidade
- * ultrapassa `faixaMax` em algum mês fechado, os meses seguintes já operam no
- * horizonte de cima. P4 (distSplit), P16 (mix outbound), P6 (splitLb/splitBb/
- * pctProducao) são reavaliados por horizonte em cada mês.
- *
- * Investimento total mensal:
- * - Meses **fechados**: prioriza `realizadoHistorico.investido` (o que a
- *   unidade efetivamente gastou); cai em override ou fallback se ainda 0.
- * - Meses **futuros**: override em `investimentoMensal` (R$ absoluto) tem
- *   precedência sobre o fallback `target × pctProducao` do horizonte do mês.
+ * Resultado do funil de um mês: detalhe por tier (já com outbound) + receitas
+ * agregadas. `recTotal` é a **receita efetiva** do mês — o número que alimenta o
+ * encadeamento forward (Modelo A).
  */
-export function calcularCanalTier(
+export type FunilMes = {
+  porTier: Array<{
+    tier: Tier;
+    lb: CanalValores;
+    bb: CanalValores;
+    mb: CanalValores;
+    ev: CanalValores;
+    out: CanalValores;
+    totalWon: number;
+    totalReceita: number;
+  }>;
+  recInbound: number;
+  recOutbound: number;
+  recTotal: number;
+  /**
+   * Pesos efetivos por subcanal outbound usados neste mês (já com overrides de
+   * leads aplicados). Propagado aos readers para que a re-split por subcanal use
+   * exatamente os mesmos pesos que o funil usou (sem divergência).
+   */
+  mixOutEff: OutboundMixEff;
+};
+
+/** Uma linha da passada forward — fonte única de target/horizonte/funil por mês. */
+export type LinhaForecast = {
+  mes: string;
+  horizonte: Horizonte;
+  isFechado: boolean;
+  /** Alvo do mês (= effectiveRevenue[mês anterior] × (1+taxa)); define o baseline de mídia. */
+  growthTarget: number;
+  /**
+   * Meta da matriz: cadeia **pura** de crescimento, ancorada uma vez no último
+   * realizado (ou faixaMin no "do zero") e capitalizada só pela taxa do horizonte
+   * (P1). Diferente de `growthTarget`, NÃO reanco­ra na receita efetiva do funil —
+   * editar investimento/premissas do funil não a desloca. Promove o próprio
+   * horizonte (promotor independente avaliado sobre a própria meta).
+   */
+  metaMatriz: number;
+  /** Investimento total do mês: realizado > override > growthTarget × pctProducao. */
+  investTotal: number;
+  /** Receita efetiva do mês: realizado nos fechados, funil(invest) nos futuros. */
+  effectiveRevenue: number;
+  funil: FunilMes;
+};
+
+/**
+ * Passada **forward** única do forecast (Modelo A — encadeado no resultado do
+ * funil). Varre os 12 meses do mês-âncora pra frente, carregando a receita
+ * efetiva do mês anterior como base do próximo:
+ *
+ * - meses **fechados**: `growthTarget`/`effectiveRevenue` = realizado; o funil é
+ *   computado só pra decompor o detalhe por tier/canal.
+ * - meses **futuros**: `growthTarget = effectiveRevenue[anterior] × (1+taxa)`;
+ *   `invest = override (investimentoMensal) ?? growthTarget × pctProducao`;
+ *   `effectiveRevenue = funilDoMes(invest).recTotal`. Como a receita efetiva
+ *   vira a base do mês seguinte, mexer no investimento de um mês reflete nos
+ *   posteriores (pra cima e pra baixo).
+ * - **promoção de horizonte** avalia a receita efetiva (regra única de `criarPromotor`).
+ *
+ * Sem realizado ("do zero"): ancora no `faixaMin` do horizonteAtual no mês de
+ * início e encadeia pelo funil daí em diante.
+ */
+export function calcularForecast(
   blocks: PremissasBlocks,
   horizonteAtual: Horizonte,
   opts: CurvaOpts = {},
-): LinhaCanalTier[] {
-  const curva = calcularCurvaTarget(blocks.horizontes, horizonteAtual, opts);
-
-  // Caches por horizonte — montados sob demanda à medida que cada mês exige
-  // um patamar diferente. Em ano sem promoção, vira efetivamente uma entrada.
+): LinhaForecast[] {
+  // ---- ctx do funil (montado uma vez) ----
   type PerHorizonte = {
     p6: ReturnType<PremissasBlocks["investimentoMidia"]["find"]>;
     pcts: Record<string, number>;
@@ -306,21 +406,58 @@ export function calcularCanalTier(
   const eventosCusto = blocks.conversoesInbound.eventosCusto;
   const eventosConvByTier = byTier(blocks.conversoesInbound.eventos);
 
-  // Investimento real declarado no setup (meses fechados); override manual
-  // (`investimentoMensal`) só se aplica a meses futuros — em fechado, o que
-  // valeu foi o que efetivamente foi gasto.
   const investidoRealByMes = new Map<string, number>(
     (opts.realizadoHistorico ?? []).map((r) => [r.mes, r.investido] as const),
   );
   const investByMes = new Map<string, number>(
     blocks.investimentoMensal.map((p) => [p.mes, p.investimento] as const),
   );
-  // Outbound proativo: volume mensal de leads = soma da capacidadePct/100 das
-  // pessoas com cargo BDR × wipLimit de BDR (P17). Pra meses fechados, prefere
-  // `realizado.leadsOb` (o que o time efetivamente gerou).
-  const bdrMetric = blocks.metricasOperacionais.find(
-    (m) => m.cargo.toUpperCase() === "BDR",
-  );
+
+  // Overrides por subcanal × mês — separados por grupo. Inbound mapeia para a
+  // chave de canal (lb/bb/mb/ev); outbound para o subcanal do mix (sem prefixo).
+  const SUB_TO_INBOUND: Partial<Record<SubCanalKey, CanalInbound>> = {
+    lead_broker: "lb",
+    black_box: "bb",
+    meeting_broker: "mb",
+    eventos: "ev",
+  };
+  const SUB_TO_OUTBOUND: Partial<Record<SubCanalKey, SubOutbound>> = {
+    out_indicacao: "indicacao",
+    out_recovery: "recovery",
+    out_recomendacao: "recomendacao",
+    out_prospeccao: "prospeccao",
+  };
+  const ovInboundByMes = new Map<string, Partial<InboundAlloc>>();
+  const ovOutboundByMes = new Map<string, Partial<Record<SubOutbound, number>>>();
+  for (const o of blocks.overridesSubcanalMes) {
+    const cIn = SUB_TO_INBOUND[o.subcanal];
+    if (cIn) {
+      const cur = ovInboundByMes.get(o.mes) ?? {};
+      cur[cIn] = o.valor;
+      ovInboundByMes.set(o.mes, cur);
+      continue;
+    }
+    const cOut = SUB_TO_OUTBOUND[o.subcanal];
+    if (cOut) {
+      const cur = ovOutboundByMes.get(o.mes) ?? {};
+      cur[cOut] = o.valor;
+      ovOutboundByMes.set(o.mes, cur);
+    }
+  }
+  const noOverride = (): {
+    inbound: Partial<InboundAlloc>;
+    outbound: Partial<Record<SubOutbound, number>>;
+  } => ({ inbound: {}, outbound: {} });
+  // Meses fechados continuam dirigidos pelo realizado — overrides de subcanal só
+  // valem em meses futuros (planejamento). Realizado tem prioridade absoluta.
+  const overridesDoMes = (mes: string, isFechado: boolean) =>
+    isFechado
+      ? noOverride()
+      : {
+          inbound: ovInboundByMes.get(mes) ?? {},
+          outbound: ovOutboundByMes.get(mes) ?? {},
+        };
+  const bdrMetric = blocks.metricasOperacionais.find((m) => m.cargo.toUpperCase() === "BDR");
   const wipBdr = bdrMetric?.wipLimit ?? 0;
   const capacidadeBdrMensal = blocks.timeComercial
     .filter((m) => m.cargo.toUpperCase() === "BDR")
@@ -329,54 +466,69 @@ export function calcularCanalTier(
     (opts.realizadoHistorico ?? []).map((r) => [r.mes, r.leadsOb] as const),
   );
 
-  const convOutPonderada = (tier: Tier, mix: PerHorizonte["mix"]): number => {
-    if (!mix) return 0;
+  // Conversão outbound ponderada pelos PESOS EFETIVOS do mês (frações já com
+  // overrides de leads aplicados) — não mais o mix base em %.
+  const convOutPonderada = (tier: Tier, mixEff: OutboundMixEff): number => {
     let acc = 0;
     for (const s of SUBCANAIS_OUTBOUND) {
-      const peso = (mix[s] ?? 0) / 100;
+      const peso = mixEff[s];
       if (peso <= 0) continue;
       acc += peso * convOutbound(outByTierBySub.get(s)!.get(tier));
     }
     return acc;
   };
 
-  const linhas: LinhaCanalTier[] = [];
-
-  for (const { mes, target, horizonte, isFechado } of curva) {
+  // ---- funil de um mês (puro; captura o ctx acima) ----
+  const funilDoMes = (
+    investTotal: number,
+    horizonte: Horizonte,
+    leadsObTotalMes: number,
+    ovInbound: Partial<InboundAlloc>,
+    ovOutbound: Partial<Record<SubOutbound, number>>,
+  ): FunilMes => {
     const ctx = getPerH(horizonte);
-    // Prioridade: realizado > override > fallback. Em meses fechados, só usa
-    // override/fallback se a unidade ainda não declarou investido > 0.
-    const investidoReal = isFechado ? investidoRealByMes.get(mes) ?? 0 : 0;
-    const override = investByMes.get(mes);
-    const investTotal =
-      investidoReal > 0
-        ? investidoReal
-        : override ?? target * ctx.pctProducaoFallback;
-    // Splits LB/BB/MT/EV vivem em P6 e somam ≤ 100% do budget de mídia.
-    // Fallback: se ninguém configurou splitMt mas há Enterprise ativo, MB
-    // ainda recebe 10% (compatibilidade com versões anteriores).
-    const splitMtEff = ctx.mtOn
-      ? ctx.splitMt
-      : ctx.enterpriseAtivo
-        ? MB_BUDGET_PCT
-        : 0;
+    // Fallback: se ninguém configurou splitMt mas há Enterprise ativo, MB ainda
+    // recebe 10% (compatibilidade com versões anteriores).
+    const splitMtEff = ctx.mtOn ? ctx.splitMt : ctx.enterpriseAtivo ? MB_BUDGET_PCT : 0;
     const somaSplitEff = ctx.mtOn
       ? ctx.somaSplit
       : ctx.somaSplit + (ctx.enterpriseAtivo ? MB_BUDGET_PCT : 0);
-    const lbBudgetMes = investTotal * (ctx.splitLb / somaSplitEff);
-    const bbBudgetMes = ctx.bbOn ? investTotal * (ctx.splitBb / somaSplitEff) : 0;
-    const mbBudgetMes = splitMtEff > 0 ? investTotal * (splitMtEff / somaSplitEff) : 0;
-    const evBudgetMes = ctx.evOn ? investTotal * (ctx.splitEv / somaSplitEff) : 0;
+    // Alocação inbound efetiva: canais com override fixam o R$ (clampado ao
+    // total); os demais rateiam o restante pelo split base. Um canal "off"
+    // (bbOn/evOn false) que receba override é ligado (peso = override).
+    const splitsBase: InboundAlloc = {
+      lb: ctx.splitLb,
+      bb: ctx.bbOn ? ctx.splitBb : 0,
+      mb: splitMtEff,
+      ev: ctx.evOn ? ctx.splitEv : 0,
+    };
+    const alloc = alocacaoInboundEfetiva(investTotal, splitsBase, ovInbound);
+    const lbBudgetMes = alloc.lb;
+    const bbBudgetMes = alloc.bb;
+    const mbBudgetMes = alloc.mb;
+    const evBudgetMes = alloc.ev;
+    // Mix outbound efetivo do mês (frações já com overrides de leads aplicados).
+    const mixOutEff = mixOutboundEfetivo(
+      leadsObTotalMes,
+      ctx.mix
+        ? {
+            indicacao: ctx.mix.indicacao,
+            recovery: ctx.mix.recovery,
+            recomendacao: ctx.mix.recomendacao,
+            prospeccao: ctx.mix.prospeccao,
+          }
+        : {},
+      ovOutbound,
+    );
 
-    // Inbound por tier → acumula receita inbound do mês.
-    const porTier: Array<{
+    const inbound: Array<{
       tier: Tier;
       lb: CanalValores;
       bb: CanalValores;
       mb: CanalValores;
       ev: CanalValores;
     }> = [];
-    let recInboundMes = 0;
+    let recInbound = 0;
     for (const tier of TIER_ORDER) {
       const share = (ctx.pcts[tier] ?? 0) / 100;
       if (share <= 0) continue;
@@ -404,9 +556,6 @@ export function calcularCanalTier(
         mbCanal.receita = mbCanal.won * tcv;
       }
 
-      // Eventos (inbound funil curto: invest → SQL → SAL → WON) — para todos os
-      // tiers. Custo por SQL = eventosCusto.custoSql (singleton); cr3/cr4 vêm do
-      // bloco premissa_conversao_eventos do tier.
       const evCanal = zeroCanal();
       if (evBudgetMes > 0 && eventosCusto.custoSql > 0) {
         evCanal.invest = evBudgetMes * share;
@@ -419,40 +568,29 @@ export function calcularCanalTier(
         evCanal.receita = evCanal.won * tcv;
       }
 
-      recInboundMes += lb.receita + bb.receita + mbCanal.receita + evCanal.receita;
-      porTier.push({ tier, lb, bb, mb: mbCanal, ev: evCanal });
+      recInbound += lb.receita + bb.receita + mbCanal.receita + evCanal.receita;
+      inbound.push({ tier, lb, bb, mb: mbCanal, ev: evCanal });
     }
 
-    // Outbound proativo: volume de leads OB = capacidade do time BDR (ou
-    // realizado.leadsOb pra meses fechados). NÃO é resíduo do target — a
-    // receita total (inbound + outbound) pode ficar acima ou abaixo do target.
-    // Em meses antes da operação (target=0), zera também — sem time atuando.
-    const leadsObReal = isFechado ? leadsObRealByMes.get(mes) ?? 0 : 0;
-    const leadsObTotalMes =
-      leadsObReal > 0 ? leadsObReal : target > 0 ? capacidadeBdrMensal : 0;
-
-    for (const linha of porTier) {
+    let recOutbound = 0;
+    const porTier = inbound.map((linha) => {
       const share = (ctx.pcts[linha.tier] ?? 0) / 100;
       const info = tierInfo.get(linha.tier);
       const tcv = info?.tcvBooking ?? 0;
       const out = zeroCanal();
       out.leads = leadsObTotalMes * share;
-      const conv = convOutPonderada(linha.tier, ctx.mix);
+      const conv = convOutPonderada(linha.tier, mixOutEff);
       out.won = out.leads * conv;
       out.receita = out.won * tcv;
-
-      const totalWon =
-        linha.lb.won + linha.bb.won + linha.mb.won + linha.ev.won + out.won;
+      recOutbound += out.receita;
+      const totalWon = linha.lb.won + linha.bb.won + linha.mb.won + linha.ev.won + out.won;
       const totalReceita =
         linha.lb.receita +
         linha.bb.receita +
         linha.mb.receita +
         linha.ev.receita +
         out.receita;
-
-      linhas.push({
-        mes,
-        horizonte,
+      return {
         tier: linha.tier,
         lb: linha.lb,
         bb: linha.bb,
@@ -461,10 +599,229 @@ export function calcularCanalTier(
         out,
         totalWon,
         totalReceita,
+      };
+    });
+
+    return { porTier, recInbound, recOutbound, recTotal: recInbound + recOutbound, mixOutEff };
+  };
+
+  // ---- passada forward ----
+  const realizadoByMes = new Map<string, RealizadoMensal>();
+  for (const r of opts.realizadoHistorico ?? []) realizadoByMes.set(r.mes, r);
+  const horizontesByH = new Map(blocks.horizontes.map((h) => [h.h, h] as const));
+  const mesAncora = getMesAncora(opts.dataInicio ?? null);
+  const ultimoMesFechado = getUltimoMesFechado();
+  const mesBase = getMesBaseForecast(opts.realizadoHistorico ?? [], {
+    dataInicio: opts.dataInicio ?? null,
+  });
+  const valorBase = mesBase ? realizadoByMes.get(mesBase)?.faturamento ?? 0 : 0;
+  const ancoraZero = blocks.horizontes.find((x) => x.h === horizonteAtual)?.faixaMin ?? 0;
+  const promotor = criarPromotor(blocks.horizontes, horizonteAtual);
+  // Promotor independente da META: avança o horizonte pela própria meta pura, não
+  // pela receita efetiva (contaminada por edições de investimento/funil).
+  const promotorMeta = criarPromotor(blocks.horizontes, horizonteAtual);
+
+  const emptyFunil = (): FunilMes => ({
+    porTier: [],
+    recInbound: 0,
+    recOutbound: 0,
+    recTotal: 0,
+    mixOutEff: { indicacao: 0, recovery: 0, recomendacao: 0, prospeccao: 0 },
+  });
+  const taxaDe = (h: Horizonte) => horizontesByH.get(h)?.crescMensalPct ?? 0;
+  const leadsObDe = (mes: string, growthTarget: number, isFechado: boolean) => {
+    const real = isFechado ? leadsObRealByMes.get(mes) ?? 0 : 0;
+    return real > 0 ? real : growthTarget > 0 ? capacidadeBdrMensal : 0;
+  };
+  const investDe = (mes: string, growthTarget: number, horizonte: Horizonte, isFechado: boolean) => {
+    const investidoReal = isFechado ? investidoRealByMes.get(mes) ?? 0 : 0;
+    if (investidoReal > 0) return investidoReal;
+    const override = investByMes.get(mes);
+    return override ?? growthTarget * getPerH(horizonte).pctProducaoFallback;
+  };
+
+  let effectivePrev = 0;
+  // Base da cadeia pura da meta (encadeia em si mesma, não na receita efetiva).
+  let metaPrev = 0;
+  const linhas: LinhaForecast[] = [];
+
+  for (const mes of MESES_ANO_2026) {
+    const horizonte = promotor.horizonteVivo;
+    const horizonteMeta = promotorMeta.horizonteVivo;
+    const realizadoFat = realizadoByMes.get(mes)?.faturamento ?? 0;
+    const isAntesAncora = mes < mesAncora;
+    const isFechado = mes <= ultimoMesFechado;
+
+    // Antes da operação da unidade → tudo zero.
+    if (isAntesAncora) {
+      linhas.push({
+        mes,
+        horizonte,
+        isFechado: false,
+        growthTarget: 0,
+        metaMatriz: 0,
+        investTotal: 0,
+        effectiveRevenue: 0,
+        funil: emptyFunil(),
+      });
+      continue;
+    }
+
+    // Planejamento "do zero" (nenhum mês fechado com faturamento): ancora no
+    // faixaMin e encadeia pelo funil. Todos os meses tratados como projeção.
+    if (!mesBase) {
+      const growthTarget =
+        mes === mesAncora ? ancoraZero : Math.round(effectivePrev * (1 + taxaDe(horizonte) / 100));
+      const metaMatriz =
+        mes === mesAncora ? ancoraZero : Math.round(metaPrev * (1 + taxaDe(horizonteMeta) / 100));
+      const leadsOb = leadsObDe(mes, growthTarget, false);
+      const invest = investDe(mes, growthTarget, horizonte, false);
+      const ov = overridesDoMes(mes, false);
+      const funil = funilDoMes(invest, horizonte, leadsOb, ov.inbound, ov.outbound);
+      linhas.push({
+        mes,
+        horizonte,
+        isFechado: false,
+        growthTarget,
+        metaMatriz,
+        investTotal: invest,
+        effectiveRevenue: funil.recTotal,
+        funil,
+      });
+      effectivePrev = funil.recTotal;
+      promotor.avaliar(funil.recTotal);
+      metaPrev = metaMatriz;
+      promotorMeta.avaliar(metaMatriz);
+      continue;
+    }
+
+    // Mês fechado antes do mês-base: mostra realizado (e decompõe o funil).
+    if (mes < mesBase) {
+      const growthTarget = realizadoFat;
+      const leadsOb = leadsObDe(mes, growthTarget, true);
+      const invest = investDe(mes, growthTarget, horizonte, true);
+      const ov = overridesDoMes(mes, true);
+      const funil = funilDoMes(invest, horizonte, leadsOb, ov.inbound, ov.outbound);
+      linhas.push({
+        mes,
+        horizonte,
+        isFechado: true,
+        growthTarget,
+        metaMatriz: realizadoFat,
+        investTotal: invest,
+        effectiveRevenue: realizadoFat,
+        funil,
+      });
+      if (realizadoFat > 0) {
+        effectivePrev = realizadoFat;
+        promotor.avaliar(realizadoFat);
+        metaPrev = realizadoFat;
+        promotorMeta.avaliar(realizadoFat);
+      }
+      continue;
+    }
+
+    // Mês-base: a base da projeção forward.
+    if (mes === mesBase) {
+      const growthTarget = valorBase;
+      const leadsOb = leadsObDe(mes, growthTarget, true);
+      const invest = investDe(mes, growthTarget, horizonte, true);
+      const ov = overridesDoMes(mes, true);
+      const funil = funilDoMes(invest, horizonte, leadsOb, ov.inbound, ov.outbound);
+      linhas.push({
+        mes,
+        horizonte,
+        isFechado: true,
+        growthTarget,
+        metaMatriz: valorBase,
+        investTotal: invest,
+        effectiveRevenue: valorBase,
+        funil,
+      });
+      effectivePrev = valorBase;
+      promotor.avaliar(valorBase);
+      metaPrev = valorBase;
+      promotorMeta.avaliar(valorBase);
+      continue;
+    }
+
+    // mes > mesBase — capitaliza a receita efetiva anterior pela taxa do horizonte.
+    const virtual = Math.round(effectivePrev * (1 + taxaDe(horizonte) / 100));
+    // Meta pura: capitaliza a própria meta anterior pela taxa do horizonte da meta.
+    const metaVirtual = Math.round(metaPrev * (1 + taxaDe(horizonteMeta) / 100));
+    if (isFechado) {
+      // Fechado sem dado (post-base, fat=0): mantém o valor virtual silencioso,
+      // não exibe projetado e não sinaliza promoção.
+      linhas.push({
+        mes,
+        horizonte,
+        isFechado: true,
+        growthTarget: 0,
+        metaMatriz: 0,
+        investTotal: 0,
+        effectiveRevenue: 0,
+        funil: emptyFunil(),
+      });
+      effectivePrev = virtual;
+      metaPrev = metaVirtual;
+      continue;
+    }
+
+    // Futuro aberto — Modelo A: invest deriva da alvo; a receita do funil vira a
+    // base do mês seguinte.
+    const growthTarget = virtual;
+    const metaMatriz = metaVirtual;
+    const leadsOb = leadsObDe(mes, growthTarget, false);
+    const invest = investDe(mes, growthTarget, horizonte, false);
+    const ov = overridesDoMes(mes, false);
+    const funil = funilDoMes(invest, horizonte, leadsOb, ov.inbound, ov.outbound);
+    linhas.push({
+      mes,
+      horizonte,
+      isFechado: false,
+      growthTarget,
+      metaMatriz,
+      investTotal: invest,
+      effectiveRevenue: funil.recTotal,
+      funil,
+    });
+    effectivePrev = funil.recTotal;
+    promotor.avaliar(funil.recTotal);
+    metaPrev = metaMatriz;
+    promotorMeta.avaliar(metaMatriz);
+  }
+
+  return linhas;
+}
+
+/**
+ * Detalhe mês × tier × canal — leitor fino sobre `calcularForecast`. O horizonte
+ * é efetivo por mês (promovido pela receita efetiva). P4/P16/P6 são reavaliados
+ * por horizonte dentro do funil.
+ */
+export function calcularCanalTier(
+  blocks: PremissasBlocks,
+  horizonteAtual: Horizonte,
+  opts: CurvaOpts = {},
+): LinhaCanalTier[] {
+  const linhas: LinhaCanalTier[] = [];
+  for (const l of calcularForecast(blocks, horizonteAtual, opts)) {
+    for (const t of l.funil.porTier) {
+      linhas.push({
+        mes: l.mes,
+        horizonte: l.horizonte,
+        tier: t.tier,
+        lb: t.lb,
+        bb: t.bb,
+        mb: t.mb,
+        ev: t.ev,
+        out: t.out,
+        totalWon: t.totalWon,
+        totalReceita: t.totalReceita,
+        mixOutEff: l.funil.mixOutEff,
       });
     }
   }
-
   return linhas;
 }
 
@@ -486,6 +843,8 @@ export type LinhaRampUp = {
   mes: string;
   horizonte: Horizonte;
   target: number;
+  /** Meta da matriz — cadeia pura de crescimento (ver `LinhaForecast.metaMatriz`). */
+  metaMatriz: number;
   isFechado: boolean;
   investLb: number;
   investBb: number;
@@ -499,6 +858,8 @@ export type LinhaRampUp = {
   recTotal: number;
   /** recTotal − target (overshoot). */
   delta: number;
+  /** recTotal − metaMatriz: quanto o projetado supera (+) ou fica abaixo (−) da meta da matriz. */
+  deltaMeta: number;
   recPorTier: Record<Tier, number>;
   saber: number;
   ter: number;
@@ -517,7 +878,7 @@ export function calcularRampUp(
   opts: CurvaOpts = {},
 ): LinhaRampUp[] {
   const detalhe = calcularCanalTier(blocks, horizonteAtual, opts);
-  const curva = calcularCurvaTarget(blocks.horizontes, horizonteAtual, opts);
+  const curva = calcularCurvaTarget(blocks, horizonteAtual, opts);
   const receitaByTier = byTier(blocks.receitaProduto);
   const metricas = blocks.metricasOperacionais;
 
@@ -547,6 +908,7 @@ export function calcularRampUp(
     const tiers = porMes.get(mes) ?? [];
     const info = targetInfo.get(mes);
     const target = info?.target ?? 0;
+    const metaMatriz = info?.metaMatriz ?? 0;
     const isFechado = info?.isFechado ?? false;
     const realMes = realizadoByMes.get(mes);
     // Meses antes da abertura da unidade: HC sempre zero, independente do
@@ -642,6 +1004,7 @@ export function calcularRampUp(
       // Horizonte efetivo do mês (já promovido se a unidade ultrapassou faixaMax).
       horizonte: info?.horizonte ?? horizonteAtual,
       target,
+      metaMatriz,
       isFechado,
       investLb,
       investBb,
@@ -653,6 +1016,7 @@ export function calcularRampUp(
       recOutbound,
       recTotal,
       delta: recTotal - target,
+      deltaMeta: recTotal - metaMatriz,
       recPorTier,
       saber,
       ter,
@@ -693,15 +1057,7 @@ function mediaCr1Outbound(blocks: PremissasBlocks, tier: Tier): number {
 // pra back-out de leads/won/receita.
 // ============================================================
 
-export type SubCanalKey =
-  | "lead_broker"
-  | "black_box"
-  | "meeting_broker"
-  | "eventos"
-  | "out_indicacao"
-  | "out_recovery"
-  | "out_recomendacao"
-  | "out_prospeccao";
+export type { SubCanalKey };
 
 export type CanalGrupo = "inbound" | "outbound";
 
@@ -721,6 +1077,49 @@ export const SUB_CANAIS: ReadonlyArray<{
   { key: "out_recomendacao", canal: "outbound", label: "Recomendação", leadLabel: "Leads" },
   { key: "out_prospeccao", canal: "outbound", label: "Prospecção", leadLabel: "Leads" },
 ];
+
+/**
+ * Um subcanal está "liberado" para um horizonte quando as premissas têm base
+ * de alocação > 0 nele — mesma regra on/off usada por `getPerH` no funil:
+ *  - lead_broker / black_box / eventos: split P6 > 0 (BB exige também bbPiso > 0);
+ *  - meeting_broker: tier Enterprise ativo em P4 (Enterprise-only; o fallback de
+ *    10% só vale quando há Enterprise);
+ *  - out_*: peso do mix P16 > 0.
+ *
+ * Usado pela UI para travar a edição de subcanais que a matriz não liberou no
+ * horizonte da unidade (convenção lockableZero). Recebe um subconjunto de blocos
+ * para poder ser chamado com as premissas da MATRIZ.
+ */
+export function subcanalLiberado(
+  blocks: Pick<PremissasBlocks, "investimentoMidia" | "distSplit" | "mixSubcanais">,
+  horizonte: Horizonte,
+  subcanal: SubCanalKey,
+): boolean {
+  const p6 = blocks.investimentoMidia.find((i) => i.h === horizonte);
+  const pcts = blocks.distSplit.find((s) => s.h === horizonte)?.pcts ?? {};
+  const enterpriseAtivo = (pcts.Enterprise ?? 0) > 0;
+  const mix = blocks.mixSubcanais.find((m) => m.h === horizonte);
+  switch (subcanal) {
+    case "lead_broker":
+      return (p6?.splitLb ?? 0) > 0;
+    case "black_box":
+      return (p6?.splitBb ?? 0) > 0 && (p6?.bbPiso ?? 0) > 0;
+    case "meeting_broker":
+      return enterpriseAtivo;
+    case "eventos":
+      return (p6?.splitEv ?? 0) > 0;
+    case "out_indicacao":
+      return (mix?.indicacao ?? 0) > 0;
+    case "out_recovery":
+      return (mix?.recovery ?? 0) > 0;
+    case "out_recomendacao":
+      return (mix?.recomendacao ?? 0) > 0;
+    case "out_prospeccao":
+      return (mix?.prospeccao ?? 0) > 0;
+    default:
+      return false;
+  }
+}
 
 /**
  * Funil completo por sub-canal — mesma estrutura usada na visão por tier
@@ -802,9 +1201,6 @@ export function calcularPorSubCanal(
   const bbByTier = byTier(blocks.conversoesInbound.blackBox);
   const mb = blocks.conversoesInbound.meetingBroker;
   const eventosConvByTier = byTier(blocks.conversoesInbound.eventos);
-  // Mix de outbound varia por horizonte — promoção automática (calcularCanalTier)
-  // já calcula o horizonte efetivo do mês; aqui só lemos esse horizonte.
-  const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
   const outByTierBySub = new Map(
     SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
   );
@@ -903,12 +1299,12 @@ export function calcularPorSubCanal(
         a.receitaExecutar += c.receita * execP;
       }
 
-      // Outbound: re-splitta por subcanal usando o mix do horizonte EFETIVO do
-      // mês (`t.horizonte` já vem promovido por calcularCanalTier).
-      const mix = mixByH.get(t.horizonte);
+      // Outbound: re-splitta por subcanal usando os pesos EFETIVOS do mês
+      // (`t.mixOutEff`, já com overrides de leads aplicados) — os mesmos que o
+      // forecast usou, garantindo Σ subcanal = outbound do tier.
       const tcv = tierInfo.get(t.tier)?.tcvBooking ?? 0;
       for (const sub of SUBCANAIS_OUTBOUND) {
-        const peso = (mix?.[sub] ?? 0) / 100;
+        const peso = t.mixOutEff[sub];
         const leadsTierSub = t.out.leads * peso;
         const convSub = outByTierBySub.get(sub)!.get(t.tier);
         const cr1 = convSub ? convSub.cr1 / 100 : 0;
@@ -980,15 +1376,12 @@ export function calcularPorTier(
   const outByTierBySub = new Map(
     SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
   );
-  // Mix por horizonte efetivo do mês (promovido por calcularCanalTier).
-  const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
   const mb = blocks.conversoesInbound.meetingBroker;
   const eventosConvByTier = byTier(blocks.conversoesInbound.eventos);
 
   const resultado: LinhaTier[] = [];
 
   for (const d of detalhe) {
-    const mix = mixByH.get(d.horizonte);
     let mql = 0, sql = 0, sal = 0;
 
     const lbConv = lbByTier.get(d.tier);
@@ -1016,10 +1409,11 @@ export function calcularPorTier(
       sql += d.ev.leads;
       sal += d.ev.leads * ((evConv?.cr3 ?? 0) / 100);
     }
-    // Outbound: re-splitta pelo mix P16 e usa cr1/cr3 do subcanal × tier.
-    if (mix && d.out.leads > 0) {
+    // Outbound: re-splitta pelos pesos EFETIVOS do mês (d.mixOutEff) e usa
+    // cr1/cr3 do subcanal × tier.
+    if (d.out.leads > 0) {
       for (const s of SUBCANAIS_OUTBOUND) {
-        const peso = (mix[s] ?? 0) / 100;
+        const peso = d.mixOutEff[s];
         if (peso <= 0) continue;
         const conv = outByTierBySub.get(s)?.get(d.tier);
         if (!conv) continue;
@@ -1148,15 +1542,12 @@ export function calcularPorSubCanalPorTier(
   const bbByTier = byTier(blocks.conversoesInbound.blackBox);
   const mb = blocks.conversoesInbound.meetingBroker;
   const eventosConvByTier = byTier(blocks.conversoesInbound.eventos);
-  // Mix por horizonte efetivo do mês (promovido por calcularCanalTier).
-  const mixByH = new Map(blocks.mixSubcanais.map((m) => [m.h, m] as const));
   const outByTierBySub = new Map(
     SUBCANAIS_OUTBOUND.map((s) => [s, byTier(blocks.conversoesOutbound[s])] as const),
   );
 
   const out: LinhaSubCanalTier[] = [];
   for (const d of detalhe) {
-    const mix = mixByH.get(d.horizonte);
     const rp = receitaByTier.get(d.tier);
     const saberP = (rp?.saberPct ?? 0) / 100;
     const terP = (rp?.terPct ?? 0) / 100;
@@ -1246,10 +1637,11 @@ export function calcularPorSubCanalPorTier(
       });
     }
 
-    // Outbound (4 subcanais) — funil curto sem invest.
+    // Outbound (4 subcanais) — funil curto sem invest. Usa os pesos EFETIVOS
+    // do mês (d.mixOutEff), iguais aos do forecast.
     const tcv = tierInfo.get(d.tier)?.tcvBooking ?? 0;
     for (const s of SUBCANAIS_OUTBOUND) {
-      const peso = (mix?.[s] ?? 0) / 100;
+      const peso = d.mixOutEff[s];
       const leadsTierSub = d.out.leads * peso;
       const conv = outByTierBySub.get(s)!.get(d.tier);
       const cr1 = conv ? conv.cr1 / 100 : 0;

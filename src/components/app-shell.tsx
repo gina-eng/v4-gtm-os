@@ -13,6 +13,7 @@ import {
   PanelLeft,
   SlidersHorizontal,
   Target,
+  TrendingUp,
   UserCog,
   Users,
   Workflow,
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { href: "/bowtie", label: "Funil Bowtie", icon: Workflow },
   { href: "/time-comercial", label: "Time Comercial", icon: UserCog },
   { href: "/unidades", label: "Unidades", icon: Building2 },
+  { href: "/validacao-crescimento", label: "Validação de Crescimento", icon: TrendingUp },
   { href: "/usuarios", label: "Usuários", icon: Users },
   { href: "/premissas", label: "Premissas", icon: SlidersHorizontal },
   { href: "/mapa-estrategico", label: "Mapa Estratégico", icon: Target, disabled: true },
@@ -149,7 +151,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {navItems
                 .filter(
                   (item) =>
-                    item.href !== "/unidades" ||
+                    !["/unidades", "/validacao-crescimento"].includes(item.href) ||
                     (session.isMatrizUser && session.actingMode === "matriz"),
                 )
                 .map((item) => {

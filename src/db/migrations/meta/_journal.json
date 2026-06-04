@@ -113,6 +113,13 @@
       "when": 1780173839612,
       "tag": "0015_old_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1780527722658,
+      "tag": "0016_hot_wind_dancer",
+      "breakpoints": true
     }
   ]
 }

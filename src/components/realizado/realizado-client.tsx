@@ -6,9 +6,12 @@ import { ChevronDown, ChevronRight, ExternalLink, Network } from "lucide-react";
 import { formatBRL, formatBRLk, formatInt, formatPercent } from "@/components/premissas/format";
 import { FieldHelp } from "@/components/ui/field-help";
 import type {
+  DistSplitHorizonte,
   Horizonte,
   InvestimentoMes,
   InvestimentoMidia,
+  MixOutboundHorizonte,
+  OverrideSubcanalMes,
   RealizadoMensal,
 } from "@/lib/premissas/matriz-defaults";
 import type {
@@ -21,6 +24,7 @@ import { SUB_CANAIS } from "@/lib/premissas/funil-reverso";
 import type { Tier } from "@/lib/premissas/matriz-defaults";
 import { formatMesPt, MESES_ANO_2026 } from "@/lib/realizado/projecao";
 import { EditorInvestimentoMensal } from "./editor-investimento-mensal";
+import { EditorSubcanalMensal } from "./editor-subcanal-mensal";
 
 type Props = {
   mode: "matriz" | "unidade";
@@ -38,8 +42,14 @@ type Props = {
   investimentoMidia?: InvestimentoMidia[];
   /** Override mensal atual do investimento em R$ (0–12 entradas). */
   investimentoMensal?: InvestimentoMes[];
+  /** Override por subcanal × mês (R$ inbound / leads outbound). */
+  overridesSubcanalMes?: OverrideSubcanalMes[];
   /** P6 da Matriz — pra mostrar delta vs baseline no editor inline. */
   matrizInvestimentoMidia?: InvestimentoMidia[];
+  /** P4 da Matriz (split por tier) — define se MB está liberado (Enterprise ativo) por horizonte. */
+  matrizDistSplit?: DistSplitHorizonte[];
+  /** P16 da Matriz (mix outbound) — define quais subcanais outbound estão liberados por horizonte. */
+  matrizMixSubcanais?: MixOutboundHorizonte[];
   /** Realizado mensal (setup wizard) — alimenta o pace dos meses fechados. */
   realizadoHistorico?: RealizadoMensal[];
   /** Data de início da unidade (YYYY-MM-DD). Meses antes ficam travados no Pace. */
@@ -65,7 +75,7 @@ function mesCurto(mes: string): string {
 
 /**
  * Tela /realizado (Forecast 2026) — visão unificada do funil reverso.
- * 3 seções: Receita · Investimento total · Canal × Sub-canal.
+ * Seções: Receita · (Investimento total — só no consolidado da matriz) · Canal × Sub-canal.
  * O "Time necessário" virou rota própria em /time-comercial.
  * Read-only; a edição do realizado mensal continua no passo do wizard.
  */
@@ -80,7 +90,10 @@ export function ForecastClient({
   linhasSubCanalTier,
   investimentoMidia,
   investimentoMensal,
+  overridesSubcanalMes,
   matrizInvestimentoMidia,
+  matrizDistSplit,
+  matrizMixSubcanais,
   realizadoHistorico,
   dataInicio,
 }: Props) {
@@ -238,11 +251,33 @@ export function ForecastClient({
                 dataInicio={dataInicio ?? null}
               />
             )}
-          <TabelaInvestimentoTotal
-            rampUpByMes={rampUpByMes}
-            horizonteByMes={horizonteByMes}
-            transicoesMeses={transicoesMeses}
-          />
+          {mode === "unidade" &&
+            organizationId &&
+            overridesSubcanalMes !== undefined && (
+              <EditorSubcanalMensal
+                organizationId={organizationId}
+                rampUpByMes={rampUpByMes}
+                subCanalByKey={subCanalByKey}
+                overridesSubcanalMes={overridesSubcanalMes}
+                matrizInvestimentoMidia={matrizInvestimentoMidia ?? investimentoMidia ?? []}
+                matrizDistSplit={matrizDistSplit ?? []}
+                matrizMixSubcanais={matrizMixSubcanais ?? []}
+                horizonteByMes={horizonteByMes}
+                transicoesMeses={transicoesMeses}
+                dataInicio={dataInicio ?? null}
+              />
+            )}
+          {/* Investimento total: no modo unidade a quebra por subcanal e o total
+              já vivem nos editores acima (Pace + Alocação por subcanal), então a
+              tabela vira redundante. No consolidado da matriz não há editor — é o
+              único lugar com o investimento + quebra somados das unidades. */}
+          {isMatriz && (
+            <TabelaInvestimentoTotal
+              rampUpByMes={rampUpByMes}
+              horizonteByMes={horizonteByMes}
+              transicoesMeses={transicoesMeses}
+            />
+          )}
           <TabelaCanalSubCanal
             subCanalByKey={subCanalByKey}
             isFechadoByMes={isFechadoByMes}
@@ -623,10 +658,33 @@ function SubCanalBlock({
 // ============================================================
 
 const METRICAS_RECEITA: Array<MetricRampUp> = [
-  { label: "Receita Total", get: (l) => l.recTotal, fmt: "money", emphasize: true },
+  {
+    label: "Meta Matriz",
+    get: (l) => l.metaMatriz,
+    fmt: "money",
+    emphasize: true,
+    help: "Receita que a matriz projeta para o mês: parte do último realizado e capitaliza só pela taxa de crescimento do horizonte (P1). Referência fixa — não muda quando você edita investimento ou premissas do funil.",
+  },
+  {
+    label: "Δ vs Meta",
+    get: (l) => l.deltaMeta,
+    fmt: "money",
+    signed: true,
+    indent: true,
+    help: "Receita Projetada − Meta Matriz. Verde = projeção acima da meta da matriz; bordô = abaixo.",
+  },
+  {
+    label: "Receita Total",
+    get: (l) => l.recTotal,
+    fmt: "money",
+    emphasize: true,
+    help: "Receita projetada pelo funil com as premissas e o investimento atuais — o que a unidade imagina fazer no mês.",
+  },
   { label: "Saber", get: (l) => l.saber, fmt: "money", indent: true, help: "Parcela do produto Saber (P3)." },
   { label: "Ter", get: (l) => l.ter, fmt: "money", indent: true, help: "Parcela do produto Ter (P3)." },
   { label: "Executar", get: (l) => l.executar, fmt: "money", indent: true, help: "Parcela do produto Executar (P3)." },
+  { label: "Receita Inbound", get: (l) => l.recInbound, fmt: "money", muted: true, help: "Receita gerada pelos sub-canais inbound (Lead Broker, Black Box, Meeting Broker, Eventos)." },
+  { label: "Receita Outbound", get: (l) => l.recOutbound, fmt: "money", muted: true, help: "Receita gerada pelo canal outbound." },
 ];
 
 function TabelaReceita({
@@ -641,7 +699,7 @@ function TabelaReceita({
   return (
     <TabelaChrome
       titulo="Receita"
-      subtitulo="total e por categoria de produto (P3)"
+      subtitulo="total, por categoria de produto (P3) e por canal (inbound/outbound)"
       horizonteByMes={horizonteByMes}
       transicoesMeses={transicoesMeses}
     >
@@ -815,6 +873,11 @@ type MetricRampUp = {
   total?: "sum" | "max" | "weighted";
   emphasize?: boolean;
   indent?: boolean;
+  /** Colore o valor: positivo em verde, negativo em bordô (linhas de delta). */
+  signed?: boolean;
+  /** Linha cinza de rodapé — visualmente destacada do bloco principal
+   *  (ex.: receita por canal, somada à parte da decomposição por produto). */
+  muted?: boolean;
 };
 
 function formatar(v: number, fmt: Fmt): string {
@@ -842,10 +905,16 @@ function MetricRowRampUp({
 }) {
   const linhas = MESES.map((m) => byMes.get(m)).filter((l): l is LinhaRampUp => !!l);
   const tot = totalDoAno(metric, linhas);
-  const labelBg = metric.emphasize ? "bg-muted/40" : "bg-card";
-  const rowBg = metric.emphasize ? "bg-muted/30 font-semibold" : "hover:bg-muted/20";
+  const labelBg = metric.muted ? "bg-muted/60" : metric.emphasize ? "bg-muted/40" : "bg-card";
+  const rowBg = metric.muted
+    ? "bg-muted/40 text-muted-foreground"
+    : metric.emphasize
+      ? "bg-muted/30 font-semibold"
+      : "hover:bg-muted/20";
+  // Linhas cinza de canal ganham um separador superior pra ler como rodapé.
+  const sep = metric.muted ? "border-t border-border" : "";
   return (
-    <tr className={`border-b border-border/60 ${rowBg}`}>
+    <tr className={`border-b border-border/60 ${sep} ${rowBg}`}>
       <td className={`sticky left-0 z-10 ${labelBg} border-r border-border ${metric.indent ? "pl-8 pr-3" : "px-3"} py-2 text-xs text-foreground font-medium`}>
         <span className="inline-flex items-center gap-1">
           {metric.label}
@@ -856,19 +925,37 @@ function MetricRowRampUp({
         const linha = byMes.get(mes);
         const v = linha ? metric.get(linha) : 0;
         const isFechado = linha?.isFechado ?? false;
-        return <Cell key={mes} valor={v} fmt={metric.fmt} fechado={isFechado} />;
+        return <Cell key={mes} valor={v} fmt={metric.fmt} fechado={isFechado} signed={metric.signed} />;
       })}
-      <CellTotal valor={tot} fmt={metric.fmt} />
+      <CellTotal valor={tot} fmt={metric.fmt} signed={metric.signed} />
     </tr>
   );
 }
 
-function Cell({ valor, fmt, fechado }: { valor: number; fmt: Fmt; fechado?: boolean }) {
+/** Cor do valor em linhas signed: positivo = success, negativo = bordô (destructive). */
+function signedColor(valor: number): string {
+  return valor > 0 ? "text-success" : valor < 0 ? "text-destructive" : "text-muted-foreground/40";
+}
+
+function Cell({
+  valor,
+  fmt,
+  fechado,
+  signed,
+}: {
+  valor: number;
+  fmt: Fmt;
+  fechado?: boolean;
+  signed?: boolean;
+}) {
+  const cor = signed
+    ? signedColor(valor)
+    : valor === 0
+      ? "text-muted-foreground/40"
+      : "text-muted-foreground";
   return (
     <td
-      className={`px-3 py-2 text-xs text-right tabular-nums ${fechado ? "bg-info/5" : ""} ${
-        valor === 0 ? "text-muted-foreground/40" : "text-muted-foreground"
-      }`}
+      className={`px-3 py-2 text-xs text-right tabular-nums ${fechado ? "bg-info/5" : ""} ${cor}`}
       title={fechado ? "Mês fechado (realizado)" : undefined}
     >
       {valor === 0 ? "—" : formatar(valor, fmt)}
@@ -876,9 +963,10 @@ function Cell({ valor, fmt, fechado }: { valor: number; fmt: Fmt; fechado?: bool
   );
 }
 
-function CellTotal({ valor, fmt }: { valor: number; fmt: Fmt }) {
+function CellTotal({ valor, fmt, signed }: { valor: number; fmt: Fmt; signed?: boolean }) {
+  const cor = signed ? signedColor(valor) : "text-foreground";
   return (
-    <td className="px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-semibold text-foreground border-l-2 border-border">
+    <td className={`px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-semibold ${cor} border-l-2 border-border`}>
       {valor === 0 ? "—" : formatar(valor, fmt)}
     </td>
   );
