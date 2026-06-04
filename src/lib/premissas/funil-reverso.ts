@@ -204,8 +204,10 @@ export function calcularCurvaTarget(
   blocks: PremissasBlocks,
   horizonteAtual: Horizonte,
   opts: CurvaOpts = {},
+  /** Forecast pré-computado — evita refazer a passada forward. */
+  forecast?: LinhaForecast[],
 ): LinhaTarget[] {
-  return calcularForecast(blocks, horizonteAtual, opts).map((l) => ({
+  return (forecast ?? calcularForecast(blocks, horizonteAtual, opts)).map((l) => ({
     mes: l.mes,
     target: l.growthTarget,
     metaMatriz: l.metaMatriz,
@@ -803,9 +805,11 @@ export function calcularCanalTier(
   blocks: PremissasBlocks,
   horizonteAtual: Horizonte,
   opts: CurvaOpts = {},
+  /** Forecast pré-computado — evita refazer a passada forward (ver `calcularForecastBundle`). */
+  forecast?: LinhaForecast[],
 ): LinhaCanalTier[] {
   const linhas: LinhaCanalTier[] = [];
-  for (const l of calcularForecast(blocks, horizonteAtual, opts)) {
+  for (const l of forecast ?? calcularForecast(blocks, horizonteAtual, opts)) {
     for (const t of l.funil.porTier) {
       linhas.push({
         mes: l.mes,
@@ -876,9 +880,11 @@ export function calcularRampUp(
   blocks: PremissasBlocks,
   horizonteAtual: Horizonte,
   opts: CurvaOpts = {},
+  /** Resultados pré-computados (1 passada de forecast compartilhada) — ver `calcularForecastBundle`. */
+  pre?: { detalhe?: LinhaCanalTier[]; forecast?: LinhaForecast[] },
 ): LinhaRampUp[] {
-  const detalhe = calcularCanalTier(blocks, horizonteAtual, opts);
-  const curva = calcularCurvaTarget(blocks, horizonteAtual, opts);
+  const detalhe = pre?.detalhe ?? calcularCanalTier(blocks, horizonteAtual, opts, pre?.forecast);
+  const curva = calcularCurvaTarget(blocks, horizonteAtual, opts, pre?.forecast);
   const receitaByTier = byTier(blocks.receitaProduto);
   const metricas = blocks.metricasOperacionais;
 
@@ -1193,8 +1199,10 @@ export function calcularPorSubCanal(
   blocks: PremissasBlocks,
   horizonteAtual: Horizonte,
   opts: CurvaOpts = {},
+  /** Detalhe canal×tier pré-computado — ver `calcularForecastBundle`. */
+  detalhePre?: LinhaCanalTier[],
 ): LinhaSubCanal[] {
-  const detalhe = calcularCanalTier(blocks, horizonteAtual, opts);
+  const detalhe = detalhePre ?? calcularCanalTier(blocks, horizonteAtual, opts);
   const tierInfo = byTier(blocks.tiersCliente);
   const receitaByTier = byTier(blocks.receitaProduto);
   const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
@@ -1534,8 +1542,10 @@ export function calcularPorSubCanalPorTier(
   blocks: PremissasBlocks,
   horizonteAtual: Horizonte,
   opts: CurvaOpts = {},
+  /** Detalhe canal×tier pré-computado — ver `calcularForecastBundle`. */
+  detalhePre?: LinhaCanalTier[],
 ): LinhaSubCanalTier[] {
-  const detalhe = calcularCanalTier(blocks, horizonteAtual, opts);
+  const detalhe = detalhePre ?? calcularCanalTier(blocks, horizonteAtual, opts);
   const tierInfo = byTier(blocks.tiersCliente);
   const receitaByTier = byTier(blocks.receitaProduto);
   const lbByTier = byTier(blocks.conversoesInbound.leadBroker);
@@ -1667,6 +1677,27 @@ export function calcularPorSubCanalPorTier(
     }
   }
   return out;
+}
+
+/**
+ * As três saídas que o Forecast consome (`rampUp`, `subCanal`, `subCanalTier`)
+ * derivadas de **uma única** passada de `calcularForecast` por unidade. Sem isto,
+ * a página rodava o motor 4× por unidade (rampUp = canalTier + curvaTarget;
+ * subCanal e subCanalTier = +1 cada). Reduz a 1× — ganho linear no consolidado
+ * da Matriz (N unidades).
+ */
+export function calcularForecastBundle(
+  blocks: PremissasBlocks,
+  horizonteAtual: Horizonte,
+  opts: CurvaOpts = {},
+): { rampUp: LinhaRampUp[]; subCanal: LinhaSubCanal[]; subCanalTier: LinhaSubCanalTier[] } {
+  const forecast = calcularForecast(blocks, horizonteAtual, opts);
+  const detalhe = calcularCanalTier(blocks, horizonteAtual, opts, forecast);
+  return {
+    rampUp: calcularRampUp(blocks, horizonteAtual, opts, { detalhe, forecast }),
+    subCanal: calcularPorSubCanal(blocks, horizonteAtual, opts, detalhe),
+    subCanalTier: calcularPorSubCanalPorTier(blocks, horizonteAtual, opts, detalhe),
+  };
 }
 
 /** Soma `LinhaSubCanalTier` de várias unidades por (mes, subcanal, tier). */

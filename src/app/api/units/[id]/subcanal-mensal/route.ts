@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ZodError, z } from "zod";
 import { getOrganizationById } from "@/db/repositories/organizations";
 import { savePremissasBlock } from "@/db/repositories/premissas";
+import { revalidateForecastUnidade } from "@/lib/realizado/forecast-data";
 import {
   ForbiddenError,
   UnauthorizedError,
@@ -67,6 +68,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const data = Array.from(seen.values());
 
     await savePremissasBlock(id, { block: "overridesSubcanalMes", data });
+    revalidateForecastUnidade(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof UnauthorizedError) {

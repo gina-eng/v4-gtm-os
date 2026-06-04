@@ -149,6 +149,40 @@ export async function getUnitSetupsByOrgIds(ids: string[]): Promise<UnitSetup[]>
   );
 }
 
+/**
+ * Loader enxuto: só o `realizadoHistorico` de uma org (1 query, sem montar
+ * premissas). Para as telas de forecast que precisam apenas do realizado pra
+ * alimentar o motor — evita o custo de `getUnitSetup` carregar todos os blocos.
+ */
+export async function getRealizado(organizationId: string): Promise<RealizadoMensal[] | null> {
+  const [row] = await db
+    .select({ realizadoHistorico: unitSetups.realizadoHistorico })
+    .from(unitSetups)
+    .where(eq(unitSetups.organizationId, organizationId))
+    .limit(1);
+  return (row?.realizadoHistorico as RealizadoMensal[] | null) ?? null;
+}
+
+/** Batch do realizado por org — 1 query, sem premissas (ver `getRealizado`). */
+export async function getRealizadoByOrgIds(
+  ids: string[],
+): Promise<Map<string, RealizadoMensal[]>> {
+  const result = new Map<string, RealizadoMensal[]>();
+  if (ids.length === 0) return result;
+  const rows = await db
+    .select({
+      organizationId: unitSetups.organizationId,
+      realizadoHistorico: unitSetups.realizadoHistorico,
+    })
+    .from(unitSetups)
+    .where(inArray(unitSetups.organizationId, ids));
+  for (const r of rows) {
+    const rh = r.realizadoHistorico as RealizadoMensal[] | null;
+    if (rh) result.set(r.organizationId, rh);
+  }
+  return result;
+}
+
 // ============================================================
 // Defaults da Matriz (fallback) — agora vindos do banco
 // ============================================================

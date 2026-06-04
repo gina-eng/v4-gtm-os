@@ -11,6 +11,7 @@ import {
   requirePermission,
 } from "@/lib/auth/current-user";
 import { REALIZADO_HISTORICO_DEFAULT } from "@/lib/premissas/matriz-defaults";
+import { revalidateForecastUnidade } from "@/lib/realizado/forecast-data";
 import { detectarStatusHorizonte } from "@/lib/realizado/promocao";
 
 type Params = { id: string };
@@ -68,6 +69,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     if (!updated) {
       return NextResponse.json({ error: "Unidade não encontrada" }, { status: 404 });
     }
+    // Horizonte muda a taxa de crescimento → recomputa a unidade e o consolidado.
+    revalidateForecastUnidade(id);
 
     await writeAuditLog({
       actorUserId: session.user.id,

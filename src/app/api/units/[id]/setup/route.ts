@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ZodError } from "zod";
 import { getOrganizationById } from "@/db/repositories/organizations";
 import { getUnitSetup, saveStep } from "@/db/repositories/unit-setup";
+import { revalidateForecastUnidade } from "@/lib/realizado/forecast-data";
 import {
   ForbiddenError,
   UnauthorizedError,
@@ -57,6 +58,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const body = await req.json();
     const input = saveStepBodySchema.parse(body);
     const updated = await saveStep(id, input);
+    // O realizado (e demais steps que viram premissa da unidade) alimenta o motor.
+    revalidateForecastUnidade(id);
     return NextResponse.json({ data: updated });
   } catch (err) {
     if (err instanceof UnauthorizedError) {

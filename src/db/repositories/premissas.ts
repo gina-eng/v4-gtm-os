@@ -20,6 +20,7 @@
  * `completedSteps` (mantido em unit_setups), não a presença de linhas aqui.
  */
 
+import { cache } from "react";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -159,7 +160,9 @@ export function matrizDefaultBlocks(): PremissasBlocks {
  * Lê os blocos materializados de uma entidade. Retorna `null` se a entidade
  * ainda não tem linha em `premissas` (nunca salvou).
  */
-export async function getPremissas(entidadeId: string): Promise<PremissasBlocks | null> {
+export const getPremissas = cache(async function getPremissas(
+  entidadeId: string,
+): Promise<PremissasBlocks | null> {
   const [header] = await db
     .select({ id: premissas.id })
     .from(premissas)
@@ -167,13 +170,13 @@ export async function getPremissas(entidadeId: string): Promise<PremissasBlocks 
     .limit(1);
   if (!header) return null;
   return loadBlocksForPremissaIds([header.id]).then((m) => m.get(header.id) ?? null);
-}
+});
 
 /**
  * Versão batch: retorna um Map entidadeId → blocos (só entidades que têm linha).
  * Evita N+1 nas telas consolidadas da Matriz e na comparação.
  */
-export async function getPremissasByEntityIds(
+export const getPremissasByEntityIds = cache(async function getPremissasByEntityIds(
   ids: string[],
 ): Promise<Map<string, PremissasBlocks>> {
   const result = new Map<string, PremissasBlocks>();
@@ -191,7 +194,7 @@ export async function getPremissasByEntityIds(
     if (blocks) result.set(h.entidadeId, blocks);
   }
   return result;
-}
+});
 
 /** Carrega e remonta os blocos para um conjunto de premissaIds. */
 async function loadBlocksForPremissaIds(

@@ -3,6 +3,10 @@ import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { savePremissasBlock } from "@/db/repositories/premissas";
 import {
+  revalidateForecastTudo,
+  revalidateForecastUnidade,
+} from "@/lib/realizado/forecast-data";
+import {
   ForbiddenError,
   UnauthorizedError,
   requireAuth,
@@ -41,6 +45,10 @@ export async function PATCH(req: NextRequest) {
 
     await savePremissasBlock(entidadeId, body);
     revalidatePath("/premissas");
+    // Premissa da Matriz é herdada por unidades sem premissa própria → invalida
+    // tudo; premissa de unidade → só a unidade (+ consolidado).
+    if (session.actingMode === "matriz") revalidateForecastTudo();
+    else revalidateForecastUnidade(entidadeId);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof UnauthorizedError) {
