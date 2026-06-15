@@ -28,8 +28,8 @@ export const dynamic = "force-dynamic";
  * /bowtie — visualização do funil bowtie (aquisição) com filtros de mês × tier
  * × canal × sub-canal. Mesma estrutura de carregamento de /realizado: projetado
  * vem do `calcularPorSubCanalPorTier` (que já considera realizado histórico do
- * setup pra meses fechados); realizado bowtie vem da tabela `realizado_funil`,
- * editável só no modo unidade.
+ * setup pra meses fechados); realizado bowtie vem da tabela `realizado_funil`
+ * (grão diário, derivado do import) e é exibido read-only, agregado por mês.
  */
 export default async function BowtiePage() {
   const session = await requireAuth();
@@ -86,7 +86,6 @@ export default async function BowtiePage() {
   return (
     <BowtieClient
       mode="unidade"
-      organizationId={unitOrg.id}
       organizationName={unitOrg.name}
       horizonteAtual={unitOrg.horizonteAtual}
       linhasSubCanalTier={calcularPorSubCanalPorTier(blocks, unitOrg.horizonteAtual, {

@@ -12,6 +12,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
+    "load:realizado": "tsx --env-file=.env.local scripts/load-realizado-import.ts",
+    "derive:realizado": "tsx --env-file=.env.local scripts/derive-realizado-funil.ts",
     "hash-password": "tsx scripts/hash-password.ts"
   },
   "dependencies": {

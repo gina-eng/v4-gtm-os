@@ -559,12 +559,13 @@ export const premissaConversaoEventos = pgTable(
 );
 
 // ============================================================
-// realizado_funil — Fase /bowtie (input do realizado do funil)
+// realizado_funil — realizado do funil (grão DIÁRIO)
 //
-// Uma linha por célula (organizationId × mes × subcanal × tier). Substitui o
-// futuro pull de sistema externo. Granularidade casa 1-pra-1 com a projeção
-// de calcularPorSubCanalPorTier — assim os filtros do /bowtie agregam projetado
-// e realizado pelo mesmo eixo.
+// Uma linha por célula (organizationId × dia × subcanal × tier × categoria).
+// Derivado da landing `realizado_import_lead` por scripts/derive-realizado-funil.ts
+// (de-para de canal/tier + bucket por data de evento). O `/bowtie` lê isto
+// agregado dia→mês (ver getRealizadoFunil) e cruza com a projeção mensal de
+// calcularPorSubCanalPorTier pelo mesmo eixo.
 //
 // `subcanal` é varchar livre (em vez dos enums separados inbound/outbound) pra
 // caber as 8 chaves de SUB_CANAIS num único campo: lead_broker, black_box,
@@ -579,9 +580,17 @@ export const realizadoFunil = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    // Competência DIÁRIA: cada métrica entra no dia da sua data de evento
+    // (leads/mql←cadastro, sql←rm, sal←rr, won/faturamento←venda).
+    dia: date("dia").notNull(),
+    // `mes` é derivado de `dia` (YYYY-MM) e gravado pela derivação (único writer),
+    // então fica sempre consistente com `dia`. Plano: coluna gerada exigiria
+    // expressão imutável (to_char é só STABLE) — manter plano é mais simples.
     mes: varchar("mes", { length: 7 }).notNull(),
     subcanal: varchar("subcanal", { length: 40 }).notNull(),
     tier: tierEnum("tier").notNull(),
+    // Categoria do produto (P3): '' no topo do funil; Saber/Ter/Executar no won.
+    categoria: varchar("categoria", { length: 60 }).notNull().default(""),
     leads: doublePrecision("leads").notNull().default(0),
     mql: doublePrecision("mql").notNull().default(0),
     sql: doublePrecision("sql").notNull().default(0),
@@ -593,13 +602,82 @@ export const realizadoFunil = pgTable(
   (table) => [
     uniqueIndex("idx_realizado_funil_unique").on(
       table.organizationId,
-      table.mes,
+      table.dia,
       table.subcanal,
       table.tier,
+      table.categoria,
     ),
     index("idx_realizado_funil_org_mes").on(table.organizationId, table.mes),
+    index("idx_realizado_funil_org_dia").on(table.organizationId, table.dia),
   ],
 );
 
 export type RealizadoFunilRow = typeof realizadoFunil.$inferSelect;
 export type NewRealizadoFunilRow = typeof realizadoFunil.$inferInsert;
+
+// ============================================================
+// realizado_import_lead — landing CRU do extrato de realizado (grão lead/cohort)
+//
+// Espelha 1-pra-1 o template enviado pelo time de dados (Metabase/BI), preservando
+// os rótulos crus do BI (canal/tier ainda SEM de-para pras 8/5 chaves do sistema)
+// e as 4 datas de evento do funil. É a camada de aterrissagem: dela derivamos
+// depois `realizado_funil` (unidade × dia × subcanal × tier) e `realizado_diario`
+// (investido) aplicando o de-para e bucketizando CADA métrica pela SUA data —
+// dt_cadastro_lead → leads/mql, dt_rm → sql, dt_rr → sal, dt_venda → won/faturamento.
+//
+// Grão: 1 linha por linha do extrato (cohort de leads que compartilham
+// tier/canal/categoria/datas). Sem chave natural — recarga é idempotente por
+// `loadBatch` (delete-where-batch + insert).
+//
+// ⚠️ `mediaInvestment` é guardado CRU mas NÃO é confiável como "investido": no
+// extrato v3 soma ~R$10,5 bi numa unidade só, com valores repetidos e presença em
+// canais sem mídia (Recovery/Reativação). NÃO usar pro CAC/investido até o time de
+// dados confirmar a semântica (ver docs/realizado-extract-spec.md §4 e §6).
+// ============================================================
+
+export const realizadoImportLead = pgTable(
+  "realizado_import_lead",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Link com a unidade resolvido via id_tenant → organizations.id_tenant.
+    // Nullable: fica NULL quando o id_tenant do extrato não casa com nenhuma org.
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "set null",
+    }),
+    // ── Dimensões cruas (rótulos do BI, exatamente como vieram) ──
+    idTenant: varchar("id_tenant", { length: 120 }),
+    franqueado: varchar("franqueado", { length: 120 }),
+    tierLead: varchar("tier_lead", { length: 40 }),
+    tierVenda: varchar("tier_venda", { length: 40 }),
+    canalAquisicao: varchar("canal_aquisicao", { length: 60 }),
+    canalOrigem: varchar("canal_origem", { length: 60 }),
+    categoriaProduto: varchar("categoria_produto", { length: 60 }),
+    // ── Datas por etapa do funil (competência diária; podem ser pré-2026) ──
+    dtCadastroLead: date("dt_cadastro_lead"),
+    dtRm: date("dt_rm"),
+    dtRr: date("dt_rr"),
+    dtVenda: date("dt_venda"),
+    // ── Métricas do funil (contagens) ──
+    leads: integer("leads").notNull().default(0),
+    mql: integer("mql").notNull().default(0),
+    rm: integer("rm").notNull().default(0), // = SQL (reunião marcada)
+    rr: integer("rr").notNull().default(0), // = SAL (reunião realizada)
+    won: integer("won").notNull().default(0),
+    revenueWon: doublePrecision("revenue_won").notNull().default(0),
+    // ⚠️ cru, não-confiável — ver cabeçalho.
+    mediaInvestment: doublePrecision("media_investment").notNull().default(0),
+    // ── Proveniência ──
+    loadBatch: varchar("load_batch", { length: 60 }).notNull(),
+    loadedAt: timestamp("loaded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_realizado_import_org").on(table.organizationId),
+    index("idx_realizado_import_tenant").on(table.idTenant),
+    index("idx_realizado_import_batch").on(table.loadBatch),
+    index("idx_realizado_import_dt_venda").on(table.dtVenda),
+    index("idx_realizado_import_dt_cadastro").on(table.dtCadastroLead),
+  ],
+);
+
+export type RealizadoImportLeadRow = typeof realizadoImportLead.$inferSelect;
+export type NewRealizadoImportLeadRow = typeof realizadoImportLead.$inferInsert;

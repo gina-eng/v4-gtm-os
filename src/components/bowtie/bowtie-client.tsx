@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ChevronRight, Loader2, TriangleAlert } from "lucide-react";
-import { formatBRL, formatInt, formatPercent, parseBR } from "@/components/premissas/format";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { formatBRL, formatInt, formatPercent } from "@/components/premissas/format";
 import type { LinhaSubCanalTier, SubCanalKey } from "@/lib/premissas/funil-reverso";
 import { SUB_CANAIS } from "@/lib/premissas/funil-reverso";
 import type { Horizonte, Tier } from "@/lib/premissas/matriz-defaults";
@@ -18,7 +17,6 @@ import { formatMesPt, getMesReferenciaAtual, MESES_ANO_2026 } from "@/lib/realiz
 
 type Props = {
   mode: "matriz" | "unidade";
-  organizationId?: string;
   organizationName: string;
   unitCount?: number;
   /** Horizonte atual da unidade — usado pra rotular as seções de "fora do plano". */
@@ -53,7 +51,6 @@ type Pivote = "tier" | "subcanal" | "canal";
  */
 export function BowtieClient({
   mode,
-  organizationId,
   organizationName,
   unitCount = 1,
   horizonteAtual,
@@ -162,10 +159,9 @@ export function BowtieClient({
         totalReal={realizado}
       />
 
-      {/* Editor inline (só pra unidade, e quando o filtro restringe a 1 mês) */}
-      {!isMatriz && organizationId && (
+      {/* Detalhamento do realizado por sub-canal (só unidade, 1 mês no filtro) */}
+      {!isMatriz && (
         <BowtieEditor
-          organizationId={organizationId}
           horizonteAtual={horizonteAtual}
           meses={meses}
           tiers={tiers}
@@ -453,22 +449,19 @@ function BowtieGravata({
     },
   ];
 
-  // 7 wings = conversões. `x` é o centro do wing (midpoint entre lentes
-  // adjacentes). CR1..CR4 puxam dados de realizado e projetado;
-  // CR5..CR7 ainda em construção.
-  const safeDiv = (n: number, d: number) => (d > 0 ? (n / d) * 100 : 0);
-  const conversions: Array<{ x: number; label: string; pct: number | null; projPct: number | null }> = [
-    {
-      x: 190.3, label: "CR1",
-      pct: safeDiv(realizado.mql, realizado.leads),
-      projPct: safeDiv(projetado.mql, projetado.leads),
-    },
-    { x: 314.1, label: "CR2", pct: realizado.cr2, projPct: projetado.cr2 },
-    { x: 437.3, label: "CR3", pct: realizado.cr3, projPct: projetado.cr3 },
-    { x: 563.9, label: "CR4", pct: realizado.cr4, projPct: projetado.cr4 },
-    { x: 690.1, label: "CR5", pct: null, projPct: null },
-    { x: 813.3, label: "CR6", pct: null, projPct: null },
-    { x: 937.3, label: "CR7", pct: null, projPct: null },
+  // % central de cada etapa = ATINGIMENTO da meta (realizado ÷ projetado), NÃO a
+  // conversão entre etapas. Ex.: AWARENESS 415 ÷ 641 = 65%. As 4 etapas de
+  // aquisição (leads/mql/sql/won) têm dado; retenção (5..7) ainda em construção.
+  // (A conversão entre etapas continua nos cards abaixo: CR2 MQL→SQL etc.)
+  const atin = (r: number, p: number): number | null => (p > 0 ? (r / p) * 100 : null);
+  const atingimentos: Array<{ x: number; pct: number | null }> = [
+    { x: 190.3, pct: atin(realizado.leads, projetado.leads) }, // AWARENESS
+    { x: 314.1, pct: atin(realizado.mql, projetado.mql) },     // EDUCATION
+    { x: 437.3, pct: atin(realizado.sql, projetado.sql) },     // SELECTION
+    { x: 563.9, pct: atin(realizado.won, projetado.won) },     // CLOSING (won)
+    { x: 690.1, pct: null },
+    { x: 813.3, pct: null },
+    { x: 937.3, pct: null },
   ];
 
   return (
@@ -613,13 +606,14 @@ function BowtieGravata({
           );
         })}
 
-        {/* CR1..CR7 dentro dos wings (espaços largos entre as lentes).
-            Real em destaque, label CR# como tag, projetado em cinza embaixo. */}
-        {conversions.map((c, i) => (
-          <g key={`cr-${i}`}>
+        {/* % central de cada etapa = atingimento da meta (realizado ÷ projetado).
+            Label "da meta" abaixo. Convenção: número grande = quanto da meta a
+            etapa bateu (ex.: AWARENESS 65%). */}
+        {atingimentos.map((c, i) => (
+          <g key={`atin-${i}`}>
             <text
               x={c.x}
-              y={CY - 14}
+              y={CY - 6}
               textAnchor="middle"
               dominantBaseline="central"
               className="fill-foreground"
@@ -627,26 +621,18 @@ function BowtieGravata({
             >
               {c.pct === null ? "—" : `${Math.round(c.pct)}%`}
             </text>
-            <text
-              x={c.x}
-              y={CY + 6}
-              textAnchor="middle"
-              dominantBaseline="central"
-              className="fill-muted-foreground"
-              style={{ fontSize: 9, fontWeight: 600, letterSpacing: 1 }}
-            >
-              {c.label}
-            </text>
-            <text
-              x={c.x}
-              y={CY + 20}
-              textAnchor="middle"
-              dominantBaseline="central"
-              className="fill-warning"
-              style={{ fontSize: 10, fontWeight: 500 }}
-            >
-              {c.projPct === null ? "Proj: —" : `Proj: ${Math.round(c.projPct)}%`}
-            </text>
+            {c.pct !== null && (
+              <text
+                x={c.x}
+                y={CY + 13}
+                textAnchor="middle"
+                dominantBaseline="central"
+                className="fill-muted-foreground"
+                style={{ fontSize: 9, fontWeight: 600, letterSpacing: 1 }}
+              >
+                da meta
+              </text>
+            )}
           </g>
         ))}
 
@@ -1126,11 +1112,10 @@ function DualValue({ real, meta }: { real: string; meta: string }) {
 }
 
 // ============================================================
-// Editor inline
+// Detalhamento por sub-canal (read-only)
 // ============================================================
 
 type EditorProps = {
-  organizationId: string;
   horizonteAtual?: Horizonte;
   meses: string[];
   tiers: Tier[];
@@ -1145,19 +1130,13 @@ type EditorProps = {
   subcanaisAtivos: SubCanalKey[];
 };
 
-type SaveStatus = "idle" | "saving" | "saved" | "error";
-
 /**
- * Editor inline — só aparece quando o filtro restringe a 1 mês. Apresenta
- * accordions Canal (Inbound/Outbound) → Sub-canal → tiers, e abre por default
- * só as seções em que a unidade atua dado o horizonte atual. Canais/sub-canais
- * fora do plano vêm fechados com selo "fora do horizonte" — o usuário ainda
- * pode abrir e preencher (caso tenha realizado fora do plano).
- *
- * Cada linha de tier salva em debounce via POST /api/bowtie.
+ * Visão read-only do realizado — só aparece quando o filtro restringe a 1 mês.
+ * Apresenta accordions Canal (Inbound/Outbound) → Sub-canal → tiers, e abre por
+ * default só as seções em que a unidade atua dado o horizonte atual. Canais/
+ * sub-canais fora do plano vêm fechados com selo "fora do horizonte".
  */
 function BowtieEditor({
-  organizationId,
   horizonteAtual,
   meses,
   tiers,
@@ -1226,7 +1205,7 @@ function BowtieEditor({
     <div className="rounded border border-border bg-card">
       <div className="border-b border-border bg-muted/20 px-3 py-2 flex items-center gap-2 flex-wrap">
         <h2 className="text-xs uppercase tracking-wider font-semibold text-foreground">
-          Editor de realizado — {formatMesPt(mes)}
+          Realizado por sub-canal — {formatMesPt(mes)}
         </h2>
         {horizonteAtual && (
           <span className="inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1279,7 +1258,6 @@ function BowtieEditor({
                   {subsDoCanal.map((sub) => (
                     <SubcanalSection
                       key={sub}
-                      organizationId={organizationId}
                       mes={mes}
                       subcanal={sub}
                       tiersVisiveis={tiersVisiveis}
@@ -1314,7 +1292,6 @@ function BowtieEditor({
  * com os tiers visíveis quando expandido.
  */
 function SubcanalSection({
-  organizationId,
   mes,
   subcanal,
   tiersVisiveis,
@@ -1325,7 +1302,6 @@ function SubcanalSection({
   realizadoCelulas,
   linhasSubCanalTier,
 }: {
-  organizationId: string;
   mes: string;
   subcanal: SubCanalKey;
   tiersVisiveis: Tier[];
@@ -1373,16 +1349,12 @@ function SubcanalSection({
                 <th className="text-right px-2 py-1.5">SAL</th>
                 <th className="text-right px-2 py-1.5">Won</th>
                 <th className="text-right px-2 py-1.5">Faturamento</th>
-                <th className="text-right px-2 py-1.5 w-16">Status</th>
               </tr>
             </thead>
             <tbody>
               {tiersVisiveis.map((tier) => (
                 <EditorRow
                   key={tier}
-                  organizationId={organizationId}
-                  mes={mes}
-                  subcanal={subcanal}
                   tier={tier}
                   tierAtivo={tiersAtivosSet.has(tier)}
                   celula={realizadoCelulas.find(
@@ -1402,81 +1374,16 @@ function SubcanalSection({
 }
 
 function EditorRow({
-  organizationId,
-  mes,
-  subcanal,
   tier,
   tierAtivo,
   celula,
   proj,
 }: {
-  organizationId: string;
-  mes: string;
-  subcanal: SubCanalKey;
   tier: Tier;
   tierAtivo: boolean;
   celula?: RealizadoFunilCelula;
   proj?: LinhaSubCanalTier;
 }) {
-  const router = useRouter();
-  const [values, setValues] = useState({
-    leads: celula?.leads ?? 0,
-    mql: celula?.mql ?? 0,
-    sql: celula?.sql ?? 0,
-    sal: celula?.sal ?? 0,
-    won: celula?.won ?? 0,
-    faturamento: celula?.faturamento ?? 0,
-  });
-  const lastSavedRef = useRef(values);
-  const [status, setStatus] = useState<SaveStatus>("idle");
-
-  // Resync se o snapshot do server mudar (router.refresh após save).
-  useEffect(() => {
-    const next = {
-      leads: celula?.leads ?? 0,
-      mql: celula?.mql ?? 0,
-      sql: celula?.sql ?? 0,
-      sal: celula?.sal ?? 0,
-      won: celula?.won ?? 0,
-      faturamento: celula?.faturamento ?? 0,
-    };
-    lastSavedRef.current = next;
-    setValues(next);
-  }, [celula?.leads, celula?.mql, celula?.sql, celula?.sal, celula?.won, celula?.faturamento]);
-
-  useEffect(() => {
-    const dirty = (Object.keys(values) as Array<keyof typeof values>).some(
-      (k) => Math.abs(values[k] - lastSavedRef.current[k]) > 0.001,
-    );
-    if (!dirty) return;
-    const timer = setTimeout(async () => {
-      setStatus("saving");
-      try {
-        const res = await fetch(`/api/bowtie`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            organizationId,
-            mes,
-            subcanal,
-            tier,
-            ...values,
-          }),
-        });
-        if (!res.ok) {
-          setStatus("error");
-          return;
-        }
-        lastSavedRef.current = values;
-        setStatus("saved");
-        router.refresh();
-      } catch {
-        setStatus("error");
-      }
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [values, organizationId, mes, subcanal, tier, router]);
-
   return (
     <tr className={`border-t border-border ${tierAtivo ? "" : "opacity-60"}`}>
       <td className="px-3 py-1.5 pl-12 text-foreground">
@@ -1489,69 +1396,35 @@ function EditorRow({
           )}
         </span>
       </td>
-      <NumCell value={values.leads} meta={proj?.leads} onChange={(n) => setValues((v) => ({ ...v, leads: n }))} />
-      <NumCell value={values.mql} meta={proj?.mql} onChange={(n) => setValues((v) => ({ ...v, mql: n }))} />
-      <NumCell value={values.sql} meta={proj?.sql} onChange={(n) => setValues((v) => ({ ...v, sql: n }))} />
-      <NumCell value={values.sal} meta={proj?.sal} onChange={(n) => setValues((v) => ({ ...v, sal: n }))} />
-      <NumCell value={values.won} meta={proj?.won} onChange={(n) => setValues((v) => ({ ...v, won: n }))} />
-      <NumCell
-        value={values.faturamento}
-        meta={proj?.receita}
-        onChange={(n) => setValues((v) => ({ ...v, faturamento: n }))}
-        brl
-      />
-      <td className="px-2 py-1.5 text-right">
-        <StatusBadge status={status} />
-      </td>
+      <NumCell value={celula?.leads ?? 0} meta={proj?.leads} />
+      <NumCell value={celula?.mql ?? 0} meta={proj?.mql} />
+      <NumCell value={celula?.sql ?? 0} meta={proj?.sql} />
+      <NumCell value={celula?.sal ?? 0} meta={proj?.sal} />
+      <NumCell value={celula?.won ?? 0} meta={proj?.won} />
+      <NumCell value={celula?.faturamento ?? 0} meta={proj?.receita} brl />
     </tr>
   );
 }
 
+/** Célula read-only: realizado em destaque + projeção (meta) como referência. */
 function NumCell({
   value,
   meta,
-  onChange,
   brl,
 }: {
   value: number;
   meta?: number;
-  onChange: (n: number) => void;
   brl?: boolean;
 }) {
-  const [draft, setDraft] = useState(value === 0 ? "" : brl ? formatBRL(value) : formatInt(value));
-  useEffect(() => {
-    setDraft(value === 0 ? "" : brl ? formatBRL(value) : formatInt(value));
-  }, [value, brl]);
+  const fmt = (n: number) => (brl ? formatBRL(n) : formatInt(n));
   return (
-    <td className="px-1 py-1 text-right">
-      <input
-        type="text"
-        inputMode="decimal"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          const n = parseBR(draft);
-          onChange(n);
-          setDraft(n === 0 ? "" : brl ? formatBRL(n) : formatInt(n));
-        }}
-        placeholder={meta != null && meta > 0 ? (brl ? formatBRL(meta) : formatInt(meta)) : "0"}
-        className="w-full text-right tabular-nums rounded border border-transparent bg-transparent px-1.5 py-1 text-sm focus:border-accent focus:bg-background outline-none placeholder:text-muted-foreground/50"
-      />
+    <td className="px-2 py-1.5 text-right tabular-nums">
+      <span className="text-foreground">{value === 0 ? "—" : fmt(value)}</span>
+      {meta != null && meta > 0 && (
+        <span className="block text-[10px] text-muted-foreground">proj {fmt(meta)}</span>
+      )}
     </td>
   );
-}
-
-function StatusBadge({ status }: { status: SaveStatus }) {
-  if (status === "saving") {
-    return <Loader2 className="inline h-3.5 w-3.5 animate-spin text-muted-foreground" />;
-  }
-  if (status === "saved") {
-    return <Check className="inline h-3.5 w-3.5 text-[hsl(142,71%,35%)]" />;
-  }
-  if (status === "error") {
-    return <TriangleAlert className="inline h-3.5 w-3.5 text-accent" />;
-  }
-  return null;
 }
 
 // ============================================================

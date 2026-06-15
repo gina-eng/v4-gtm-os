@@ -127,6 +127,20 @@
       "when": 1780600000000,
       "tag": "0017_rename_organizations_to_unidades",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781532614225,
+      "tag": "0018_smooth_bucky",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781535264509,
+      "tag": "0019_bouncy_celestials",
+      "breakpoints": true
     }
   ]
 }
