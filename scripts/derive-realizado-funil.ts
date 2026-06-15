@@ -4,7 +4,8 @@
  *
  * Por linha do extrato, bucketiza CADA métrica no dia da SUA data de evento,
  * aplicando o de-para (src/lib/realizado/de-para.ts) e mantendo só eventos de 2026:
- *   leads/mql ← dt_cadastro_lead   (tier = tier_lead,  categoria = '')
+ *   leads ← dt_cadastro_lead       (tier = tier_lead,  categoria = '')
+ *   mql   ← dt_cadastro_lead       (SÓ funil longo: LB/BB — ver subcanalTemMql)
  *   sql (rm)  ← dt_rm              (tier = tier_lead,  categoria = '')
  *   sal (rr)  ← dt_rr              (tier = tier_lead,  categoria = '')
  *   won / faturamento ← dt_venda   (tier = tier_venda, categoria = produto)
@@ -22,7 +23,12 @@ import {
   replaceRealizadoFunilDaily,
   type RealizadoFunilDia,
 } from "../src/db/repositories/realizado-funil";
-import { categoriaProduto, mapCanal, normalizeTier } from "../src/lib/realizado/de-para";
+import {
+  categoriaProduto,
+  mapCanal,
+  normalizeTier,
+  subcanalTemMql,
+} from "../src/lib/realizado/de-para";
 import type { SubCanalKey } from "../src/lib/premissas/funil-reverso";
 import type { Tier } from "../src/lib/premissas/matriz-defaults";
 
@@ -107,7 +113,11 @@ async function main() {
     const tierLead = normalizeTier(r.tierLead);
     if (tierLead) {
       add(orgId, r.dtCadastro, subcanal, tierLead, "", "leads", r.leads);
-      add(orgId, r.dtCadastro, subcanal, tierLead, "", "mql", r.mql);
+      // MQL só em funil longo (LB/BB) — espelha o projetado, onde MB/Eventos/
+      // Outbound têm mql=0. Mantém o estágio EDUCATION comparável.
+      if (subcanalTemMql(subcanal)) {
+        add(orgId, r.dtCadastro, subcanal, tierLead, "", "mql", r.mql);
+      }
       add(orgId, r.dtRm, subcanal, tierLead, "", "sql", r.rm);
       add(orgId, r.dtRr, subcanal, tierLead, "", "sal", r.rr);
     } else if (r.leads || r.mql || r.rm || r.rr) {

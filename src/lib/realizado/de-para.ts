@@ -62,3 +62,21 @@ export function categoriaProduto(raw: string | null | undefined): string {
   const c = (raw ?? "").trim();
   return CATEGORIAS.has(c) ? c : "";
 }
+
+/**
+ * Subcanais com estágio MQL (funil longo: Leads→MQL→SQL→SAL→Won). Espelha o
+ * forecast (`calcularPorSubCanalPorTier`): só Lead Broker e Black Box têm MQL.
+ * Meeting Broker, Eventos e os 4 Outbound são funil curto (começam no SQL, com
+ * `mql = 0`). A derivação do realizado NÃO conta MQL fora desses canais, pra que
+ * o estágio EDUCATION fique comparável dos dois lados (projetado vs realizado) —
+ * senão o realizado contaria todo lead como MQL e o projetado só LB/BB.
+ */
+export const SUBCANAIS_COM_MQL: ReadonlySet<SubCanalKey> = new Set<SubCanalKey>([
+  "lead_broker",
+  "black_box",
+]);
+
+/** True se o subcanal tem estágio MQL (funil longo). */
+export function subcanalTemMql(sc: SubCanalKey): boolean {
+  return SUBCANAIS_COM_MQL.has(sc);
+}
