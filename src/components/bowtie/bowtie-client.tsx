@@ -450,18 +450,21 @@ function BowtieGravata({
   ];
 
   // % central de cada etapa = ATINGIMENTO da meta (realizado ÷ projetado), NÃO a
-  // conversão entre etapas. Ex.: AWARENESS 415 ÷ 641 = 65%. As 4 etapas de
-  // aquisição (leads/mql/sql/won) têm dado; retenção (5..7) ainda em construção.
-  // (A conversão entre etapas continua nos cards abaixo: CR2 MQL→SQL etc.)
+  // conversão entre etapas. Ex.: AWARENESS 415 ÷ 641 = 65%. Abaixo, "Proj:" mostra
+  // a TAXA DE CONVERSÃO PROJETADA da etapa (CR1 Leads→MQL proj, CR2 sql/mql proj,
+  // ...) — pedido da Gina pra manter a meta de conversão à vista. As 4 etapas de
+  // aquisição têm dado; retenção (5..7) em construção. (A conversão REALIZADA entre
+  // etapas fica nos cards abaixo da gravata.)
   const atin = (r: number, p: number): number | null => (p > 0 ? (r / p) * 100 : null);
-  const atingimentos: Array<{ x: number; pct: number | null }> = [
-    { x: 190.3, pct: atin(realizado.leads, projetado.leads) }, // AWARENESS
-    { x: 314.1, pct: atin(realizado.mql, projetado.mql) },     // EDUCATION
-    { x: 437.3, pct: atin(realizado.sql, projetado.sql) },     // SELECTION
-    { x: 563.9, pct: atin(realizado.won, projetado.won) },     // CLOSING (won)
-    { x: 690.1, pct: null },
-    { x: 813.3, pct: null },
-    { x: 937.3, pct: null },
+  const conv = (n: number, d: number): number | null => (d > 0 ? (n / d) * 100 : null);
+  const atingimentos: Array<{ x: number; pct: number | null; projPct: number | null }> = [
+    { x: 190.3, pct: atin(realizado.leads, projetado.leads), projPct: conv(projetado.mql, projetado.leads) }, // AWARENESS (CR1 proj: Leads→MQL)
+    { x: 314.1, pct: atin(realizado.mql, projetado.mql), projPct: projetado.cr2 },   // EDUCATION (CR2 proj: MQL→SQL)
+    { x: 437.3, pct: atin(realizado.sql, projetado.sql), projPct: projetado.cr3 },   // SELECTION (CR3 proj: SQL→SAL)
+    { x: 563.9, pct: atin(realizado.won, projetado.won), projPct: projetado.cr4 },   // CLOSING (CR4 proj: SAL→WON)
+    { x: 690.1, pct: null, projPct: null },
+    { x: 813.3, pct: null, projPct: null },
+    { x: 937.3, pct: null, projPct: null },
   ];
 
   return (
@@ -606,14 +609,14 @@ function BowtieGravata({
           );
         })}
 
-        {/* % central de cada etapa = atingimento da meta (realizado ÷ projetado).
-            Label "da meta" abaixo. Convenção: número grande = quanto da meta a
-            etapa bateu (ex.: AWARENESS 65%). */}
+        {/* % central de cada etapa = atingimento da meta (realizado ÷ projetado),
+            com label "da meta" e, embaixo, a taxa de conversão PROJETADA da etapa
+            ("Proj: X%"). Número grande = quanto da meta a etapa bateu (ex.: 65%). */}
         {atingimentos.map((c, i) => (
           <g key={`atin-${i}`}>
             <text
               x={c.x}
-              y={CY - 6}
+              y={CY - 14}
               textAnchor="middle"
               dominantBaseline="central"
               className="fill-foreground"
@@ -624,13 +627,25 @@ function BowtieGravata({
             {c.pct !== null && (
               <text
                 x={c.x}
-                y={CY + 13}
+                y={CY + 4}
                 textAnchor="middle"
                 dominantBaseline="central"
                 className="fill-muted-foreground"
                 style={{ fontSize: 9, fontWeight: 600, letterSpacing: 1 }}
               >
                 da meta
+              </text>
+            )}
+            {c.projPct !== null && (
+              <text
+                x={c.x}
+                y={CY + 18}
+                textAnchor="middle"
+                dominantBaseline="central"
+                className="fill-warning"
+                style={{ fontSize: 10, fontWeight: 500 }}
+              >
+                {`Proj: ${Math.round(c.projPct)}%`}
               </text>
             )}
           </g>
