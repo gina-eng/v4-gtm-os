@@ -203,6 +203,23 @@ function BowtieFiltros({
 }: FiltrosProps) {
   return (
     <div className="rounded border border-border bg-card p-3 flex flex-wrap items-start gap-3">
+      {/* Botão à ESQUERDA da barra: como o card é ancorado à direita, manter o
+          "Limpar" no início mantém SUB-CANAL fixo na borda direita e evita
+          empurrar os dropdowns quando ele aparece/some. */}
+      {(meses.length || tiers.length || canais.length || subcanais.length) > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            setMeses([]);
+            setTiers([]);
+            setCanais([]);
+            setSubcanais([]);
+          }}
+          className="self-end text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2 py-1"
+        >
+          Limpar filtros
+        </button>
+      )}
       <MultiSelect
         label="Mês"
         options={MESES.map((m) => ({ value: m, label: formatMesPt(m) }))}
@@ -237,20 +254,6 @@ function BowtieFiltros({
         onChange={(v) => setSubcanais(v as SubCanalKey[])}
         placeholderTodos="Todos os sub-canais"
       />
-      {(meses.length || tiers.length || canais.length || subcanais.length) > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            setMeses([]);
-            setTiers([]);
-            setCanais([]);
-            setSubcanais([]);
-          }}
-          className="ml-auto self-end text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2 py-1"
-        >
-          Limpar filtros
-        </button>
-      )}
     </div>
   );
 }
