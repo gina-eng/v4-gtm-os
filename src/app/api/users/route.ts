@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ZodError } from "zod";
-import { listUsers, listMembershipsByUser } from "@/db/repositories/users";
-import { getOrganizationById } from "@/db/repositories/organizations";
+import { listUsers, listMembershipsByUserIds } from "@/db/repositories/users";
+import { listOrganizations } from "@/db/repositories/organizations";
+import type { Membership } from "@/db/schema";
 import {
   ForbiddenError,
   UnauthorizedError,
@@ -56,14 +57,31 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Carrega todas as orgs uma vez (1 query) → lookup O(1) e acha a Matriz
+    // sem depender de UUID hardcoded.
+    const allOrgs = await listOrganizations();
+    const orgById = new Map(allOrgs.map((o) => [o.id, o]));
+    const matriz = allOrgs.find((o) => o.type === "matriz") ?? null;
+
     // Pra filtrar memberships do escopo: descobrir regional da org alvo (se houver).
-    const scopedOrg = effectiveOrgId ? await getOrganizationById(effectiveOrgId) : null;
-    const scopedRegional = scopedOrg?.regional ?? null;
+    const scopedRegional = effectiveOrgId
+      ? (orgById.get(effectiveOrgId)?.regional ?? null)
+      : null;
+
+    // Batch: memberships de todos os users em 1 query (evita N+1 — crítico em
+    // produção, onde cada ida-e-volta ao banco cruza regiões).
+    const allMemberships = await listMembershipsByUserIds(result.map((u) => u.id));
+    const membershipsByUser = new Map<string, Membership[]>();
+    for (const m of allMemberships) {
+      const arr = membershipsByUser.get(m.userId);
+      if (arr) arr.push(m);
+      else membershipsByUser.set(m.userId, [m]);
+    }
 
     // Enriquecer com memberships (precisa pra mostrar papel na tabela)
     const enriched = [];
     for (const u of result) {
-      const ms = await listMembershipsByUser(u.id);
+      const ms = membershipsByUser.get(u.id) ?? [];
       const memberships = [];
       for (const m of ms) {
         if (effectiveOrgId) {
@@ -74,11 +92,10 @@ export async function GET(req: NextRequest) {
         }
         if (query.role && m.role !== query.role) continue;
         if (m.organizationId) {
-          const org = await getOrganizationById(m.organizationId);
+          const org = orgById.get(m.organizationId);
           if (!org) continue;
           memberships.push({ ...m, organization: org, regionalUnits: null });
         } else if (m.regional) {
-          const matriz = await getOrganizationById("00000000-0000-0000-0000-000000000001");
           if (!matriz) continue;
           memberships.push({ ...m, organization: matriz, regionalUnits: [] });
         }
