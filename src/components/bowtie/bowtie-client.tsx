@@ -496,6 +496,7 @@ function BowtieGravata({
         {(() => {
           const phaseY = 28;
           const realRowY = 46;
+          const projRowY = 60;
           const lineStartY = 70;
           const TEXT_GAP = 6;
           return stages.map((s, i) => {
@@ -530,8 +531,7 @@ function BowtieGravata({
                 >
                   {s.phase}
                 </text>
-                {/* Realizado em destaque (o alvo projetado vai no centro, junto
-                    do "% da meta", pra não repetir o número). */}
+                {/* Realizado em destaque */}
                 <text
                   x={textX}
                   y={realRowY}
@@ -541,6 +541,17 @@ function BowtieGravata({
                   style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3 }}
                 >
                   {s.real === null ? "—" : formatInt(s.real)}
+                </text>
+                {/* Projetado em cinza */}
+                <text
+                  x={textX}
+                  y={projRowY}
+                  textAnchor={anchor}
+                  dominantBaseline="central"
+                  className="fill-warning"
+                  style={{ fontSize: 10, fontWeight: 500, letterSpacing: 0.3 }}
+                >
+                  {s.proj === null ? "Proj: —" : `Proj: ${formatInt(s.proj)}`}
                 </text>
               </g>
             );
