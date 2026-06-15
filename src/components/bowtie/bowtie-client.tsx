@@ -391,7 +391,7 @@ function BowtieGravata({
     {
       x: 375.489, phase: "SAL", topY: 157, bottomY: 291,
       real: realizado.sal, proj: projetado.sal,
-      costs: [],
+      costs: [{ label: "CPSAL", proj: projetado.custoPorSal, real: null }],
     },
     {
       // Pescoço/cintura da gravata — sem estágio (só a forma visual).
