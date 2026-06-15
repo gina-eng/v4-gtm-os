@@ -377,23 +377,26 @@ function BowtieGravata({
     costs: Cost[];
   }> = [
     {
-      x: 127.838, phase: "AWARENESS", topY: 115, bottomY: 333,
-      real: realizado.leads, proj: projetado.leads,
-      costs: [{ label: "CPL", proj: projetado.custoPorLead, real: null }],
-    },
-    {
-      x: 252.762, phase: "EDUCATION", topY: 139, bottomY: 310,
+      // MQL = topo do funil (entrada de TODOS os canais). Sem estágio LEAD: os
+      // leads comprados já entram como MQL (ver agregarProjetado, mql=leads).
+      x: 127.838, phase: "MQL", topY: 115, bottomY: 333,
       real: realizado.mql, proj: projetado.mql,
       costs: [{ label: "CPMQL", proj: projetado.custoPorMql, real: null }],
     },
     {
-      x: 375.489, phase: "SELECTION", topY: 157, bottomY: 291,
+      x: 252.762, phase: "SQL", topY: 139, bottomY: 310,
       real: realizado.sql, proj: projetado.sql,
       costs: [{ label: "CPSQL", proj: projetado.custoPorSql, real: null }],
     },
     {
-      x: 499.089, phase: "", topY: 172, bottomY: 277,
+      x: 375.489, phase: "SAL", topY: 157, bottomY: 291,
       real: realizado.sal, proj: projetado.sal,
+      costs: [],
+    },
+    {
+      // Pescoço/cintura da gravata — sem estágio (só a forma visual).
+      x: 499.089, phase: "", topY: 172, bottomY: 277,
+      real: null, proj: null,
       costs: [],
     },
     {
@@ -449,19 +452,15 @@ function BowtieGravata({
     },
   ];
 
-  // % central de cada etapa = ATINGIMENTO da meta (realizado ÷ projetado), NÃO a
-  // conversão entre etapas. Ex.: AWARENESS 415 ÷ 641 = 65%. Abaixo, "Proj:" mostra
-  // a TAXA DE CONVERSÃO PROJETADA da etapa (CR1 Leads→MQL proj, CR2 sql/mql proj,
-  // ...) — pedido da Gina pra manter a meta de conversão à vista. As 4 etapas de
-  // aquisição têm dado; retenção (5..7) em construção. (A conversão REALIZADA entre
-  // etapas fica nos cards abaixo da gravata.)
+  // % central de cada etapa = ATINGIMENTO da meta (realizado ÷ projetado). Abaixo,
+  // "Proj:" mostra a CONVERSÃO PROJETADA pra próxima etapa (MQL→SQL, SQL→SAL,
+  // SAL→WON). Funil começa no MQL (sem estágio LEAD) — ver agregarProjetado.
   const atin = (r: number, p: number): number | null => (p > 0 ? (r / p) * 100 : null);
-  const conv = (n: number, d: number): number | null => (d > 0 ? (n / d) * 100 : null);
   const atingimentos: Array<{ x: number; pct: number | null; projPct: number | null }> = [
-    { x: 190.3, pct: atin(realizado.leads, projetado.leads), projPct: conv(projetado.mql, projetado.leads) }, // AWARENESS (CR1 proj: Leads→MQL)
-    { x: 314.1, pct: atin(realizado.mql, projetado.mql), projPct: projetado.cr2 },   // EDUCATION (CR2 proj: MQL→SQL)
-    { x: 437.3, pct: atin(realizado.sql, projetado.sql), projPct: projetado.cr3 },   // SELECTION (CR3 proj: SQL→SAL)
-    { x: 563.9, pct: atin(realizado.won, projetado.won), projPct: projetado.cr4 },   // CLOSING (CR4 proj: SAL→WON)
+    { x: 190.3, pct: atin(realizado.mql, projetado.mql), projPct: projetado.cr2 }, // MQL (proj: MQL→SQL)
+    { x: 314.1, pct: atin(realizado.sql, projetado.sql), projPct: projetado.cr3 }, // SQL (proj: SQL→SAL)
+    { x: 437.3, pct: atin(realizado.sal, projetado.sal), projPct: projetado.cr4 }, // SAL (proj: SAL→WON)
+    { x: 563.9, pct: atin(realizado.won, projetado.won), projPct: null },          // WON (último estágio)
     { x: 690.1, pct: null, projPct: null },
     { x: 813.3, pct: null, projPct: null },
     { x: 937.3, pct: null, projPct: null },
@@ -1358,7 +1357,6 @@ function SubcanalSection({
             <thead>
               <tr className="bg-muted/40 text-foreground/80 text-[10px] uppercase tracking-wider">
                 <th className="text-left px-3 py-1.5 pl-12">Tier</th>
-                <th className="text-right px-2 py-1.5">Leads</th>
                 <th className="text-right px-2 py-1.5">MQL</th>
                 <th className="text-right px-2 py-1.5">SQL</th>
                 <th className="text-right px-2 py-1.5">SAL</th>
@@ -1411,8 +1409,8 @@ function EditorRow({
           )}
         </span>
       </td>
+      {/* MQL = entrada (leads); sem coluna LEAD separada — ver agregarProjetado. */}
       <NumCell value={celula?.leads ?? 0} meta={proj?.leads} />
-      <NumCell value={celula?.mql ?? 0} meta={proj?.mql} />
       <NumCell value={celula?.sql ?? 0} meta={proj?.sql} />
       <NumCell value={celula?.sal ?? 0} meta={proj?.sal} />
       <NumCell value={celula?.won ?? 0} meta={proj?.won} />

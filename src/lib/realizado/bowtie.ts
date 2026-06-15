@@ -143,18 +143,21 @@ export function agregarProjetado(
   linhas: LinhaSubCanalTier[],
   filtro: BowtieFiltro,
 ): BowtieAgg {
-  let leads = 0, mql = 0, sql = 0, sal = 0, won = 0, faturamento = 0, invest = 0;
+  let leads = 0, sql = 0, sal = 0, won = 0, faturamento = 0, invest = 0;
   for (const l of linhas) {
     if (!passaFiltro(l, filtro)) continue;
     leads += l.leads;
-    mql += l.mql;
     sql += l.sql;
     sal += l.sal;
     won += l.won;
     faturamento += l.receita;
     invest += l.invest;
   }
-  return finalize({ leads, mql, sql, sal, won, faturamento, invest });
+  // O funil do bowtie começa no MQL = topo (entrada de TODOS os canais): os leads
+  // comprados (LB/BB) já entram como MQL e os canais de funil curto (MB/Eventos/
+  // Outbound) entram direto no SQL. Por isso MQL = `leads` (volume de entrada),
+  // não o `mql` parcial que só LB/BB produzem. Não há estágio LEAD separado.
+  return finalize({ leads, mql: leads, sql, sal, won, faturamento, invest });
 }
 
 /** Mesma agregação, mas pra realizado (RealizadoFunilCelula). */
@@ -162,19 +165,19 @@ export function agregarRealizado(
   celulas: RealizadoFunilCelula[],
   filtro: BowtieFiltro,
 ): BowtieAgg {
-  let leads = 0, mql = 0, sql = 0, sal = 0, won = 0, faturamento = 0;
+  let leads = 0, sql = 0, sal = 0, won = 0, faturamento = 0;
   for (const c of celulas) {
     if (!passaFiltro(c, filtro)) continue;
     leads += c.leads;
-    mql += c.mql;
     sql += c.sql;
     sal += c.sal;
     won += c.won;
     faturamento += c.faturamento;
   }
-  // Investimento realizado granular por subcanal/tier ainda não é capturado —
-  // fica zerado por enquanto. Quando vier, basta somar aqui.
-  return finalize({ leads, mql, sql, sal, won, faturamento, invest: 0 });
+  // MQL = topo do funil = `leads` (entrada de todos os canais), igual ao projetado
+  // (ver agregarProjetado). A coluna `mql` do realizado_funil não entra no funil do
+  // bowtie. Investimento realizado granular ainda não é capturado (fica 0).
+  return finalize({ leads, mql: leads, sql, sal, won, faturamento, invest: 0 });
 }
 
 /** Quociente realizado ÷ projetado × 100. 0 quando faltar lado. */
