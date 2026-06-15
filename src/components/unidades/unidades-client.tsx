@@ -13,7 +13,6 @@ import {
   type RegionalSigla,
 } from "@/lib/validations/organizations";
 import { PermissionGate } from "@/components/permission-gate";
-import { FieldHelp } from "@/components/ui/field-help";
 import { AddUnitModal } from "./add-unit-modal";
 import { EditUnitModal } from "./edit-unit-modal";
 import { HorizonteBadge, StatusBadge } from "./badges";
@@ -48,10 +47,9 @@ export function UnidadesClient({ initialUnits, setupCompletionByOrgId }: Props) 
         const haystack = [
           u.name,
           u.slug,
-          u.socioExecutivoNome,
+          u.franqueado,
           u.regional,
-          u.estado,
-          u.cidade,
+          u.cnpj,
         ]
           .filter(Boolean)
           .join(" ")
@@ -137,7 +135,7 @@ export function UnidadesClient({ initialUnits, setupCompletionByOrgId }: Props) 
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <input
               type="text"
-              placeholder="Buscar por nome, sócio, regional, cidade…"
+              placeholder="Buscar por nome, franqueado, regional, CNPJ…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-8 w-72 rounded border border-input bg-background pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
@@ -186,43 +184,36 @@ function UnitsTable({
             <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-3 py-1.5 text-[10px] uppercase tracking-wider">
               <span className="inline-flex items-center gap-1">
                 Nome
-                <FieldHelp text="Nome público da unidade. Matriz aparece com badge especial." position="bottom" />
               </span>
             </th>
             <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-3 py-1.5 text-[10px] uppercase tracking-wider">
               <span className="inline-flex items-center gap-1">
-                Sócio Executivo
-                <FieldHelp text="Pessoa responsável pela operação da unidade e e-mail principal de contato." position="bottom" />
+                Franqueado
               </span>
             </th>
             <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-3 py-1.5 text-[10px] uppercase tracking-wider">
               <span className="inline-flex items-center gap-1">
                 Regional
-                <FieldHelp text="Regional V4 (sigla) a que a unidade pertence. Passe o mouse na sigla pra ver o nome do gerente regional." position="bottom" />
               </span>
             </th>
             <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-3 py-1.5 text-[10px] uppercase tracking-wider">
               <span className="inline-flex items-center gap-1">
-                Estado / Cidade
-                <FieldHelp text="UF e cidade onde a unidade opera." position="bottom" />
+                CNPJ
               </span>
             </th>
             <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-3 py-1.5 text-[10px] uppercase tracking-wider">
               <span className="inline-flex items-center gap-1">
                 Horizonte
-                <FieldHelp text="Etapa de maturidade da unidade (H1–H5), definida pela Matriz no cadastro." position="bottom" />
               </span>
             </th>
             <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-3 py-1.5 text-[10px] uppercase tracking-wider">
               <span className="inline-flex items-center gap-1">
                 Modelo
-                <FieldHelp text="% de preenchimento do setup do modelo (wizard /iniciar). 100% = todos os steps concluídos pela unidade. Matriz não preenche modelo." position="bottom" />
               </span>
             </th>
             <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-3 py-1.5 text-[10px] uppercase tracking-wider">
               <span className="inline-flex items-center gap-1">
                 Status
-                <FieldHelp text="Estado da unidade no sistema: ativo, inativo ou pendente de ativação." position="bottom" />
               </span>
             </th>
             <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-3 py-1.5 text-[10px] uppercase tracking-wider">
@@ -247,15 +238,8 @@ function UnitsTable({
                 )}
               </td>
               <td className="px-3 py-1.5 text-xs">
-                {u.socioExecutivoNome ? (
-                  <div className="flex flex-col">
-                    <span>{u.socioExecutivoNome}</span>
-                    {u.socioExecutivoEmail && (
-                      <span className="text-[11px] text-muted-foreground">
-                        {u.socioExecutivoEmail}
-                      </span>
-                    )}
-                  </div>
+                {u.franqueado ? (
+                  <span>{u.franqueado}</span>
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}
@@ -270,10 +254,8 @@ function UnitsTable({
                 )}
               </td>
               <td className="px-3 py-1.5 text-xs">
-                {u.estado || u.cidade ? (
-                  <span>
-                    {[u.cidade, u.estado].filter(Boolean).join(" / ")}
-                  </span>
+                {u.cnpj ? (
+                  <span className="font-mono">{u.cnpj}</span>
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}

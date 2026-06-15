@@ -12,22 +12,17 @@ import {
   type OrgStatus,
   type RegionalSigla,
 } from "@/lib/validations/organizations";
-import { FieldHelp } from "@/components/ui/field-help";
 
 type FormState = {
   name: string;
-  socioExecutivoNome: string;
-  socioExecutivoEmail: string;
+  franqueado: string;
+  cnpj: string;
+  idTenant: string;
   regional: RegionalSigla | "";
-  estado: string;
-  cidade: string;
-  telefone: string;
   horizonteAtual: Horizonte;
   dataInicio: string; // YYYY-MM-DD
   status: OrgStatus;
 };
-
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const statusLabel: Record<OrgStatus, string> = {
   active: "Ativo",
@@ -38,12 +33,10 @@ const statusLabel: Record<OrgStatus, string> = {
 function formFromUnit(u: Organization): FormState {
   return {
     name: u.name,
-    socioExecutivoNome: u.socioExecutivoNome ?? "",
-    socioExecutivoEmail: u.socioExecutivoEmail ?? "",
+    franqueado: u.franqueado ?? "",
+    cnpj: u.cnpj ?? "",
+    idTenant: u.idTenant ?? "",
     regional: (u.regional as RegionalSigla | null) ?? "",
-    estado: u.estado ?? "",
-    cidade: u.cidade ?? "",
-    telefone: u.telefone ?? "",
     horizonteAtual: u.horizonteAtual,
     dataInicio: u.dataInicio ?? "",
     status: u.status,
@@ -87,9 +80,7 @@ export function EditUnitModal({
   }
 
   const nameValid = form.name.trim().length >= 3 && form.name.trim().length <= 120;
-  const emailValid =
-    form.socioExecutivoEmail.trim() === "" || emailRegex.test(form.socioExecutivoEmail.trim());
-  const valid = nameValid && emailValid;
+  const valid = nameValid;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -104,12 +95,10 @@ export function EditUnitModal({
           name: form.name.trim(),
           status: form.status,
           horizonteAtual: form.horizonteAtual,
-          socioExecutivoNome: form.socioExecutivoNome.trim() || null,
-          socioExecutivoEmail: form.socioExecutivoEmail.trim() || null,
+          franqueado: form.franqueado.trim() || null,
+          cnpj: form.cnpj.trim() || null,
+          idTenant: form.idTenant.trim() || null,
           regional: form.regional || null,
-          estado: form.estado.trim() || null,
-          cidade: form.cidade.trim() || null,
-          telefone: form.telefone.trim() || null,
           dataInicio: form.dataInicio || null,
         }),
       });
@@ -158,7 +147,6 @@ export function EditUnitModal({
           <div>
             <label htmlFor="e-name" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
               Nome da Unidade <span className="text-destructive">*</span>
-              <FieldHelp text="Nome público da franquia. Aparece em relatórios e no topo das telas." position="bottom" />
             </label>
             <input
               id="e-name"
@@ -176,34 +164,31 @@ export function EditUnitModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label htmlFor="e-socioNome" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
-                Nome do Sócio Executivo
-                <FieldHelp text="Pessoa responsável pela operação da unidade." position="bottom" />
+              <label htmlFor="e-franqueado" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
+                Franqueado
               </label>
               <input
-                id="e-socioNome"
+                id="e-franqueado"
                 type="text"
-                value={form.socioExecutivoNome}
-                onChange={(e) => set("socioExecutivoNome", e.target.value)}
+                value={form.franqueado}
+                onChange={(e) => set("franqueado", e.target.value)}
                 maxLength={120}
                 className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
             <div>
-              <label htmlFor="e-socioEmail" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
-                Email do Sócio Executivo
-                <FieldHelp text="E-mail principal do sócio." position="bottom" />
+              <label htmlFor="e-cnpj" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
+                CNPJ
               </label>
               <input
-                id="e-socioEmail"
-                type="email"
-                value={form.socioExecutivoEmail}
-                onChange={(e) => set("socioExecutivoEmail", e.target.value)}
-                placeholder="socio@v4company.com"
-                maxLength={255}
+                id="e-cnpj"
+                type="text"
+                value={form.cnpj}
+                onChange={(e) => set("cnpj", e.target.value)}
+                placeholder="00.000.000/0000-00"
+                maxLength={18}
                 className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              {!emailValid && <p className="text-xs text-destructive mt-1">Email inválido.</p>}
             </div>
           </div>
 
@@ -211,7 +196,6 @@ export function EditUnitModal({
             <div>
               <label htmlFor="e-regional" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
                 Regional
-                <FieldHelp text="Regional V4 a que a unidade pertence." position="bottom" />
               </label>
               <select
                 id="e-regional"
@@ -230,7 +214,6 @@ export function EditUnitModal({
             <div>
               <label htmlFor="e-status" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
                 Status
-                <FieldHelp text="Estado da unidade no sistema: ativo, inativo ou pendente." position="bottom" />
               </label>
               <select
                 id="e-status"
@@ -249,55 +232,21 @@ export function EditUnitModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label htmlFor="e-estado" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
-                Estado
-                <FieldHelp text="UF onde a unidade opera (ex: SP, RJ, MG)." position="bottom" />
+              <label htmlFor="e-idTenant" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
+                ID Tenant
               </label>
               <input
-                id="e-estado"
+                id="e-idTenant"
                 type="text"
-                value={form.estado}
-                onChange={(e) => set("estado", e.target.value)}
-                maxLength={60}
-                className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label htmlFor="e-cidade" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
-                Cidade
-                <FieldHelp text="Cidade onde a unidade está sediada." position="bottom" />
-              </label>
-              <input
-                id="e-cidade"
-                type="text"
-                value={form.cidade}
-                onChange={(e) => set("cidade", e.target.value)}
+                value={form.idTenant}
+                onChange={(e) => set("idTenant", e.target.value)}
                 maxLength={120}
-                className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label htmlFor="e-telefone" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
-                Telefone
-                <FieldHelp text="Telefone comercial principal da unidade." position="bottom" />
-              </label>
-              <input
-                id="e-telefone"
-                type="tel"
-                value={form.telefone}
-                onChange={(e) => set("telefone", e.target.value)}
-                placeholder="(11) 99999-9999"
-                maxLength={30}
                 className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
             <div>
               <label htmlFor="e-dataInicio" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
                 Data de início
-                <FieldHelp text="Quando a unidade começou a operar oficialmente." position="bottom" />
               </label>
               <input
                 id="e-dataInicio"
@@ -310,7 +259,6 @@ export function EditUnitModal({
             <div>
               <label htmlFor="e-horizonte" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
                 Horizonte
-                <FieldHelp text="Faixa de faturamento atual da unidade (H1 a H5)." position="bottom" />
               </label>
               <select
                 id="e-horizonte"

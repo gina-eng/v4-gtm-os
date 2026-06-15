@@ -9,33 +9,26 @@ import {
   type Horizonte,
   type RegionalSigla,
 } from "@/lib/validations/organizations";
-import { FieldHelp } from "@/components/ui/field-help";
 
 type FormState = {
   name: string;
-  socioExecutivoNome: string;
-  socioExecutivoEmail: string;
+  franqueado: string;
+  cnpj: string;
+  idTenant: string;
   regional: RegionalSigla | "";
-  estado: string;
-  cidade: string;
-  telefone: string;
   horizonteAtual: Horizonte;
   dataInicio: string; // YYYY-MM-DD
 };
 
 const initial: FormState = {
   name: "",
-  socioExecutivoNome: "",
-  socioExecutivoEmail: "",
+  franqueado: "",
+  cnpj: "",
+  idTenant: "",
   regional: "",
-  estado: "",
-  cidade: "",
-  telefone: "",
   horizonteAtual: "H1",
   dataInicio: "",
 };
-
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function AddUnitModal({
   open,
@@ -68,10 +61,7 @@ export function AddUnitModal({
   }, [open]);
 
   const nameValid = form.name.trim().length >= 3 && form.name.trim().length <= 120;
-  const emailValid =
-    form.socioExecutivoEmail.trim() === "" ||
-    emailRegex.test(form.socioExecutivoEmail.trim());
-  const valid = nameValid && emailValid;
+  const valid = nameValid;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -85,12 +75,10 @@ export function AddUnitModal({
         body: JSON.stringify({
           name: form.name.trim(),
           horizonteAtual: form.horizonteAtual,
-          socioExecutivoNome: form.socioExecutivoNome.trim() || null,
-          socioExecutivoEmail: form.socioExecutivoEmail.trim() || null,
+          franqueado: form.franqueado.trim() || null,
+          cnpj: form.cnpj.trim() || null,
+          idTenant: form.idTenant.trim() || null,
           regional: form.regional || null,
-          estado: form.estado.trim() || null,
-          cidade: form.cidade.trim() || null,
-          telefone: form.telefone.trim() || null,
           dataInicio: form.dataInicio || null,
         }),
       });
@@ -136,7 +124,6 @@ export function AddUnitModal({
           <div>
             <label htmlFor="name" className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
               Nome da Unidade <span className="text-destructive">*</span>
-              <FieldHelp text="Nome público da franquia (ex: Franquia SP 02). Aparece em relatórios e no topo das telas." position="bottom" />
             </label>
             <input
               id="name"
@@ -158,18 +145,17 @@ export function AddUnitModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label
-                htmlFor="socioNome"
+                htmlFor="franqueado"
                 className="text-xs font-medium text-foreground mb-1 flex items-center gap-1"
               >
-                Nome do Sócio Executivo
-                <FieldHelp text="Pessoa responsável pela operação da unidade — principal ponto de contato com a Matriz." position="bottom" />
+                Franqueado
               </label>
               <input
-                id="socioNome"
+                id="franqueado"
                 type="text"
-                value={form.socioExecutivoNome}
+                value={form.franqueado}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, socioExecutivoNome: e.target.value }))
+                  setForm((f) => ({ ...f, franqueado: e.target.value }))
                 }
                 maxLength={120}
                 className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -178,26 +164,20 @@ export function AddUnitModal({
 
             <div>
               <label
-                htmlFor="socioEmail"
+                htmlFor="cnpj"
                 className="text-xs font-medium text-foreground mb-1 flex items-center gap-1"
               >
-                Email do Sócio Executivo
-                <FieldHelp text="E-mail principal do sócio. Usado em notificações, convites de acesso e relatórios automatizados." position="bottom" />
+                CNPJ
               </label>
               <input
-                id="socioEmail"
-                type="email"
-                value={form.socioExecutivoEmail}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, socioExecutivoEmail: e.target.value }))
-                }
-                placeholder="socio@v4company.com"
-                maxLength={255}
+                id="cnpj"
+                type="text"
+                value={form.cnpj}
+                onChange={(e) => setForm((f) => ({ ...f, cnpj: e.target.value }))}
+                placeholder="00.000.000/0000-00"
+                maxLength={18}
                 className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              {!emailValid && (
-                <p className="text-xs text-destructive mt-1">Email inválido.</p>
-              )}
             </div>
           </div>
 
@@ -207,7 +187,6 @@ export function AddUnitModal({
               className="text-xs font-medium text-foreground mb-1 flex items-center gap-1"
             >
               Regional
-              <FieldHelp text="Regional V4 a que a unidade pertence — define qual gerente regional acompanha a operação." position="bottom" />
             </label>
             <select
               id="regional"
@@ -229,62 +208,20 @@ export function AddUnitModal({
             </select>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label
-                htmlFor="estado"
-                className="text-xs font-medium text-foreground mb-1 flex items-center gap-1"
-              >
-                Estado
-                <FieldHelp text="UF onde a unidade opera (ex: SP, RJ, MG)." position="bottom" />
-              </label>
-              <input
-                id="estado"
-                type="text"
-                value={form.estado}
-                onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value }))}
-                placeholder="Ex: SP"
-                maxLength={60}
-                className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="cidade"
-                className="text-xs font-medium text-foreground mb-1 flex items-center gap-1"
-              >
-                Cidade
-                <FieldHelp text="Cidade onde a unidade está sediada." position="bottom" />
-              </label>
-              <input
-                id="cidade"
-                type="text"
-                value={form.cidade}
-                onChange={(e) => setForm((f) => ({ ...f, cidade: e.target.value }))}
-                placeholder="Ex: São Paulo"
-                maxLength={120}
-                className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label
-                htmlFor="telefone"
+                htmlFor="idTenant"
                 className="text-xs font-medium text-foreground mb-1 flex items-center gap-1"
               >
-                Telefone
-                <FieldHelp text="Telefone comercial principal da unidade. Aceita formatos com DDD e máscara." position="bottom" />
+                ID Tenant
               </label>
               <input
-                id="telefone"
-                type="tel"
-                value={form.telefone}
-                onChange={(e) => setForm((f) => ({ ...f, telefone: e.target.value }))}
-                placeholder="(11) 99999-9999"
-                maxLength={30}
+                id="idTenant"
+                type="text"
+                value={form.idTenant}
+                onChange={(e) => setForm((f) => ({ ...f, idTenant: e.target.value }))}
+                maxLength={120}
                 className="w-full h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -295,7 +232,6 @@ export function AddUnitModal({
                 className="text-xs font-medium text-foreground mb-1 flex items-center gap-1"
               >
                 Data de início da Unidade
-                <FieldHelp text="Quando a unidade começou a operar oficialmente. Usado pra calcular tempo de casa em análises." position="bottom" />
               </label>
               <input
                 id="dataInicio"
@@ -313,7 +249,6 @@ export function AddUnitModal({
               className="text-xs font-medium text-foreground mb-1 flex items-center gap-1"
             >
               Horizonte
-              <FieldHelp text="Faixa de faturamento atual da unidade (H1 a H5). Define metas, mix de produtos e estratégia de mídia." position="bottom" />
             </label>
             <select
               id="horizonte"

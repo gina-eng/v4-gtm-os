@@ -36,6 +36,18 @@ export type CapacidadeOption = (typeof CAPACIDADE_OPTIONS)[number];
 export const CARGOS_COMERCIAIS = ["LDR", "BDR", "SDR", "CLOSER", "KAM"] as const;
 export type CargoComercial = (typeof CARGOS_COMERCIAIS)[number];
 
+/**
+ * Rótulo de exibição do cargo. A chave interna (gravada no jsonb e usada pelo
+ * motor — ex.: mapa `KAM: "won"` no funil-reverso) permanece "KAM"; só o texto
+ * na UI vira "Account Manager". Demais cargos exibem o próprio valor.
+ */
+const CARGO_LABEL_OVERRIDES: Record<string, string> = {
+  KAM: "Account Manager",
+};
+export function cargoLabel(cargo: string): string {
+  return CARGO_LABEL_OVERRIDES[cargo] ?? cargo;
+}
+
 export const TIME_COMERCIAL_DEFAULT: TimeComercialMembro[] = [
   { email: "", cargo: "LDR", salario: 2_800, comissaoPct: 2.5, capacidadePct: 100 },
   { email: "", cargo: "BDR", salario: 3_500, comissaoPct: 4.0, capacidadePct: 100 },

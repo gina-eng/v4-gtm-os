@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
-import { FieldHelp } from "@/components/ui/field-help";
 import { formatBRL, formatPercent } from "@/components/premissas/format";
 import { WizardFooter } from "./wizard-footer";
 import type { HorizonteCrescimento } from "@/lib/premissas/matriz-defaults";
@@ -97,13 +96,11 @@ export function StepHorizontes({
                 <dl className="px-3 py-2.5 text-xs flex-1 space-y-2">
                   <ReadField
                     label="Faixa Min"
-                    help="Piso da faixa de faturamento mensal que caracteriza este horizonte (em R$)."
                   >
                     <span className="tabular-nums">{formatBRL(r.faixaMin)}</span>
                   </ReadField>
                   <ReadField
                     label="Faixa Máx"
-                    help="Teto da faixa de faturamento mensal (em R$). 'Sem teto' em H5 (unidade já consolidada)."
                   >
                     <span className="tabular-nums">
                       {r.faixaMax === null ? (
@@ -115,7 +112,6 @@ export function StepHorizontes({
                   </ReadField>
                   <ReadField
                     label="Tempo Máx (meses)"
-                    help="Tempo máximo recomendado, em meses, para a unidade passar para o próximo horizonte."
                   >
                     <span className="tabular-nums">
                       {r.tempoMaxMeses === null ? (
@@ -127,7 +123,6 @@ export function StepHorizontes({
                   </ReadField>
                   <ReadField
                     label="Cresc. Mensal"
-                    help="Crescimento mensal mínimo esperado dentro do horizonte para evoluir no prazo."
                   >
                     <span className="inline-flex items-center gap-1 text-success font-medium tabular-nums">
                       {formatPercent(r.crescMensalPct, 1)}
@@ -156,18 +151,15 @@ export function StepHorizontes({
 
 function ReadField({
   label,
-  help,
   children,
 }: {
   label: string;
-  help: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
         {label}
-        <FieldHelp text={help} position="bottom" />
       </dt>
       <dd className="text-xs text-foreground">{children}</dd>
     </div>

@@ -6,7 +6,7 @@
  *   npm run db:migrate     → aplica no banco (precisa de DATABASE_URL_DIRECT)
  *
  * Sub-fases:
- * - F1.1: organizations, audit_log
+ * - F1.1: unidades (ex-`organizations`), audit_log
  * - F1.MOCK+F1.3 (atual): users, sessions, memberships
  */
 
@@ -68,11 +68,16 @@ export const roleEnum = pgEnum("role", ["admin", "gerente", "coordenador"]);
 export const membershipStatusEnum = pgEnum("membership_status", ["active", "inactive"]);
 
 // ============================================================
-// organizations — F1.1
+// unidades (tabela física `unidades`) — F1.1
+//
+// Guarda tanto a Matriz (type='matriz', linha única) quanto as unidades
+// (type='unidade'). O símbolo TS segue `organizations` e as colunas de FK
+// nas outras tabelas seguem `organization_id` — só a tabela física e seus
+// índices/constraints foram renomeados para `unidades`.
 // ============================================================
 
 export const organizations = pgTable(
-  "organizations",
+  "unidades",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     type: orgTypeEnum("type").notNull(),
@@ -81,23 +86,24 @@ export const organizations = pgTable(
     name: varchar("name", { length: 120 }).notNull(),
     status: orgStatusEnum("status").notNull().default("active"),
     horizonteAtual: horizonteEnum("horizonte_atual").notNull().default("H1"),
-    socioExecutivoNome: varchar("socio_executivo_nome", { length: 120 }),
-    socioExecutivoEmail: varchar("socio_executivo_email", { length: 255 }),
+    /** ID da unidade em sistema externo (ex: tenant corporativo V4). Solto, sem FK. */
+    idTenant: varchar("id_tenant", { length: 120 }),
+    cnpj: varchar("cnpj", { length: 18 }),
+    /** Franqueado responsável pela unidade (ex-`socio_executivo_nome`). */
+    franqueado: varchar("franqueado", { length: 120 }),
     regional: varchar("regional", { length: 30 }),
-    estado: varchar("estado", { length: 60 }),
-    cidade: varchar("cidade", { length: 120 }),
-    telefone: varchar("telefone", { length: 30 }),
     dataInicio: date("data_inicio"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("idx_organizations_single_matriz")
+    uniqueIndex("idx_unidades_single_matriz")
       .on(table.type)
       .where(sql`${table.type} = 'matriz'`),
-    index("idx_organizations_parent").on(table.parentId),
-    index("idx_organizations_type_status").on(table.type, table.status),
-    index("idx_organizations_regional").on(table.regional),
+    index("idx_unidades_parent").on(table.parentId),
+    index("idx_unidades_type_status").on(table.type, table.status),
+    index("idx_unidades_regional").on(table.regional),
+    index("idx_unidades_id_tenant").on(table.idTenant),
   ],
 );
 

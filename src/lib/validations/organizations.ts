@@ -93,16 +93,6 @@ const optionalTrimmed = (max: number) =>
     .nullable()
     .optional();
 
-const optionalEmail = z
-  .string()
-  .trim()
-  .transform((v) => (v === "" ? null : v))
-  .nullable()
-  .optional()
-  .refine((v) => v == null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
-    message: "Email inválido",
-  });
-
 const optionalRegional = z
   .enum(REGIONAL_SIGLAS)
   .nullable()
@@ -124,12 +114,10 @@ export const createOrganizationSchema = z.object({
   name: nameSchema,
   slug: slugSchema.optional(),
   horizonteAtual: horizonteSchema.default("H1"),
-  socioExecutivoNome: optionalTrimmed(120),
-  socioExecutivoEmail: optionalEmail,
+  idTenant: optionalTrimmed(120),
+  cnpj: optionalTrimmed(18),
+  franqueado: optionalTrimmed(120),
   regional: optionalRegional,
-  estado: optionalTrimmed(60),
-  cidade: optionalTrimmed(120),
-  telefone: optionalTrimmed(30),
   dataInicio: optionalDate,
 });
 
@@ -143,12 +131,10 @@ export const updateOrganizationSchema = z
     name: nameSchema.optional(),
     status: orgStatusSchema.optional(),
     horizonteAtual: horizonteSchema.optional(),
-    socioExecutivoNome: optionalTrimmed(120),
-    socioExecutivoEmail: optionalEmail,
+    idTenant: optionalTrimmed(120),
+    cnpj: optionalTrimmed(18),
+    franqueado: optionalTrimmed(120),
     regional: optionalRegional,
-    estado: optionalTrimmed(60),
-    cidade: optionalTrimmed(120),
-    telefone: optionalTrimmed(30),
     dataInicio: optionalDate,
   })
   .refine((data) => Object.keys(data).length > 0, {

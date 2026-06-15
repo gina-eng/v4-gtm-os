@@ -278,7 +278,6 @@ export function calcularRealizadoVsProjetado(
 
   const mesAncora = getMesAncora(opts.dataInicio);
   const horizontesByH = new Map(horizontes.map((h) => [h.h, h] as const));
-  const ultimoMesFechado = getUltimoMesFechado();
 
   const mesBase = getMesBaseForecast(realizadoMensal, opts);
   const valorBase = mesBase
@@ -296,7 +295,6 @@ export function calcularRealizadoVsProjetado(
   for (const mes of MESES_ANO_2026) {
     const realizado = realizadoByMes.get(mes)?.faturamento ?? 0;
     const isAntesDaAncora = mes < mesAncora;
-    const isMesFechado = mes <= ultimoMesFechado;
 
     if (isAntesDaAncora || !mesBase) {
       linhas.push({
@@ -345,21 +343,13 @@ export function calcularRealizadoVsProjetado(
     const taxa = horizontesByH.get(promotor.horizonteVivo)?.crescMensalPct ?? 0;
     valor = Math.round(valor * (1 + taxa / 100));
 
-    if (isMesFechado) {
-      // Fechado sem dado (post-base, fat=0). Mantém valor virtual silencioso
-      // e NÃO conta nem reseta (sem signal).
-      linhas.push({
-        mes,
-        realizado: 0,
-        projetado: 0,
-        isProjetado: false,
-        horizonteAplicado: promotor.horizonteVivo,
-      });
-      continue;
-    }
-
-    // Futuro: o horizonte do mês é o vivo no início; promoção (se houver)
-    // acontece DEPOIS via avaliarMes.
+    // Projeção. Vale pro futuro aberto E pro mês que já virou legado mas ainda
+    // não tem realizado: o forecast PERSISTE (não zera) como de/para — exibe a
+    // projeção (`realizado: 0` até o CRM preencher) e segue contando promoção,
+    // igual a quando o mês estava aberto. Quando o realizado entra, `mesBase`
+    // avança e o mês cai no ramo de cima (passa a mostrar o realizado).
+    // O horizonte do mês é o vivo no início; promoção (se houver) acontece
+    // DEPOIS via avaliar.
     linhas.push({
       mes,
       realizado,

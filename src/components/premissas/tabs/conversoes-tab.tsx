@@ -4,7 +4,6 @@ import { useState } from "react";
 import { EditableSection, SectionBadge } from "../editable-section";
 import { CurrencyCell, PercentCell } from "../editable-cell";
 import { formatBRL, formatPercent } from "../format";
-import { FieldHelp } from "@/components/ui/field-help";
 import {
   type ConversaoEventos,
   type ConversaoInbound,
@@ -27,15 +26,13 @@ export function ConversoesTab({ canEdit, blocks, persist }: Props) {
     <>
       {/* INBOUND — canais que iniciam em Lead/MQL */}
       <InboundCRSection
-        title="P8 — CRs Lead Broker por Tier"
-        badge={<SectionBadge>Premissa 08</SectionBadge>}
+        title="CRs Lead Broker por Tier"
         seed={inbound.leadBroker}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoInbound", canal: "lead_broker", data })}
       />
       <InboundCRSection
-        title="P9 — CRs Black Box por Tier"
-        badge={<SectionBadge>Premissa 09</SectionBadge>}
+        title="CRs Black Box por Tier"
         seed={inbound.blackBox}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoInbound", canal: "black_box", data })}
@@ -55,29 +52,25 @@ export function ConversoesTab({ canEdit, blocks, persist }: Props) {
 
       {/* OUTBOUND — canais que iniciam em Lead → SQL (sem etapa MQL) */}
       <OutboundCRSection
-        title="P11 — Outbound: Indicação"
-        badge={<SectionBadge>Premissa 11</SectionBadge>}
+        title="Outbound: Indicação"
         seed={outbound.indicacao}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "indicacao", data })}
       />
       <OutboundCRSection
-        title="P12 — Outbound: Recovery"
-        badge={<SectionBadge>Premissa 12</SectionBadge>}
+        title="Outbound: Recovery"
         seed={outbound.recovery}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recovery", data })}
       />
       <OutboundCRSection
-        title="P13 — Outbound: Recomendação"
-        badge={<SectionBadge>Premissa 13</SectionBadge>}
+        title="Outbound: Recomendação"
         seed={outbound.recomendacao}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recomendacao", data })}
       />
       <OutboundCRSection
-        title="P14 — Outbound: Prospecção Ativa"
-        badge={<SectionBadge>Premissa 14</SectionBadge>}
+        title="Outbound: Prospecção Ativa"
         seed={outbound.prospeccao}
         canEdit={canEdit}
         onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "prospeccao", data })}
@@ -105,7 +98,7 @@ function InboundCRSection({
   onPersist,
 }: {
   title: string;
-  badge: React.ReactNode;
+  badge?: React.ReactNode;
   seed: ConversaoInbound[];
   canEdit: boolean;
   onPersist: (data: ConversaoInbound[]) => Promise<boolean>;
@@ -143,19 +136,18 @@ function InboundCRSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Tier de cliente por porte.">Tier</Th>
-              <Th align="right" help="CR1 = % de Leads que viram MQL (Marketing Qualified Lead).">CR1 L→MQL</Th>
-              <Th align="right" help="CR2 = % de MQLs que viram SQL (Sales Qualified Lead).">CR2 MQL→SQL</Th>
-              <Th align="right" help="CR3 = % de SQLs que viram SAL (Sales Accepted Lead — reunião realizada).">CR3 SQL→SAL</Th>
-              <Th align="right" help="CR4 = % de SALs que fecham deal (Won).">CR4 SAL→Won</Th>
+              <Th>Tier</Th>
+              <Th align="right">CR1 L→MQL</Th>
+              <Th align="right">CR2 MQL→SQL</Th>
+              <Th align="right">CR3 SQL→SAL</Th>
+              <Th align="right">CR4 SAL→Won</Th>
               <th className="bg-table-header text-table-header-foreground/70 h-8 font-medium px-2 py-1.5 text-[10px] uppercase tracking-wider text-right border-l border-table-header-foreground/20">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR5 W→At
-                  <FieldHelp text="Pós-venda: % de Won que viram clientes Ativos." position="bottom" />
                 </span>
               </th>
-              <Th align="right" help="Pós-venda: % de Ativos que renovam o contrato.">CR6 At→Ren</Th>
-              <Th align="right" help="Pós-venda: % de Renovações que viram Expansão (upsell).">CR7 Ren→Exp</Th>
+              <Th align="right">CR6 At→Ren</Th>
+              <Th align="right">CR7 Ren→Exp</Th>
             </tr>
           </thead>
           <tbody>
@@ -221,8 +213,8 @@ function MeetingBrokerSection({
 
   return (
     <EditableSection
-      title="P10 — Meeting Broker (Enterprise)"
-      badge={<SectionBadge>Premissa 10 · SQL → SAL → Won</SectionBadge>}
+      title="Meeting Broker (Enterprise)"
+      badge={<SectionBadge>SQL → SAL → Won</SectionBadge>}
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
@@ -246,12 +238,12 @@ function MeetingBrokerSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Canal de aquisição — neste caso, Meeting Broker (exclusivo para tier Enterprise).">Canal</Th>
-              <Th align="right" help="Custo por SQL qualificado entregue pelo Meeting Broker.">Custo/SQL</Th>
-              <Th align="right" help="% de SQLs que viram SAL (reunião realizada).">CR3 SQL→SAL</Th>
-              <Th align="right" help="% de SALs que fecham deal (Won).">CR4 SAL→Won</Th>
-              <Th help="Meta de fechamento esperada do canal.">Meta</Th>
-              <Th help="Comportamento típico do pipeline do canal.">Pipeline</Th>
+              <Th>Canal</Th>
+              <Th align="right">Custo/SQL</Th>
+              <Th align="right">CR3 SQL→SAL</Th>
+              <Th align="right">CR4 SAL→Won</Th>
+              <Th>Meta</Th>
+              <Th>Pipeline</Th>
             </tr>
           </thead>
           <tbody>
@@ -312,8 +304,8 @@ function EventosSection({
 
   return (
     <EditableSection
-      title="P10b — Eventos (multi-tier)"
-      badge={<SectionBadge>Premissa 10b · SQL → SAL → Won</SectionBadge>}
+      title="Eventos (multi-tier)"
+      badge={<SectionBadge>SQL → SAL → Won</SectionBadge>}
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
@@ -335,16 +327,16 @@ function EventosSection({
       }}
     >
       <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        Eventos próprios/de mercado — inbound funil curto (sem MQL). Custo/SQL é único; CR3/CR4 variam por tier. Orçamento vem do Split EV em P6.
+        Eventos próprios/de mercado — inbound funil curto (sem MQL). Custo/SQL é único; CR3/CR4 variam por tier. Orçamento vem do Split EV.
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Configuração geral do canal Eventos.">Configuração</Th>
-              <Th align="right" help="Custo por SQL qualificado entregue pelo canal Eventos.">Custo/SQL</Th>
-              <Th help="Meta de fechamento esperada do canal.">Meta</Th>
-              <Th help="Comportamento típico do pipeline do canal.">Pipeline</Th>
+              <Th>Configuração</Th>
+              <Th align="right">Custo/SQL</Th>
+              <Th>Meta</Th>
+              <Th>Pipeline</Th>
             </tr>
           </thead>
           <tbody>
@@ -363,9 +355,9 @@ function EventosSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Tier do cliente.">Tier</Th>
-              <Th align="right" help="% de SQLs que viram SAL (reunião realizada) no tier.">CR3 SQL→SAL</Th>
-              <Th align="right" help="% de SALs que fecham deal (Won) no tier.">CR4 SAL→Won</Th>
+              <Th>Tier</Th>
+              <Th align="right">CR3 SQL→SAL</Th>
+              <Th align="right">CR4 SAL→Won</Th>
             </tr>
           </thead>
           <tbody>
@@ -403,7 +395,7 @@ function OutboundCRSection({
   onPersist,
 }: {
   title: string;
-  badge: React.ReactNode;
+  badge?: React.ReactNode;
   seed: ConversaoOutbound[];
   canEdit: boolean;
   onPersist: (data: ConversaoOutbound[]) => Promise<boolean>;
@@ -441,12 +433,12 @@ function OutboundCRSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Tier de cliente por porte.">Tier</Th>
-              <Th align="right" help="CR1 outbound: % de Leads que pulam direto para SQL (sem etapa MQL).">CR1 L→SQL</Th>
-              <Th align="right" help="% de SQLs que viram SAL (reunião realizada).">CR3 SQL→SAL</Th>
-              <Th align="right" help="% de SALs que fecham deal (Won).">CR4 SAL→Won</Th>
-              <Th align="right" help="Pós-venda: % de Ativos que renovam o contrato.">CR6 At→Ren</Th>
-              <Th align="right" help="Pós-venda: % de Renovações que viram Expansão.">CR7 Ren→Exp</Th>
+              <Th>Tier</Th>
+              <Th align="right">CR1 L→SQL</Th>
+              <Th align="right">CR3 SQL→SAL</Th>
+              <Th align="right">CR4 SAL→Won</Th>
+              <Th align="right">CR6 At→Ren</Th>
+              <Th align="right">CR7 Ren→Exp</Th>
             </tr>
           </thead>
           <tbody>
@@ -513,8 +505,8 @@ function MixSubcanaisSection({
 
   return (
     <EditableSection
-      title="P16 — Mix Subcanais Outbound por Horizonte"
-      badge={<SectionBadge>Premissa 16 · % de Leads</SectionBadge>}
+      title="Mix de Subcanais Outbound por Horizonte"
+      badge={<SectionBadge>% de Leads</SectionBadge>}
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
@@ -538,12 +530,12 @@ function MixSubcanaisSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Horizonte da unidade (H1–H5).">Horizonte</Th>
-              <Th align="right" help="% dos leads outbound originados de indicações de clientes.">Indicação</Th>
-              <Th align="right" help="% dos leads outbound originados de recuperação de clientes inativos.">Recovery</Th>
-              <Th align="right" help="% dos leads outbound originados de recomendação ativa (parceiros).">Recomendação</Th>
-              <Th align="right" help="% dos leads outbound originados de prospecção fria (cold calls/email).">Prospecção</Th>
-              <Th align="right" help="Soma dos 4 subcanais — deve totalizar 100% por horizonte.">Total</Th>
+              <Th>Horizonte</Th>
+              <Th align="right">Indicação</Th>
+              <Th align="right">Recovery</Th>
+              <Th align="right">Recomendação</Th>
+              <Th align="right">Prospecção</Th>
+              <Th align="right">Total</Th>
             </tr>
           </thead>
           <tbody>
@@ -591,26 +583,16 @@ function MixSubcanaisSection({
 function Th({
   children,
   align = "left",
-  help,
 }: {
   children: React.ReactNode;
   align?: "left" | "right" | "center";
-  help?: string;
 }) {
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-  const innerAlign = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
   return (
     <th
       className={`bg-table-header text-table-header-foreground h-8 font-medium px-2 py-1.5 text-[10px] uppercase tracking-wider ${alignClass}`}
     >
-      {help ? (
-        <span className={`inline-flex items-center gap-1 ${innerAlign}`}>
-          {children}
-          <FieldHelp text={help} position="bottom" />
-        </span>
-      ) : (
-        children
-      )}
+      {children}
     </th>
   );
 }

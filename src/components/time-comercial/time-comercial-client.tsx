@@ -5,17 +5,21 @@ import { useRouter } from "next/navigation";
 import { Info, Plus, X } from "lucide-react";
 import { CurrencyCell, PercentCell } from "@/components/premissas/editable-cell";
 import { formatBRL, formatInt } from "@/components/premissas/format";
-import { FieldHelp } from "@/components/ui/field-help";
 import { CargoSelect } from "@/components/iniciar/cargo-select";
 import {
   CAPACIDADE_OPTIONS,
   CARGOS_COMERCIAIS,
+  cargoLabel,
   type Horizonte,
   type MetricaOperacional,
   type TimeComercialMembro,
 } from "@/lib/premissas/matriz-defaults";
-import type { LinhaRampUp } from "@/lib/premissas/funil-reverso";
-import { formatMesPt, MESES_ANO_2026 } from "@/lib/realizado/projecao";
+import {
+  calcularPlanoContratacao,
+  type LinhaRampUp,
+  type PlanoContratacaoCargo,
+} from "@/lib/premissas/funil-reverso";
+import { formatMesPt, getMesAncora, MESES_ANO_2026 } from "@/lib/realizado/projecao";
 
 type Props = {
   organizationId: string;
@@ -28,10 +32,6 @@ type Props = {
 };
 
 const MESES = MESES_ANO_2026 as readonly string[];
-
-function custoLinhaMes(m: TimeComercialMembro): number {
-  return m.salario * (1 + m.comissaoPct / 100);
-}
 
 function normalizeRow(r: Partial<TimeComercialMembro> & Record<string, unknown>): TimeComercialMembro {
   return {
@@ -139,8 +139,6 @@ export function TimeComercialClient({
     }
   }
 
-  const custoTotal = rows.reduce((acc, r) => acc + custoLinhaMes(r), 0);
-
   // Disponível por cargo = soma da capacidadePct/100 das pessoas com aquele cargo.
   const disponivelPorCargo = useMemo(() => {
     const m = new Map<string, number>();
@@ -157,9 +155,93 @@ export function TimeComercialClient({
     return m;
   }, [linhasRampUp]);
 
+  // Mês de referência pra comissão: onde a unidade está agora (mês corrente),
+  // com piso no início de operação e teto no fim do horizonte do forecast.
+  const mesReferencia = useMemo(() => {
+    const ancora = getMesAncora(dataInicio);
+    const hoje = new Date();
+    const atual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+    let mes = atual < ancora ? ancora : atual;
+    if (mes < MESES[0]) mes = MESES[0];
+    const ultimo = MESES[MESES.length - 1];
+    if (mes > ultimo) mes = ultimo;
+    return mes;
+  }, [dataInicio]);
+
+  // Receita projetada do mês de referência — base da comissão por produção.
+  const receitaMesRef = rampUpByMes.get(mesReferencia)?.recTotal ?? 0;
+
+  // Produção atribuída a cada pessoa: a receita do mês incide por cargo e é
+  // rateada entre as pessoas do mesmo cargo pela capacidade atual de cada uma.
+  const producaoPessoa = (m: TimeComercialMembro): number => {
+    const capCargo = disponivelPorCargo.get(m.cargo) ?? 0;
+    if (capCargo <= 0) return 0;
+    return receitaMesRef * ((m.capacidadePct / 100) / capCargo);
+  };
+  const comissaoPessoa = (m: TimeComercialMembro): number =>
+    producaoPessoa(m) * (m.comissaoPct / 100);
+  // Custo mensal = salário base + comissão sobre a produção gerada (não sobre o salário).
+  const custoLinhaMes = (m: TimeComercialMembro): number => m.salario + comissaoPessoa(m);
+
+  const custoTotal = rows.reduce((acc, r) => acc + custoLinhaMes(r), 0);
+
   const cargos = useMemo(
     () => metricasOperacionais.map((x) => x.cargo),
     [metricasOperacionais],
+  );
+
+  const metricaByCargo = useMemo(
+    () => new Map(metricasOperacionais.map((m) => [m.cargo, m])),
+    [metricasOperacionais],
+  );
+
+  // Índice do mês-âncora (abertura da unidade) dentro de 2026 — base do plano.
+  const mesAncoraIdx = useMemo(() => {
+    const i = MESES.indexOf(getMesAncora(dataInicio));
+    return i < 0 ? 0 : i;
+  }, [dataInicio]);
+
+  // Plano de contratação por cargo (lead time + rampagem). Reage às edições
+  // não salvas do time via `disponivelPorCargo`; o `necessário` vem do forecast.
+  const planoByCargo = useMemo(() => {
+    const m = new Map<string, PlanoContratacaoCargo>();
+    for (const cargo of cargos) {
+      const metrica = metricaByCargo.get(cargo);
+      if (!metrica) continue;
+      const necessarioPorMes = MESES.map(
+        (mes) => rampUpByMes.get(mes)?.headcount[cargo] ?? 0,
+      );
+      m.set(
+        cargo,
+        calcularPlanoContratacao(
+          cargo,
+          necessarioPorMes,
+          disponivelPorCargo.get(cargo) ?? 0,
+          metrica,
+          mesAncoraIdx,
+        ),
+      );
+    }
+    return m;
+  }, [cargos, metricaByCargo, rampUpByMes, disponivelPorCargo, mesAncoraIdx]);
+
+  // Headcount total contratado (folha) por mês = soma do gross-up de cada cargo.
+  const hcContratadoByMes = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const mes of MESES) {
+      let total = 0;
+      for (const plano of planoByCargo.values()) {
+        const linha = plano.porMes.find((p) => p.mes === mes);
+        total += linha?.hcContratado ?? 0;
+      }
+      m.set(mes, total);
+    }
+    return m;
+  }, [planoByCargo]);
+
+  const totalVagasAno = useMemo(
+    () => Array.from(planoByCargo.values()).reduce((a, p) => a + p.totalVagas, 0),
+    [planoByCargo],
   );
 
   const picoHc = linhasRampUp.reduce((a, l) => Math.max(a, l.hcTotal), 0);
@@ -184,7 +266,7 @@ export function TimeComercialClient({
           </div>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Cadastre cada pessoa do time comercial. A capacidade-padrão de cada cargo (P17) define o WIP limit; a capacidade atual da pessoa modula sobre isso. O cálculo de HC necessário usa o forecast 2026.
+          Cadastre cada pessoa do time comercial. A capacidade-padrão de cada cargo define o WIP limit; a capacidade atual da pessoa modula sobre isso. O cálculo de HC necessário usa o forecast 2026.
         </p>
       </div>
 
@@ -215,10 +297,7 @@ export function TimeComercialClient({
             <thead>
               <tr className="border-b border-border">
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    E-mail
-                    <FieldHelp text="E-mail da pessoa. Identificador da linha." position="bottom" />
-                  </span>
+                  E-mail
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   Cargo
@@ -230,13 +309,12 @@ export function TimeComercialClient({
                   Comissão %
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    Capacidade Atual
-                    <FieldHelp text="Quanto da capacidade-padrão do cargo (P17) a pessoa está entregando hoje (0–100%)." position="bottom" />
-                  </span>
+                  Capacidade Atual
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  Custo/Mês
+                  <span className="inline-flex items-center gap-1">
+                    Custo/Mês
+                  </span>
                 </th>
                 <th className="bg-table-header h-8 w-8" aria-label="Ações" />
               </tr>
@@ -308,7 +386,10 @@ export function TimeComercialClient({
                         </select>
                       </span>
                     </td>
-                    <td className="px-2 py-2 text-xs text-right tabular-nums text-success font-medium">
+                    <td
+                      className="px-2 py-2 text-xs text-right tabular-nums text-success font-medium"
+                      title={`${formatBRL(m.salario)} salário + ${formatBRL(comissaoPessoa(m))} comissão (${m.comissaoPct}% da produção ${formatBRL(producaoPessoa(m))} atribuída no mês de ${formatMesPt(mesReferencia)})`}
+                    >
                       {formatBRL(custoLinhaMes(m))}
                     </td>
                     <td className="px-2">
@@ -348,12 +429,12 @@ export function TimeComercialClient({
         </div>
       </section>
 
-      {/* ===== Tabela: HC necessário vs disponível ===== */}
+      {/* ===== Tabela: HC necessário, plano de contratação e gap ===== */}
       <div className="mb-3 flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">Time necessário (Forecast 2026)</h2>
+        <div className="max-w-3xl">
+          <h2 className="text-sm font-semibold text-foreground">Time necessário e plano de contratação (Forecast 2026)</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            HC necessário = ceil(volume ÷ wipLimit P17). Disponível = soma da capacidade atual das pessoas cadastradas acima. Gap = necessário − disponível (positivo = falta contratar).
+            <strong>Necessário</strong> = ceil(volume ÷ wipLimit). <strong>Time atual</strong> = soma da capacidade das pessoas cadastradas acima (pronto, constante). <strong>Abrir vaga</strong> = quando contratar para a cadeira render 100% no mês certo, descontando lead time (contratação + onboarding) e rampagem do cargo. <strong>HC contratado</strong> = pessoas na folha, incluindo quem ainda rampa. <strong>Gap</strong> = necessário − produtivo projetado (já considera a rampa das novas vagas).
             {mesInicioFmt && (
               <>
                 {" "}Meses anteriores a <strong>{mesInicioFmt}</strong> ficam fora da operação da unidade e não consomem HC.
@@ -361,12 +442,22 @@ export function TimeComercialClient({
             )}
           </p>
         </div>
-        <div className="rounded border border-border bg-card px-3 py-1.5 text-right">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-            Pico de HC em 2026
+        <div className="flex items-stretch gap-2">
+          <div className="rounded border border-border bg-card px-3 py-1.5 text-right">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Pico de HC em 2026
+            </div>
+            <div className="text-base font-semibold text-accent tabular-nums">
+              {formatInt(picoHc)}
+            </div>
           </div>
-          <div className="text-base font-semibold text-accent tabular-nums">
-            {formatInt(picoHc)}
+          <div className="rounded border border-border bg-card px-3 py-1.5 text-right">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Vagas a abrir no ano
+            </div>
+            <div className="text-base font-semibold text-accent tabular-nums">
+              {formatInt(totalVagasAno)}
+            </div>
           </div>
         </div>
       </div>
@@ -375,7 +466,7 @@ export function TimeComercialClient({
         <div className="mb-3 rounded border border-info/30 bg-info/5 px-3 py-2 flex items-center gap-2 text-xs text-foreground">
           <Info className="h-3.5 w-3.5 text-info shrink-0" />
           <span>
-            Você tem alterações não salvas. A coluna <strong>Disponível</strong> já reflete as mudanças; o resto do forecast (Necessário) atualiza após salvar.
+            Você tem alterações não salvas. <strong>Time atual</strong> e o <strong>plano de contratação</strong> já refletem as mudanças; o resto do forecast (Necessário) atualiza após salvar.
           </span>
         </div>
       ) : null}
@@ -408,7 +499,7 @@ export function TimeComercialClient({
                     colSpan={MESES.length + 2}
                     className="px-3 py-8 text-center text-xs text-muted-foreground"
                   >
-                    Nenhum cargo configurado em P17 (Capacidade Operacional). Configure em /premissas para ver o cálculo de HC necessário.
+                    Nenhum cargo configurado em Capacidade Operacional. Configure em /premissas para ver o cálculo de HC necessário.
                   </td>
                 </tr>
               )}
@@ -418,11 +509,12 @@ export function TimeComercialClient({
                   cargo={cargo}
                   rampUpByMes={rampUpByMes}
                   disponivel={disponivelPorCargo.get(cargo) ?? 0}
+                  plano={planoByCargo.get(cargo)}
                 />
               ))}
               {/* HC Total (necessário) — pico do ano */}
               {cargos.length > 0 && (
-                <tr className="border-b border-border bg-muted/20 font-semibold">
+                <tr className="border-b border-border/60 bg-muted/20 font-semibold">
                   <td className="sticky left-0 z-10 bg-muted/40 border-r border-border px-3 py-2 text-xs text-foreground">
                     HC Total (necessário)
                   </td>
@@ -445,6 +537,38 @@ export function TimeComercialClient({
                   </td>
                 </tr>
               )}
+              {/* HC Total contratado (folha) — gross-up com quem ainda rampa */}
+              {cargos.length > 0 && (
+                <tr className="border-b border-border bg-muted/20 font-semibold">
+                  <td className="sticky left-0 z-10 bg-muted/40 border-r border-border px-3 py-2 text-xs text-foreground">
+                    HC Total contratado (folha)
+                  </td>
+                  {MESES.map((mes) => {
+                    const v = hcContratadoByMes.get(mes) ?? 0;
+                    const isFechado = rampUpByMes.get(mes)?.isFechado ?? false;
+                    return (
+                      <td
+                        key={mes}
+                        className={`px-3 py-2 text-xs text-right tabular-nums ${
+                          isFechado ? "text-muted-foreground" : "text-foreground"
+                        }`}
+                      >
+                        {v === 0
+                          ? "—"
+                          : v.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-bold text-foreground border-l-2 border-border">
+                    {(() => {
+                      const pico = Math.max(0, ...Array.from(hcContratadoByMes.values()));
+                      return pico === 0
+                        ? "—"
+                        : pico.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+                    })()}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -453,27 +577,49 @@ export function TimeComercialClient({
   );
 }
 
+const fmt1 = (n: number): string =>
+  n.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+
 function CargoBlock({
   cargo,
   rampUpByMes,
   disponivel,
+  plano,
 }: {
   cargo: string;
   rampUpByMes: Map<string, LinhaRampUp>;
   disponivel: number;
+  plano?: PlanoContratacaoCargo;
 }) {
+  const planoByMes = useMemo(
+    () => new Map((plano?.porMes ?? []).map((p) => [p.mes, p])),
+    [plano],
+  );
   const necessarioByMes = new Map<string, number>();
   for (const mes of MESES) {
     necessarioByMes.set(mes, rampUpByMes.get(mes)?.headcount[cargo] ?? 0);
   }
   const picoNecessario = Math.max(...Array.from(necessarioByMes.values()), 0);
-  const picoGap = picoNecessario - disponivel;
+  const picoHcContratado = Math.max(
+    0,
+    ...(plano?.porMes ?? []).map((p) => p.hcContratado),
+  );
+  // Pior gap do ano (apenas meses em operação) — referência da coluna lateral.
+  const picoGap = Math.max(
+    0,
+    ...(plano?.porMes ?? [])
+      .filter((p) => p.necessario > 0)
+      .map((p) => p.gap),
+  );
+  const leadLabel = plano
+    ? `Lead ${plano.leadMeses}m (contratação+onboarding) + rampa ${plano.rampaMeses}m = ${plano.leadTotal}m da vaga até 100% do WIP`
+    : undefined;
 
   return (
     <>
       <tr className="border-b border-border/60 bg-muted/30 font-semibold">
         <td className="sticky left-0 z-10 bg-muted/40 border-r border-border px-3 py-2 text-xs text-foreground">
-          {cargo}
+          {cargoLabel(cargo)}
         </td>
         <td colSpan={MESES.length + 1} className="bg-muted/30" />
       </tr>
@@ -500,42 +646,97 @@ function CargoBlock({
           {picoNecessario === 0 ? "—" : formatInt(picoNecessario)}
         </td>
       </tr>
-      {/* Disponível — constante no ano */}
+      {/* Time atual — pronto, constante no ano */}
       <tr className="border-b border-border/60 hover:bg-muted/20">
         <td className="sticky left-0 z-10 bg-card border-r border-border pl-8 pr-3 py-2 text-xs text-muted-foreground font-medium">
-          Disponível
+          Time atual
         </td>
         {MESES.map((mes) => (
           <td
             key={mes}
             className="px-3 py-2 text-xs text-right tabular-nums text-muted-foreground"
           >
-            {disponivel === 0
-              ? "—"
-              : disponivel.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
+            {disponivel === 0 ? "—" : fmt1(disponivel)}
           </td>
         ))}
         <td className="px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-semibold text-foreground border-l-2 border-border">
-          {disponivel === 0
-            ? "—"
-            : disponivel.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
+          {disponivel === 0 ? "—" : fmt1(disponivel)}
         </td>
       </tr>
-      {/* Gap */}
+      {/* Abrir vaga — plano de contratação (lead time + rampagem) */}
+      <tr className="border-b border-border/60 hover:bg-muted/20">
+        <td
+          className="sticky left-0 z-10 bg-card border-r border-border pl-8 pr-3 py-2 text-xs text-muted-foreground font-medium"
+          title={leadLabel}
+        >
+          Abrir vaga
+        </td>
+        {MESES.map((mes) => {
+          const p = planoByMes.get(mes);
+          const v = p?.abrirVagas ?? 0;
+          return (
+            <td
+              key={mes}
+              className={`px-3 py-2 text-xs text-right tabular-nums ${
+                v === 0
+                  ? "text-muted-foreground"
+                  : p?.abrirUrgente
+                    ? "text-destructive font-semibold"
+                    : "text-foreground font-medium"
+              }`}
+              title={
+                v > 0 && p?.abrirUrgente
+                  ? "Atrasado: a vaga já deveria estar aberta — contratar o quanto antes."
+                  : undefined
+              }
+            >
+              {v === 0 ? "—" : (p?.abrirUrgente ? `⚠ ${formatInt(v)}` : formatInt(v))}
+            </td>
+          );
+        })}
+        <td className="px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-semibold text-foreground border-l-2 border-border">
+          {!plano || plano.totalVagas === 0 ? "—" : formatInt(plano.totalVagas)}
+        </td>
+      </tr>
+      {/* HC contratado — folha (inclui quem ainda rampa) */}
+      <tr className="border-b border-border/60 hover:bg-muted/20">
+        <td className="sticky left-0 z-10 bg-card border-r border-border pl-8 pr-3 py-2 text-xs text-muted-foreground font-medium">
+          HC contratado
+        </td>
+        {MESES.map((mes) => {
+          const v = planoByMes.get(mes)?.hcContratado ?? 0;
+          const isFechado = rampUpByMes.get(mes)?.isFechado ?? false;
+          return (
+            <td
+              key={mes}
+              className={`px-3 py-2 text-xs text-right tabular-nums ${
+                isFechado ? "text-muted-foreground" : "text-foreground"
+              }`}
+            >
+              {v === 0 ? "—" : fmt1(v)}
+            </td>
+          );
+        })}
+        <td className="px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-semibold text-foreground border-l-2 border-border">
+          {picoHcContratado === 0 ? "—" : fmt1(picoHcContratado)}
+        </td>
+      </tr>
+      {/* Gap — necessário − produtivo projetado (já considera a rampa das vagas) */}
       <tr className="border-b border-border hover:bg-muted/20">
         <td className="sticky left-0 z-10 bg-card border-r border-border pl-8 pr-3 py-2 text-xs text-muted-foreground font-medium">
           Gap
         </td>
         {MESES.map((mes) => {
+          const p = planoByMes.get(mes);
           const necessario = necessarioByMes.get(mes) ?? 0;
-          const gap = necessario - disponivel;
+          const gap = p?.gap ?? necessario - disponivel;
           const isFechado = rampUpByMes.get(mes)?.isFechado ?? false;
           const color =
             necessario === 0
               ? "text-muted-foreground"
-              : gap > 0
+              : gap > 0.05
                 ? "text-destructive font-semibold"
-                : gap < 0
+                : gap < -0.05
                   ? "text-success"
                   : "text-foreground";
           return (
@@ -545,9 +746,7 @@ function CargoBlock({
                 isFechado ? "opacity-70" : ""
               }`}
             >
-              {necessario === 0
-                ? "—"
-                : gap.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
+              {necessario === 0 ? "—" : fmt1(gap)}
             </td>
           );
         })}
@@ -555,14 +754,12 @@ function CargoBlock({
           className={`px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-semibold border-l-2 border-border ${
             picoNecessario === 0
               ? "text-muted-foreground"
-              : picoGap > 0
+              : picoGap > 0.05
                 ? "text-destructive"
                 : "text-success"
           }`}
         >
-          {picoNecessario === 0
-            ? "—"
-            : picoGap.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
+          {picoNecessario === 0 ? "—" : fmt1(picoGap)}
         </td>
       </tr>
     </>

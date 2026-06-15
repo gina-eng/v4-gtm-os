@@ -114,6 +114,12 @@ type BaseProps = {
   inputClassName?: string;
   /** Valor da premissa da Matriz pra comparação (delta % aparece quando difere). */
   matrizValue?: number;
+  /**
+   * "Quebra": o valor digitado leva o funil a < 1 venda no horizonte. Escala o
+   * visual da célula de amarelo-tracejado (editável) para bordô sólido
+   * (destructive) — destoa do affordance de edição. Guardrail, não bloqueia.
+   */
+  invalid?: boolean;
 };
 
 function cellAlignClass(align: BaseProps["align"]) {
@@ -122,13 +128,17 @@ function cellAlignClass(align: BaseProps["align"]) {
   return "text-right";
 }
 
-function editingWrapperClass(align: BaseProps["align"]) {
+function editingWrapperClass(align: BaseProps["align"], invalid = false) {
   // Wrapper visual com borda pontilhada amarela — `flex max-w-full` permite
   // que a caixa encolha junto com a célula quando a tabela fica responsiva
   // (colunas em %). O `min-w-0` evita que o flex item force overflow.
+  // Em quebra, escala pra bordô sólido (destructive) — destoa do amarelo.
+  const tone = invalid
+    ? "border-solid border-destructive bg-destructive/10"
+    : "border-dashed border-warning bg-warning/5";
   return `flex max-w-full min-w-0 items-center justify-${
     align === "left" ? "start" : align === "center" ? "center" : "end"
-  } gap-1 px-1.5 py-0.5 border border-dashed border-warning bg-warning/5 rounded`;
+  } gap-1 px-1.5 py-0.5 border ${tone} rounded`;
 }
 
 /** Input numérico genérico (sem formatação de moeda/%). */
@@ -145,6 +155,7 @@ export function NumberCell({
   min,
   max,
   matrizValue,
+  invalid = false,
   lockableZero = false,
   realtime = true,
   inputMode = "numeric",
@@ -275,7 +286,7 @@ export function NumberCell({
     </span>
   ) : null;
   const inputSlot = (
-    <span className={editingWrapperClass(align)}>
+    <span className={editingWrapperClass(align, invalid)}>
       <MaskedNumberInput
         value={Number.isFinite(value) ? value : 0}
         onChange={onChange}

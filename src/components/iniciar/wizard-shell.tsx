@@ -20,6 +20,17 @@ export function WizardShell({ unitName, completedSteps, children }: Props) {
   const currentSlug = pathname.split("/iniciar/")[1]?.split("/")[0] ?? "";
   const completedSet = new Set(completedSteps);
 
+  // "metricas-operacionais" foi fundido ao passo "time-comercial" (Time &
+  // Capacidade) na UI; o data layer ainda guarda os dois. Aqui colapsamos a
+  // exibição: o passo único só conta como concluído quando AMBOS estão salvos.
+  const DISPLAY_STEPS = SETUP_STEPS.filter((s) => s !== "metricas-operacionais");
+  const isStepDone = (step: SetupStep) =>
+    step === "time-comercial"
+      ? completedSet.has("time-comercial") && completedSet.has("metricas-operacionais")
+      : completedSet.has(step);
+  const displayedDone = DISPLAY_STEPS.filter(isStepDone).length;
+  const allDone = displayedDone === DISPLAY_STEPS.length;
+
   return (
     <div className="flex gap-6 h-full min-h-0">
       {/* ============ SIDEBAR ============ */}
@@ -33,9 +44,13 @@ export function WizardShell({ unitName, completedSteps, children }: Props) {
         </p>
 
         <ol className="flex flex-col gap-1">
-          {SETUP_STEPS.map((step, idx) => {
-            const done = completedSet.has(step);
-            const isActive = currentSlug === step;
+          {DISPLAY_STEPS.map((step, idx) => {
+            const done = isStepDone(step);
+            // "time-comercial" também fica ativo quando o usuário está na rota
+            // antiga de métricas (que redireciona pro passo fundido).
+            const isActive =
+              currentSlug === step ||
+              (step === "time-comercial" && currentSlug === "metricas-operacionais");
             const isResumo = false;
             return (
               <li key={step}>
@@ -85,12 +100,12 @@ export function WizardShell({ unitName, completedSteps, children }: Props) {
             >
               <span
                 className={`h-5 w-5 shrink-0 rounded-full flex items-center justify-center ${
-                  completedSet.size === SETUP_STEPS.length
+                  allDone
                     ? "bg-success text-success-foreground"
                     : "bg-muted text-muted-foreground"
                 }`}
               >
-                {completedSet.size === SETUP_STEPS.length ? (
+                {allDone ? (
                   <Check className="h-3 w-3" />
                 ) : (
                   <CircleDashed className="h-3 w-3" />
@@ -99,7 +114,7 @@ export function WizardShell({ unitName, completedSteps, children }: Props) {
               <div className="flex flex-col min-w-0">
                 <span className="text-xs font-medium leading-tight">Resumo & finalizar</span>
                 <span className="text-[10px] text-muted-foreground">
-                  {completedSet.size}/{SETUP_STEPS.length} passos
+                  {displayedDone}/{DISPLAY_STEPS.length} passos
                 </span>
               </div>
             </Link>

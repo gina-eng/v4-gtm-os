@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { CurrencyCell, IntegerCell } from "@/components/premissas/editable-cell";
 import { formatBRL, formatPercent } from "@/components/premissas/format";
-import { FieldHelp } from "@/components/ui/field-help";
 import { WizardFooter } from "./wizard-footer";
 import type {
   Horizonte,
@@ -113,7 +112,11 @@ export function StepRealizadoHistorico({
       }),
     [rows, horizontes, horizonteAtual, dataInicio],
   );
-  const futuros = preview.filter((p) => p.mes > ULTIMO_MES_FECHADO);
+  // Projeção inclui TODO mês depois do mês-base — inclusive um mês já fechado no
+  // calendário mas ainda sem realizado preenchido (no setup é o normal: a unidade
+  // ainda não digitou o mês mais recente). Esse mês NÃO some como legado-zerado;
+  // mostra o forecast (de/para) até o realizado entrar e a curva re-ancorar nele.
+  const projetados = preview.filter((p) => p.isProjetado);
 
   const totalRealizado = rows.reduce((acc, r) => acc + r.faturamento, 0);
   // Mês-base = fechado mais recente com faturamento. Sem ele não há projeção.
@@ -157,12 +160,12 @@ export function StepRealizadoHistorico({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                <Th help="Mês fechado do ano corrente.">Mês</Th>
-                <Th align="right" help="Faturamento realizado pela unidade no mês (R$).">Faturamento</Th>
-                <Th align="right" help="Investimento em mídia no mês — Lead Broker + Black Box (R$).">Investido</Th>
-                <Th align="right" help="Leads inbound (Lead Broker) gerados no mês.">Leads IB</Th>
-                <Th align="right" help="Leads outbound (Black Box) gerados no mês.">Leads OB</Th>
-                <Th align="right" help="Deals fechados (Won) no mês.">Won</Th>
+                <Th>Mês</Th>
+                <Th align="right">Faturamento</Th>
+                <Th align="right">Investido</Th>
+                <Th align="right">Leads IB</Th>
+                <Th align="right">Leads OB</Th>
+                <Th align="right">Won</Th>
               </tr>
             </thead>
             <tbody>
@@ -233,22 +236,18 @@ export function StepRealizadoHistorico({
             <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground">
               Trajetória projetada · até dez 2026
             </h3>
-            <FieldHelp
-              text="Projeção partindo do mês fechado mais recente preenchido e capitalizando pela taxa do horizonte atual da unidade (P1). Re-ancora sempre no último mês fechado com faturamento."
-              position="bottom"
-            />
           </header>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <Th>Mês</Th>
-                  <Th align="right" help="Faturamento projetado mês-a-mês a partir do último mês fechado.">Projetado</Th>
-                  <Th align="right" help="Horizonte usado para projetar este mês (P1).">Horizonte</Th>
+                  <Th align="right">Projetado</Th>
+                  <Th align="right">Horizonte</Th>
                 </tr>
               </thead>
               <tbody>
-                {futuros.map((p, idx) => (
+                {projetados.map((p, idx) => (
                   <tr
                     key={p.mes}
                     className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
@@ -297,26 +296,16 @@ export function StepRealizadoHistorico({
 function Th({
   children,
   align = "left",
-  help,
 }: {
   children: React.ReactNode;
   align?: "left" | "right" | "center";
-  help?: string;
 }) {
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-  const innerAlign = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
   return (
     <th
       className={`bg-table-header text-table-header-foreground h-8 font-medium px-2 py-1.5 text-[10px] uppercase tracking-wider ${alignClass}`}
     >
-      {help ? (
-        <span className={`inline-flex items-center gap-1 ${innerAlign}`}>
-          {children}
-          <FieldHelp text={help} position="bottom" />
-        </span>
-      ) : (
-        children
-      )}
+      {children}
     </th>
   );
 }

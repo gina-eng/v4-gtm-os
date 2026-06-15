@@ -1,0 +1,491 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Check } from "lucide-react";
+import { usePersistBlock } from "./persist-block";
+import { PremissasModeloTab } from "./tabs/premissas-modelo-tab";
+import { ConversoesTab } from "./tabs/conversoes-tab";
+import { TimeCapacidade } from "./time-capacidade";
+import { EditableSection, SectionBadge } from "./editable-section";
+import { CurrencyCell, IntegerCell } from "./editable-cell";
+import { formatBRL } from "./format";
+import type { PremissasBlocks } from "@/db/repositories/premissas";
+import type {
+  Horizonte,
+  MetricaOperacional,
+  RealizadoMensal,
+  TimeComercialMembro,
+} from "@/lib/premissas/matriz-defaults";
+import {
+  formatMesPt,
+  getMesAncora,
+  MESES_ANO_2026,
+  ULTIMO_MES_FECHADO,
+} from "@/lib/realizado/projecao";
+
+type CacContext = {
+  investido: number;
+  won: number;
+  faturamento: number;
+  unidades: number;
+} | null;
+
+type Tab = "time-capacidade" | "premissas" | "conversoes" | "realizado";
+
+const TABS: Array<{ id: Tab; label: string; sub: string }> = [
+  { id: "time-capacidade", label: "TIME & CAPACIDADE", sub: "Pessoas + capacidade" },
+  { id: "premissas", label: "PREMISSAS", sub: "Valores do modelo" },
+  { id: "conversoes", label: "CONVERSÕES", sub: "CRs por canal" },
+  { id: "realizado", label: "REALIZADO", sub: "Histórico mensal" },
+];
+
+type Props = {
+  unitName: string;
+  organizationId: string;
+  horizonteAtual: Horizonte;
+  /** Data de inauguração da unidade — define o mês-âncora do realizado. */
+  dataInicio: string | null;
+  blocks: PremissasBlocks;
+  cacContext: CacContext;
+  /** Time real da unidade (modelo completo por pessoa) — aba Time & Capacidade. */
+  team: TimeComercialMembro[];
+  /** Métricas operacionais por cargo da unidade. */
+  metrics: MetricaOperacional[];
+  /** Premissa da Matriz por cargo — alimenta os badges de diferença das métricas. */
+  metricsMatriz: MetricaOperacional[];
+  realizadoHistorico: RealizadoMensal[];
+  completedSteps: readonly string[];
+  totalSteps: number;
+  /** ISO string do momento em que o setup foi concluído, ou null se incompleto. */
+  completedAt: string | null;
+};
+
+/**
+ * Visão consolidada e EDITÁVEL do que a unidade preencheu no setup guiado
+ * (/iniciar). Reúne num só item de menu os mesmos blocos editáveis de /premissas
+ * (modelo + conversões) — aqui apontando para as premissas da própria unidade —
+ * mais o Realizado Histórico, que só existia dentro do wizard.
+ *
+ * O passo-a-passo segue existindo só pra guiar o primeiro preenchimento; aqui o
+ * usuário ajusta qualquer campo direto, sem reabrir o wizard. A persistência
+ * reusa os mesmos endpoints: /api/premissas (blocos) e /api/units/[id]/setup
+ * (realizado) — ambos já revalidam o forecast da unidade.
+ */
+export function PremissasUnidadeClient({
+  unitName,
+  organizationId,
+  horizonteAtual,
+  dataInicio,
+  blocks,
+  cacContext,
+  team,
+  metrics,
+  metricsMatriz,
+  realizadoHistorico,
+  completedSteps,
+  totalSteps,
+  completedAt,
+}: Props) {
+  const [tab, setTab] = useState<Tab>("time-capacidade");
+  const persistBlock = usePersistBlock();
+  const completedCount = completedSteps.length;
+  const allDone = completedCount >= totalSteps;
+
+  return (
+    <>
+      {/* ========== TÍTULO + STATUS ========== */}
+      <div className="mb-4">
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">
+              {unitName}
+            </div>
+            <h1 className="text-2xl font-semibold text-foreground">Premissas da Unidade</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Edite aqui o que você configurou no setup — cada seção salva ao confirmar.
+              O <em>setup guiado</em> segue disponível pra refazer o passo-a-passo.
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1.5">
+            {allDone ? (
+              <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-success/15 text-success">
+                  <Check className="h-3.5 w-3.5" />
+                </span>
+                Setup concluído
+                {completedAt
+                  ? ` em ${new Date(completedAt).toLocaleDateString("pt-BR")}`
+                  : ""}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                {completedCount} de {totalSteps} passos concluídos
+              </div>
+            )}
+            <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-success inline-block" />
+              Salvo na própria unidade
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ========== TABS ========== */}
+      <div className="flex items-end border-b border-border mb-4">
+        <div className="flex">
+          {TABS.map((t) => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`flex flex-col items-start gap-0.5 px-5 pt-2 pb-2 -mb-px border-b-2 transition-colors ${
+                  active
+                    ? "border-accent text-accent"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span className="text-xs font-semibold uppercase tracking-wider">{t.label}</span>
+                <span className="text-[10px] text-muted-foreground">{t.sub}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ========== CONTEÚDO DA TAB ========== */}
+      {tab === "time-capacidade" && (
+        <TimeCapacidadeEditable
+          organizationId={organizationId}
+          initialTeam={team}
+          initialMetrics={metrics}
+          metricsMatriz={metricsMatriz}
+          cacContext={cacContext}
+        />
+      )}
+      {tab === "premissas" && (
+        <PremissasModeloTab
+          canEdit
+          cpmqlReadOnly
+          showTimeCapacidade={false}
+          horizonteAtual={horizonteAtual}
+          cacContext={cacContext}
+          blocks={blocks}
+          persist={persistBlock}
+        />
+      )}
+      {tab === "conversoes" && (
+        <ConversoesTab canEdit blocks={blocks} persist={persistBlock} />
+      )}
+      {tab === "realizado" && (
+        <RealizadoHistoricoEditable
+          organizationId={organizationId}
+          dataInicio={dataInicio}
+          initial={realizadoHistorico}
+        />
+      )}
+    </>
+  );
+}
+
+// ============================================================
+// Time & Capacidade (editável) — time real por pessoa + capacidade operacional.
+// Persiste os dois blocos pelo setup endpoint (que revalida o forecast da
+// unidade) e dá router.refresh() pra refletir na hora — mesmo padrão dos outros
+// editores. A UI (tabelas + cards ao vivo) vem do TimeCapacidade compartilhado.
+// ============================================================
+
+async function patchSetupStep(
+  organizationId: string,
+  step: "time-comercial" | "metricas-operacionais",
+  data: unknown,
+): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/units/${organizationId}/setup`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ step, data }),
+    });
+    if (res.ok) return null;
+    const body = await res.json().catch(() => ({}));
+    return body.error ?? "Não foi possível salvar.";
+  } catch (err) {
+    return err instanceof Error ? err.message : "Erro de rede ao salvar.";
+  }
+}
+
+function TimeCapacidadeEditable({
+  organizationId,
+  initialTeam,
+  initialMetrics,
+  metricsMatriz,
+  cacContext,
+}: {
+  organizationId: string;
+  initialTeam: TimeComercialMembro[];
+  initialMetrics: MetricaOperacional[];
+  metricsMatriz: MetricaOperacional[];
+  cacContext: CacContext;
+}) {
+  const router = useRouter();
+  const [team, setTeam] = useState<TimeComercialMembro[]>(initialTeam);
+  const [metrics, setMetrics] = useState<MetricaOperacional[]>(initialMetrics);
+  const [savedTeam, setSavedTeam] = useState<TimeComercialMembro[]>(initialTeam);
+  const [savedMetrics, setSavedMetrics] = useState<MetricaOperacional[]>(initialMetrics);
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const dirty =
+    JSON.stringify(team) !== JSON.stringify(savedTeam) ||
+    JSON.stringify(metrics) !== JSON.stringify(savedMetrics);
+
+  async function handleSave() {
+    if (status === "saving" || !dirty) return;
+    setStatus("saving");
+    setErrorMsg(null);
+    const e1 = await patchSetupStep(organizationId, "time-comercial", team);
+    if (e1) {
+      setErrorMsg(e1);
+      setStatus("error");
+      return;
+    }
+    const e2 = await patchSetupStep(organizationId, "metricas-operacionais", metrics);
+    if (e2) {
+      setErrorMsg(e2);
+      setStatus("error");
+      return;
+    }
+    setSavedTeam(team);
+    setSavedMetrics(metrics);
+    setStatus("saved");
+    router.refresh();
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <TimeCapacidade
+        team={team}
+        metrics={metrics}
+        onTeamChange={(rows) => {
+          setTeam(rows);
+          setStatus("idle");
+        }}
+        onMetricsChange={(rows) => {
+          setMetrics(rows);
+          setStatus("idle");
+        }}
+        metricsMatriz={metricsMatriz}
+        cacContext={cacContext}
+      />
+      <div className="sticky bottom-0 flex items-center justify-end gap-3 rounded border border-border bg-card/95 backdrop-blur px-4 py-2.5">
+        {errorMsg && <span className="mr-auto text-xs text-destructive">{errorMsg}</span>}
+        {status === "saved" && !dirty && (
+          <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-success">
+            <Check className="h-3.5 w-3.5" /> Salvo na própria unidade
+          </span>
+        )}
+        {dirty && (
+          <button
+            type="button"
+            onClick={() => {
+              setTeam(savedTeam);
+              setMetrics(savedMetrics);
+              setStatus("idle");
+              setErrorMsg(null);
+            }}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Descartar
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirty || status === "saving"}
+          className="inline-flex h-8 items-center gap-1.5 rounded bg-accent px-4 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {status === "saving" ? "Salvando…" : "Salvar alterações"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Realizado Histórico (editável) — único bloco do setup fora de /premissas;
+// mora no jsonb da unit_setups e persiste pelo PATCH /api/units/[id]/setup.
+// ============================================================
+
+/** PATCH do step realizado-historico. Retorna true em caso de sucesso. */
+async function persistRealizado(
+  organizationId: string,
+  rows: RealizadoMensal[],
+): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/units/${organizationId}/setup`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ step: "realizado-historico", data: rows }),
+    });
+    if (!res.ok) console.error("[realizado] falha ao salvar", await res.text());
+    return res.ok;
+  } catch (err) {
+    console.error("[realizado] erro de rede ao salvar", err);
+    return false;
+  }
+}
+
+function emptyMes(mes: string): RealizadoMensal {
+  return { mes, faturamento: 0, investido: 0, leadsIb: 0, leadsOb: 0, won: 0 };
+}
+
+function RealizadoHistoricoEditable({
+  organizationId,
+  dataInicio,
+  initial,
+}: {
+  organizationId: string;
+  dataInicio: string | null;
+  initial: RealizadoMensal[];
+}) {
+  // Mesma regra do wizard: meses fechados do intervalo [mês-âncora, último
+  // fechado]. Reaproveita o valor salvo de cada mês ou entra zerado.
+  const mesAncora = useMemo(() => getMesAncora(dataInicio), [dataInicio]);
+  const skeleton = useMemo(() => {
+    const byMes = new Map(initial.map((r) => [r.mes, r]));
+    return MESES_ANO_2026.filter(
+      (mes) => mes <= ULTIMO_MES_FECHADO && mes >= mesAncora,
+    ).map((mes) => byMes.get(mes) ?? emptyMes(mes));
+  }, [initial, mesAncora]);
+
+  const [saved, setSaved] = useState<RealizadoMensal[]>(skeleton);
+  const [draft, setDraft] = useState<RealizadoMensal[]>(skeleton);
+  const [isEditing, setIsEditing] = useState(false);
+  const rows = isEditing ? draft : saved;
+  const total = rows.reduce((acc, r) => acc + r.faturamento, 0);
+
+  function patch<K extends keyof RealizadoMensal>(idx: number, k: K, v: RealizadoMensal[K]) {
+    setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [k]: v } : r)));
+  }
+
+  return (
+    <EditableSection
+      title="Realizado Histórico"
+      badge={<SectionBadge>Base do Forecast</SectionBadge>}
+      canEdit={rows.length > 0}
+      isEditing={isEditing}
+      onEdit={() => {
+        setDraft(saved);
+        setIsEditing(true);
+      }}
+      onSave={() => {
+        setSaved(draft);
+        setIsEditing(false);
+        void persistRealizado(organizationId, draft);
+      }}
+      onCancel={() => {
+        setDraft(saved);
+        setIsEditing(false);
+      }}
+    >
+      <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
+        Números reais dos meses fechados de 2026 — base para o cálculo de Forecast.
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+          Ainda não há meses fechados para esta unidade no ano corrente.
+        </p>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <Th>Mês</Th>
+                  <Th align="right">Faturamento</Th>
+                  <Th align="right">Investido</Th>
+                  <Th align="right">Leads IB</Th>
+                  <Th align="right">Leads OB</Th>
+                  <Th align="right">Won</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => (
+                  <tr
+                    key={r.mes}
+                    className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
+                  >
+                    <td className="px-2 py-2 text-xs font-medium text-foreground">
+                      {formatMesPt(r.mes)}
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell
+                        isEditing={isEditing}
+                        value={r.faturamento}
+                        onChange={(v) => patch(idx, "faturamento", v)}
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <CurrencyCell
+                        isEditing={isEditing}
+                        value={r.investido}
+                        onChange={(v) => patch(idx, "investido", v)}
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <IntegerCell
+                        isEditing={isEditing}
+                        value={r.leadsIb}
+                        onChange={(v) => patch(idx, "leadsIb", v)}
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <IntegerCell
+                        isEditing={isEditing}
+                        value={r.leadsOb}
+                        onChange={(v) => patch(idx, "leadsOb", v)}
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-right">
+                      <IntegerCell
+                        isEditing={isEditing}
+                        value={r.won}
+                        onChange={(v) => patch(idx, "won", v)}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Acumulado do período
+            </span>
+            <span className="text-base font-bold text-accent tabular-nums">{formatBRL(total)}</span>
+          </div>
+        </>
+      )}
+    </EditableSection>
+  );
+}
+
+function Th({
+  children,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right" | "center";
+}) {
+  const alignClass =
+    align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  return (
+    <th
+      className={`bg-table-header text-table-header-foreground h-8 font-medium px-2 py-1.5 text-[10px] uppercase tracking-wider whitespace-nowrap ${alignClass}`}
+    >
+      {children}
+    </th>
+  );
+}

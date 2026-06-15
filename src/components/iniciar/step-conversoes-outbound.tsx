@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { PercentCell } from "@/components/premissas/editable-cell";
-import { FieldHelp } from "@/components/ui/field-help";
 import { WizardFooter } from "./wizard-footer";
 import type { ConversaoOutbound } from "@/lib/premissas/matriz-defaults";
 import type { ConversoesOutboundData } from "@/lib/unit-setup-types";
@@ -19,10 +18,10 @@ type Props = {
 type CanalKey = keyof ConversoesOutboundData;
 
 const CANAIS: Array<{ key: CanalKey; title: string }> = [
-  { key: "indicacao", title: "P11 — Outbound: Indicação" },
-  { key: "recovery", title: "P12 — Outbound: Recovery" },
-  { key: "recomendacao", title: "P13 — Outbound: Recomendação" },
-  { key: "prospeccao", title: "P14 — Outbound: Prospecção Ativa" },
+  { key: "indicacao", title: "Outbound: Indicação" },
+  { key: "recovery", title: "Outbound: Recovery" },
+  { key: "recomendacao", title: "Outbound: Recomendação" },
+  { key: "prospeccao", title: "Outbound: Prospecção Ativa" },
 ];
 
 export function StepConversoesOutbound({ organizationId, initial, matriz, fromMatriz }: Props) {
@@ -126,31 +125,26 @@ function OutboundSection({
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR1 L→SQL
-                  <FieldHelp text="% de Leads que pulam direto para SQL (sem etapa MQL)." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR3 SQL→SAL
-                  <FieldHelp text="% de SQLs que viram SAL (reunião realizada)." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR4 SAL→Won
-                  <FieldHelp text="% de SALs que fecham deal (Won)." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider border-l border-table-header-foreground/20">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR6 At→Ren
-                  <FieldHelp text="Pós-venda: % de Ativos que renovam contrato." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR7 Ren→Exp
-                  <FieldHelp text="Pós-venda: % de Renovações que viram Expansão." position="bottom" />
                 </span>
               </th>
             </tr>

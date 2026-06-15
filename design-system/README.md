@@ -11,8 +11,10 @@ Esta é a fonte da verdade para qualquer interface do GTM OS V4. Telas, protóti
 ```
 design-system/
 ├── README.md                  ← você está aqui — overview, princípios, workflow
+├── package.json               ← manifesto do pacote (@v4/design-system) — exports p/ uso externo
+├── index.ts                   ← barrel dos componentes React (export { V4Logo })
 ├── tokens.css                 ← variáveis CSS (light + dark) — importe no entrypoint global
-├── tailwind.config.ts         ← config Tailwind com todos os tokens V4 mapeados
+├── tailwind.config.ts         ← preset Tailwind com todos os tokens V4 mapeados
 ├── references/
 │   ├── tokens.md              ← referência humana: cores HSL, tipografia, espaçamento
 │   ├── components.md          ← componentes primitivos: botões, inputs, badges, cards…
@@ -23,6 +25,8 @@ design-system/
     ├── boilerplate.html       ← playground HTML standalone (Tailwind CDN + tokens prontos)
     └── v4-logo.svg            ← logo oficial em SVG (fonte canônica do `V4Logo.tsx`)
 ```
+
+> **Pacote:** `@v4/design-system`. É distribuído como **código-fonte** (`.ts`/`.tsx`, sem etapa de build) — o app consumidor transpila via bundler. Dentro deste repo o consumo é por caminho relativo/alias; em outros apps, pelo nome do pacote (ver "Como usar").
 
 ### Como usar o logo
 
@@ -39,32 +43,88 @@ import { V4Logo } from "@/design-system/components/V4Logo";
 
 ## Como usar
 
-### 1. Em um projeto React/Next.js (produção)
+### 1. Em OUTRO app React/Next (kit portável) — `@v4/design-system`
+
+O pacote é distribuído como **código-fonte** (sem build). Escolha um método pra trazer a pasta pro projeto e depois faça o _wiring_ (passos A–E).
+
+#### Instalar (escolha um)
+
+```bash
+# a) Git submodule (recomendado p/ time interno — atualiza com `git submodule update --remote`)
+git submodule add <url-do-repo> vendor/v4-design-system
+npm i ./vendor/v4-design-system          # registra @v4/design-system no node_modules
+
+# b) Tarball (snapshot versionado, sem registry)
+#   no repo do DS:    npm pack            → gera v4-design-system-0.1.0.tgz
+#   no app consumidor: npm i ../caminho/v4-design-system-0.1.0.tgz
+
+# c) Cópia simples (mais rápido, menos sustentável)
+cp -R caminho/design-system ./src/design-system   # e importe por caminho relativo
+```
+
+> Para publicar num **registry privado** (npm/GitHub Packages) e instalar com `npm i @v4/design-system`, remova `"private": true` do `package.json` e configure o registry. Submodule/tarball não exigem isso.
+
+#### Wiring (Next.js)
+
+**A. Tokens CSS** — importe antes do seu CSS global (define as variáveis `--accent`, etc.):
 
 ```ts
-// app/layout.tsx (Next.js) ou main.tsx (Vite)
-import "@/design-system/tokens.css";
+// app/layout.tsx
+import "@v4/design-system/tokens.css";
+import "./globals.css"; // seu CSS continua só com @tailwind base/components/utilities
 ```
+
+**B. Preset do Tailwind** — herda cores, radius e fontes V4:
 
 ```ts
 // tailwind.config.ts
-import v4Config from "./design-system/tailwind.config";
+import type { Config } from "tailwindcss";
+import v4Preset from "@v4/design-system/tailwind";
 
 export default {
-  ...v4Config,
-  content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "./design-system/**/*.{ts,tsx,html}",
-  ],
-};
+  presets: [v4Preset],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+} satisfies Config;
+// (alternativa equivalente: `...v4Preset` em vez de `presets: [v4Preset]`)
 ```
 
+**C. Transpilar o pacote** — ele ship’a `.ts/.tsx` crus:
+
+```ts
+// next.config.ts
+export default { transpilePackages: ["@v4/design-system"] };
+```
+
+**D. Fonte Inter** — os tokens assumem Inter:
+
 ```tsx
-// Agora qualquer componente pode usar as classes V4:
+// app/layout.tsx
+import { Inter } from "next/font/google";
+const inter = Inter({ subsets: ["latin"], weight: ["400","500","600","700"], variable: "--font-inter" });
+// <html className={inter.variable}><body className="font-sans">…
+```
+
+**E. Dark mode** (opcional) — adicione/remova a classe `dark` no `<html>`.
+
+#### Usar
+
+```tsx
+import { V4Logo } from "@v4/design-system";
+
+<V4Logo className="h-6 w-6" />
 <button className="bg-accent text-accent-foreground h-9 px-4 rounded text-sm font-medium">
   Confirmar
 </button>
+```
+
+### 1.b. Dentro deste repo (monorepo do GTM OS)
+
+Aqui o consumo é por caminho relativo/alias — não pelo nome do pacote:
+
+```ts
+// src/app/globals.css → @import "../../design-system/tokens.css";
+// tailwind.config.ts   → import v4Config from "./design-system/tailwind.config"; export default { ...v4Config, content: [...] }
+// componentes          → import { V4Logo } from "@/design-system/components/V4Logo";
 ```
 
 ### 2. Em um protótipo HTML standalone (mockup rápido)
@@ -152,5 +212,6 @@ V4 dashboards são **desktop-first**. Se algo precisar de mobile, ok, mas o defa
 ## Manutenção
 
 - Mudou uma cor? Atualize **3 lugares**: `tokens.css`, `references/tokens.md`, e a tabela no topo deste README.
-- Adicionou componente novo? Documente em `references/components.md` antes de espalhar pelo código.
+- Adicionou componente novo? Exporte no `index.ts`, documente em `references/components.md` e mantenha as classes Tailwind dele dentro do vocabulário de tokens.
 - Criou um pattern composto reutilizável? Adicione em `references/patterns.md` para evitar reinvenção.
+- Mudança que os apps externos vão puxar? Suba a `version` no `package.json` (semver) — quebra de tokens/API = major.

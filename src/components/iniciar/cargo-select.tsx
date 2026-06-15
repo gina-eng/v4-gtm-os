@@ -1,6 +1,6 @@
 "use client";
 
-import { CARGOS_COMERCIAIS } from "@/lib/premissas/matriz-defaults";
+import { CARGOS_COMERCIAIS, cargoLabel } from "@/lib/premissas/matriz-defaults";
 
 /**
  * Select padronizado de cargo do time comercial. Reusado no wizard de
@@ -54,7 +54,7 @@ export function CargoSelect({
         >
           {CARGOS_COMERCIAIS.map((c) => (
             <option key={c} value={c}>
-              {c}
+              {cargoLabel(c)}
             </option>
           ))}
           <option value={SENTINEL_OUTRO}>OUTRO…</option>

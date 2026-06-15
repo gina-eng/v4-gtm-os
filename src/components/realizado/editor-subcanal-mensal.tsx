@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Loader2, Lock, RotateCcw, TriangleAlert } from "lucide-react";
 import { CurrencyCell, IntegerCell } from "@/components/premissas/editable-cell";
 import { formatBRL, formatInt } from "@/components/premissas/format";
-import { FieldHelp } from "@/components/ui/field-help";
 import { useRouter } from "next/navigation";
 import type {
   DistSplitHorizonte,
@@ -55,6 +54,28 @@ function mesCurto(mes: string): string {
   return formatMesPt(mes).split(" ")[0] ?? mes;
 }
 const cellKey = (sub: SubCanalKey, mes: string) => `${sub}|${mes}`;
+
+/**
+ * Viabilidade de uma célula fixada (subcanal × mês) — guardrail, não bloqueio.
+ * Avaliada POR CÉLULA: "esse valor gera < 1 venda NESTE mês?". O funil é linear
+ * no input de cada subcanal (won = input × eficiência), então derivamos a
+ * eficiência da célula a partir do estado salvo (won/input daquela célula) e a
+ * aplicamos ao valor que o usuário está digitando — o aviso atualiza ao vivo,
+ * mesmo antes do save. `piso` é o menor valor que fecha 1 venda (`1/eficiência`),
+ * já arredondado pra cima e blindado contra erro de float — serve tanto pro
+ * tooltip quanto pra ação "subir pro piso" (1 clique). `naoConverte`: há input
+ * mas o funil não produz won algum (conversões zeradas no mês), então piso = ∞.
+ */
+type Viab = { status: "sub" | "naoConverte"; liveWon: number; piso: number };
+
+function viabTitle(v: Viab, fmt: (n: number) => string): string {
+  if (v.status === "naoConverte") {
+    return "Com as conversões atuais, este subcanal não gera nenhuma venda no horizonte.";
+  }
+  const wonTxt = v.liveWon.toFixed(2).replace(".", ",");
+  const pisoTxt = Number.isFinite(v.piso) ? ` Piso ≈ ${fmt(v.piso)} para 1 venda no horizonte.` : "";
+  return `Projeta ${wonTxt} venda no horizonte (< 1).${pisoTxt}`;
+}
 
 export function EditorSubcanalMensal({
   organizationId,
@@ -162,6 +183,37 @@ export function EditorSubcanalMensal({
     });
   }
 
+  // Viabilidade por célula FIXADA (override) — ver `Viab`. Só avalia células com
+  // valor fixado pelo usuário (não as "auto"), pra não pintar de vermelho canais
+  // naturalmente pequenos que ninguém editou. Recomputa ao digitar (overrides) e
+  // quando o forecast salvo volta (subCanalByKey, pós-refresh).
+  const viabByCell = useMemo(() => {
+    const m = new Map<string, Viab>();
+    for (const [key, liveInput] of overrides) {
+      const [sub, mes] = key.split("|") as [SubCanalKey, string];
+      if (isReadOnlyMes(mes) || !liberado(sub, mes)) continue;
+      const l = subCanalByKey.get(key);
+      const savedInput = l ? (isInbound(sub) ? l.invest : l.leads) : 0;
+      const savedWon = l ? l.won : 0;
+      // Eficiência da célula (won por R$/lead) — invariante de escala (funil
+      // linear), então vale pro valor que está sendo digitado agora.
+      const eff = savedInput > 0 ? savedWon / savedInput : 0;
+      const liveWon = eff * liveInput;
+      if (savedWon <= 0 && savedInput > 0) {
+        m.set(key, { status: "naoConverte", liveWon: 0, piso: Infinity });
+      } else if (liveWon < 1) {
+        // Menor valor que fecha 1 venda, arredondado pra cima (R$ inteiro /
+        // lead inteiro). +1 de margem se o arredondamento de float ainda
+        // deixar liveWon < 1 — garante que o clique sempre limpa o vermelho.
+        let piso = eff > 0 ? Math.ceil(1 / eff) : Infinity;
+        if (Number.isFinite(piso) && eff * piso < 1) piso += 1;
+        m.set(key, { status: "sub", liveWon, piso });
+      }
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overrides, subCanalByKey]);
+
   // Save debounced.
   useEffect(() => {
     if (serialize(overrides) === lastSavedRef.current) return;
@@ -224,9 +276,6 @@ export function EditorSubcanalMensal({
           <h2 className="text-xs uppercase tracking-wider font-semibold text-foreground">
             Alocação por subcanal
           </h2>
-          <span className="text-[10px] text-muted-foreground">
-            — fixe o investimento (R$) de um subcanal inbound ou os leads de um outbound. O que sobra é rateado entre os não-editados. Cada grupo não pode passar do total do mês (Pace / leads OB). Células &quot;auto&quot; seguem o rateio das premissas
-          </span>
           <StatusBadge status={status} errorMsg={errorMsg} />
         </div>
       </div>
@@ -277,6 +326,7 @@ export function EditorSubcanalMensal({
               isAntesDeOperar={isAntesDeOperar}
               liberado={liberado}
               capDoMes={capInbound}
+              viabByCell={viabByCell}
               onEdit={setCelula}
               onReset={resetCelula}
             />
@@ -295,19 +345,13 @@ export function EditorSubcanalMensal({
               isAntesDeOperar={isAntesDeOperar}
               liberado={liberado}
               capDoMes={capOutbound}
+              viabByCell={viabByCell}
               onEdit={setCelula}
               onReset={resetCelula}
             />
           ))}
         </tbody>
       </table>
-      <div className="border-t border-border bg-muted/20 py-2.5">
-        <p className="sticky left-0 inline-block px-4 text-[10px] text-muted-foreground">
-          Meses fechados e anteriores ao início da unidade seguem o realizado e não são editáveis.
-          Use o ↺ para devolver uma célula ao rateio automático. Ao fixar um valor acima do
-          disponível no mês, ele é limitado ao teto restante do grupo.
-        </p>
-      </div>
     </div>
   );
 }
@@ -336,6 +380,7 @@ function LinhaSubcanal({
   isAntesDeOperar,
   liberado,
   capDoMes,
+  viabByCell,
   onEdit,
   onReset,
 }: {
@@ -349,10 +394,16 @@ function LinhaSubcanal({
   isAntesDeOperar: (mes: string) => boolean;
   liberado: (sub: SubCanalKey, mes: string) => boolean;
   capDoMes: (mes: string) => number;
+  viabByCell: Map<string, Viab>;
   onEdit: (sub: SubCanalKey, mes: string, valor: number) => void;
   onReset: (sub: SubCanalKey, mes: string) => void;
 }) {
   const fmt = grupo === "inbound" ? formatBRL : formatInt;
+  // Mês com célula em foco — ancora o popup de "ajustar pro mínimo".
+  const [focusedMes, setFocusedMes] = useState<string | null>(null);
+  // Linha "quebra" se qualquer célula fixada deste subcanal está inviável.
+  const quebrasNaLinha = MESES.filter((mes) => viabByCell.has(cellKey(sub, mes))).length;
+  const inviavel = quebrasNaLinha > 0;
   const totalAno = MESES.reduce((acc, mes) => {
     if (!liberado(sub, mes)) return acc;
     const ov = overrides.get(cellKey(sub, mes));
@@ -364,14 +415,15 @@ function LinhaSubcanal({
       <td className="sticky left-0 z-10 bg-card border-r border-border pl-6 pr-3 py-2 text-xs text-foreground font-medium">
         <span className="inline-flex items-center gap-1">
           {label}
-          <FieldHelp
-            text={
-              grupo === "inbound"
-                ? "Investimento de mídia (R$) fixado neste subcanal. Vazio = rateio automático do total do mês pelos splits. Travado quando a matriz não libera o canal no horizonte do mês."
-                : "Quantidade de leads fixada neste subcanal outbound. Vazio = rateio automático do total de leads OB pelo mix. Travado quando a matriz não libera o canal no horizonte do mês."
-            }
-            position="bottom"
-          />
+          {inviavel && (
+            <span
+              title={`${quebrasNaLinha} ${quebrasNaLinha > 1 ? "meses geram" : "mês gera"} < 1 venda — valor fixado abaixo do piso de viabilidade.`}
+              className="inline-flex items-center gap-0.5 text-destructive"
+            >
+              <TriangleAlert className="h-3 w-3" />
+              <span className="text-[9px] font-bold uppercase tracking-wider">Quebra</span>
+            </span>
+          )}
         </span>
       </td>
       {MESES.map((mes) => {
@@ -409,14 +461,16 @@ function LinhaSubcanal({
         }
         const ov = overrides.get(cellKey(sub, mes));
         if (ov === undefined) {
-          // Auto (rateio) — clicar começa um override no valor efetivo atual.
+          // Auto (rateio) — recebe a mesma borda tracejada amarela das células
+          // editáveis (afinal é editável); o texto suave + ausência do ↺
+          // distinguem do valor fixado. Clicar fixa no valor efetivo atual.
           return (
             <td key={mes} className="px-3 py-2 text-right">
               <button
                 type="button"
                 onClick={() => onEdit(sub, mes, Math.round(efetivo(sub, mes)))}
                 title="Auto (rateio) — clique para fixar"
-                className="w-full text-right text-xs tabular-nums text-muted-foreground/60 hover:text-foreground"
+                className="inline-flex w-full items-center justify-end rounded border border-dashed border-warning bg-warning/5 px-1.5 py-0.5 text-right text-xs tabular-nums text-muted-foreground/70 hover:text-foreground"
               >
                 {fmt(efetivo(sub, mes))}
               </button>
@@ -425,11 +479,24 @@ function LinhaSubcanal({
         }
         const max = maxCelula(sub, mes) + ov; // disponível + o próprio valor
         const Cell = grupo === "inbound" ? CurrencyCell : IntegerCell;
+        const cellViab = viabByCell.get(cellKey(sub, mes));
         // Reset posicionado em absoluto na borda esquerda (área de padding, onde
         // não há dígitos — valores são right-aligned), aparecendo no hover. Assim
         // o input ocupa a largura cheia da coluna e o valor não fica cortado.
         return (
-          <td key={mes} className="px-3 py-2 text-right relative group">
+          <td
+            key={mes}
+            className="px-3 py-2 text-right relative group"
+            title={cellViab ? viabTitle(cellViab, fmt) : undefined}
+            onFocus={() => setFocusedMes(mes)}
+            onBlur={(e) => {
+              // Só fecha se o foco saiu da célula de fato — clicar no botão do
+              // popup (filho do td) mantém o popup aberto (relatedTarget interno).
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                setFocusedMes((cur) => (cur === mes ? null : cur));
+              }
+            }}
+          >
             <Cell
               isEditing
               value={ov}
@@ -437,6 +504,7 @@ function LinhaSubcanal({
               max={max}
               step={grupo === "inbound" ? 1000 : 1}
               inputClassName="w-full min-w-0"
+              invalid={cellViab !== undefined}
             />
             <button
               type="button"
@@ -446,10 +514,53 @@ function LinhaSubcanal({
             >
               <RotateCcw className="h-2.5 w-2.5" />
             </button>
+            {focusedMes === mes &&
+              cellViab?.status === "sub" &&
+              Number.isFinite(cellViab.piso) &&
+              cellViab.piso <= max && (
+                // onMouseDown preventDefault mantém o foco no input ao clicar
+                // dentro do popup, pra o onClick disparar em qualquer browser.
+                <div
+                  role="alert"
+                  className="absolute right-0 top-full z-30 mt-1 w-52 rounded-md border border-destructive/50 bg-card p-2.5 text-left shadow-lg"
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  <div className="flex items-start gap-1.5">
+                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                    <p className="text-[11px] leading-snug text-foreground">
+                      Esse valor não fecha 1 venda no mês. Ajustar pro mínimo de{" "}
+                      <span className="font-semibold tabular-nums">{fmt(cellViab.piso)}</span>?
+                    </p>
+                  </div>
+                  <div className="mt-2 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onEdit(sub, mes, cellViab.piso);
+                        // Tira o foco do input pra ele ressincronizar o texto
+                        // exibido com o novo valor (só sincroniza fora de foco).
+                        (document.activeElement as HTMLElement | null)?.blur();
+                      }}
+                      className="rounded bg-destructive px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-destructive-foreground hover:opacity-90"
+                    >
+                      Aceitar mínimo
+                    </button>
+                  </div>
+                </div>
+              )}
           </td>
         );
       })}
-      <td className="px-3 py-2 text-right bg-accent/5 border-l-2 border-border text-xs tabular-nums text-accent font-semibold">
+      <td
+        className={`px-3 py-2 text-right border-l-2 text-xs tabular-nums font-semibold ${
+          inviavel ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-accent/5 text-accent"
+        }`}
+        title={
+          inviavel
+            ? `${quebrasNaLinha} ${quebrasNaLinha > 1 ? "meses fixados geram" : "mês fixado gera"} < 1 venda.`
+            : undefined
+        }
+      >
         {fmt(totalAno)}
       </td>
     </tr>

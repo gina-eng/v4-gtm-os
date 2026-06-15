@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { CurrencyCell, PercentCell } from "@/components/premissas/editable-cell";
-import { FieldHelp } from "@/components/ui/field-help";
 import { WizardFooter } from "./wizard-footer";
 import type {
   ConversaoInbound,
@@ -81,7 +80,7 @@ export function StepConversoesInbound({
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-foreground">6 · Conversões Inbound</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Taxas de conversão do funil inbound da sua unidade: Lead Broker (P8), Black Box (P9) e Meeting Broker (P10).
+          Taxas de conversão do funil inbound da sua unidade: Lead Broker, Black Box e Meeting Broker.
         </p>
       </div>
 
@@ -96,14 +95,14 @@ export function StepConversoesInbound({
       </div>
 
       <InboundSection
-        title="P8 — CRs Lead Broker por Tier"
+        title="CRs Lead Broker por Tier"
         rows={leadBroker}
         matriz={matrizLeadBroker}
         onPatch={patchLB}
       />
 
       <InboundSection
-        title="P9 — CRs Black Box por Tier"
+        title="CRs Black Box por Tier"
         rows={blackBox}
         matriz={matrizBlackBox}
         onPatch={patchBB}
@@ -114,7 +113,7 @@ export function StepConversoesInbound({
         <header className="px-4 py-2.5 border-b border-border flex items-center gap-2">
           <span aria-hidden className="inline-block w-0.5 h-3.5 bg-accent rounded-sm" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-            P10 — Meeting Broker (Enterprise)
+            Meeting Broker (Enterprise)
           </h3>
         </header>
         <div className="px-4 py-2 text-[11px] text-muted-foreground border-b border-border/60">
@@ -130,19 +129,16 @@ export function StepConversoesInbound({
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Custo/SQL
-                    <FieldHelp text="Custo por SQL qualificado entregue pelo Meeting Broker." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     CR3 SQL→SAL
-                    <FieldHelp text="% de SQLs que viram SAL (reunião realizada)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     CR4 SAL→Won
-                    <FieldHelp text="% de SALs que fecham deal (Won)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
@@ -249,43 +245,36 @@ function InboundSection({
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR1 L→MQL
-                  <FieldHelp text="% de Leads que viram MQL (Marketing Qualified Lead)." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR2 MQL→SQL
-                  <FieldHelp text="% de MQLs que viram SQL (Sales Qualified Lead)." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR3 SQL→SAL
-                  <FieldHelp text="% de SQLs que viram SAL (reunião realizada)." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR4 SAL→Won
-                  <FieldHelp text="% de SALs que fecham deal (Won)." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider border-l border-table-header-foreground/20">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR5 W→At
-                  <FieldHelp text="Pós-venda: % de Won que viram clientes Ativos." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR6 At→Ren
-                  <FieldHelp text="Pós-venda: % de Ativos que renovam contrato." position="bottom" />
                 </span>
               </th>
               <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1 justify-end">
                   CR7 Ren→Exp
-                  <FieldHelp text="Pós-venda: % de Renovações que viram Expansão (upsell)." position="bottom" />
                 </span>
               </th>
             </tr>

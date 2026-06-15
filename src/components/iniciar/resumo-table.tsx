@@ -7,8 +7,6 @@ type Props = {
   resumo: ResumoCompleto;
   /** Título do cabeçalho. Default: "Resumo do funil 2026". */
   title?: string;
-  /** Subtítulo abaixo do título. Default: versão para visão de unidade. */
-  subtitle?: string;
 };
 
 // Larguras em % — tabela cresce/encolhe com a viewport. Label e Total
@@ -79,12 +77,9 @@ function formatar(v: number, fmt: Fmt): string {
  * Linhas = métricas; colunas = 12 meses + Total 2026 (taxas/ROAS/CPL do total
  * são calculados das somas, não médias mensais).
  */
-export function ResumoTable({ resumo, title, subtitle }: Props) {
+export function ResumoTable({ resumo, title }: Props) {
   const byMes = new Map(resumo.meses.map((m) => [m.mes, m] as const));
   const headerTitle = title ?? "Resumo do funil 2026";
-  const headerSubtitle =
-    subtitle ??
-    "evolução mensal e total — calculado a partir das premissas e horizonte da unidade";
 
   return (
     <section className="rounded border border-border bg-card mb-4 overflow-x-auto">
@@ -92,7 +87,6 @@ export function ResumoTable({ resumo, title, subtitle }: Props) {
         <h3 className="text-xs uppercase tracking-wider font-semibold text-foreground">
           {headerTitle}
         </h3>
-        <p className="text-[10px] text-muted-foreground mt-0.5">{headerSubtitle}</p>
       </div>
 
       <table

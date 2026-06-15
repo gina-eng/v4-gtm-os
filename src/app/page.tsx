@@ -78,7 +78,7 @@ function UnitHome({
         <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
           <h1 className="text-xl font-semibold text-foreground">Bem-vindo de volta</h1>
           <Link
-            href="/iniciar/resumo"
+            href="/premissas-unidade"
             className="inline-flex items-center gap-1.5 h-9 px-3 rounded text-sm border border-border hover:bg-muted"
           >
             Revisar o preenchimento inicial
@@ -204,10 +204,7 @@ async function MatrizHome({ session }: { session: AuthSession }) {
       </div>
 
       {consolidado ? (
-        <ResumoTable
-          resumo={consolidado.resumo}
-          subtitle={`rede consolidada — soma de ${consolidado.unidades} unidade${consolidado.unidades === 1 ? "" : "s"}, taxas e ROAS recalculados dos totais`}
-        />
+        <ResumoTable resumo={consolidado.resumo} />
       ) : (
         <div className="bg-card border border-border rounded p-4">
           <p className="text-sm text-muted-foreground">

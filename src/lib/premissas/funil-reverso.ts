@@ -18,6 +18,7 @@ import type {
   ConversaoInbound,
   ConversaoOutbound,
   Horizonte,
+  MetricaOperacional,
   RealizadoMensal,
   SubCanalKey,
   Tier,
@@ -751,26 +752,14 @@ export function calcularForecast(
     const virtual = Math.round(effectivePrev * (1 + taxaDe(horizonte) / 100));
     // Meta pura: capitaliza a própria meta anterior pela taxa do horizonte da meta.
     const metaVirtual = Math.round(metaPrev * (1 + taxaDe(horizonteMeta) / 100));
-    if (isFechado) {
-      // Fechado sem dado (post-base, fat=0): mantém o valor virtual silencioso,
-      // não exibe projetado e não sinaliza promoção.
-      linhas.push({
-        mes,
-        horizonte,
-        isFechado: true,
-        growthTarget: 0,
-        metaMatriz: 0,
-        investTotal: 0,
-        effectiveRevenue: 0,
-        funil: emptyFunil(),
-      });
-      effectivePrev = virtual;
-      metaPrev = metaVirtual;
-      continue;
-    }
 
-    // Futuro aberto — Modelo A: invest deriva da alvo; a receita do funil vira a
-    // base do mês seguinte.
+    // Projeção (Modelo A): invest deriva da alvo; a receita do funil vira a base
+    // do mês seguinte. Vale tanto pro futuro aberto quanto pro mês que já virou
+    // legado mas ainda não tem realizado — nesse caso o forecast PERSISTE como
+    // de/para (não zera): exibe a projeção, marcada `isFechado`, até o realizado
+    // do CRM chegar e `mesBase` avançar (aí o mês passa a mostrar o realizado).
+    // Encadear `funil.recTotal` mantém o número idêntico ao que era quando o mês
+    // ainda estava aberto — a virada de mês não altera o forecast já construído.
     const growthTarget = virtual;
     const metaMatriz = metaVirtual;
     const leadsOb = leadsObDe(mes, growthTarget, false);
@@ -780,7 +769,7 @@ export function calcularForecast(
     linhas.push({
       mes,
       horizonte,
-      isFechado: false,
+      isFechado,
       growthTarget,
       metaMatriz,
       investTotal: invest,
@@ -1036,6 +1025,137 @@ export function calcularRampUp(
   }
 
   return linhas;
+}
+
+// ============================================================
+// 6b. Plano de contratação (lead time + rampagem por cargo — P17)
+//
+// Traduz o HC necessário (produtivo, estado estacionário de `calcularRampUp`)
+// num cronograma de "quando abrir cada vaga", descontando o lead time de
+// contratação+onboarding e a rampagem de cada cargo. O time atual cadastrado
+// conta como pronto (capacidade constante no ano); só as NOVAS vagas passam
+// pela curva de rampa.
+//
+// Premissas usadas (todas de MetricaOperacional / P17):
+//   leadMeses = ceil((contratacao + onboarding) / 30)   // decisão → 1º dia
+//   leadTotal = leadMeses + rampagem                      // decisão → 100% WIP
+// Modelo v1: rampa LINEAR 0→100% ao longo de `rampagem` meses; sem reposição
+// por turnover/permanência (follow-up). Função pura — fica FORA do motor
+// cacheado (LinhaRampUp não muda), então reage a edições não salvas do time.
+// ============================================================
+
+const DIAS_POR_MES = 30;
+
+export type PlanoMesCargo = {
+  /** Mês ISO `"2026-01" .. "2026-12"`. */
+  mes: string;
+  /** HC produtivo demandado pelo forecast (= `LinhaRampUp.headcount[cargo]`). */
+  necessario: number;
+  /** Capacidade pronta do time atual cadastrado (constante no ano). */
+  atual: number;
+  /** Vagas a abrir NESTE mês (inteiro) para cobrir a demanda futura. */
+  abrirVagas: number;
+  /** true quando a vaga ideal cairia antes da janela/âncora (atrasada → urgente). */
+  abrirUrgente: boolean;
+  /** Headcount total na folha = atual + contratados que já entraram (gross-up). */
+  hcContratado: number;
+  /** Capacidade produtiva projetada = atual + rampa acumulada das novas vagas. */
+  produtivoProjetado: number;
+  /** necessario − produtivoProjetado (positivo = ainda falta cobrir). */
+  gap: number;
+};
+
+export type PlanoContratacaoCargo = {
+  cargo: string;
+  /** Meses entre abrir a vaga e a pessoa entrar (contratacao + onboarding). */
+  leadMeses: number;
+  /** Meses de rampa até 100% do WIP. */
+  rampaMeses: number;
+  /** leadMeses + rampaMeses: meses entre abrir a vaga e a cadeira render 100%. */
+  leadTotal: number;
+  porMes: PlanoMesCargo[];
+  /** Total de vagas a abrir no ano. */
+  totalVagas: number;
+};
+
+/**
+ * Cronograma de contratação de um cargo a partir do HC necessário (produtivo)
+ * já calculado pelo forecast. Ver bloco acima para o modelo. Função pura.
+ *
+ * @param necessarioPorMes HC produtivo por mês, alinhado a `MESES_ANO_2026` (12 itens).
+ * @param atual            Capacidade pronta do time atual (Σ capacidadePct/100 do cargo).
+ * @param mesAncoraIdx     Índice do mês-âncora da unidade em `MESES_ANO_2026` (0 = jan).
+ */
+export function calcularPlanoContratacao(
+  cargo: string,
+  necessarioPorMes: number[],
+  atual: number,
+  metrica: Pick<MetricaOperacional, "contratacao" | "onboarding" | "rampagem">,
+  mesAncoraIdx = 0,
+): PlanoContratacaoCargo {
+  const meses = MESES_ANO_2026 as readonly string[];
+  const n = meses.length;
+  const leadMeses = Math.max(
+    0,
+    Math.ceil((metrica.contratacao + metrica.onboarding) / DIAS_POR_MES),
+  );
+  const rampaMeses = Math.max(0, Math.round(metrica.rampagem));
+  const leadTotal = leadMeses + rampaMeses;
+
+  // 1) Cadeiras (inteiras) que precisam estar produtivas além do time atual.
+  //    Running-max torna a necessidade monotônica: uma vez contratado, fica
+  //    (dip de demanda não "demite" — turnover é tratado fora do v1).
+  const cumHeads: number[] = new Array(n).fill(0);
+  let run = 0;
+  for (let m = 0; m < n; m++) {
+    run = Math.max(run, Math.max(0, (necessarioPorMes[m] ?? 0) - atual));
+    cumHeads[m] = Math.ceil(run);
+  }
+
+  // 2) Incremento de cadeiras que precisam ficar 100% produtivas em cada mês.
+  const novasNoMes: number[] = new Array(n).fill(0);
+  let prev = 0;
+  for (let m = 0; m < n; m++) {
+    novasNoMes[m] = Math.max(0, cumHeads[m] - prev);
+    prev = cumHeads[m];
+  }
+
+  // 3) Agenda cada vaga: para render 100% no mês `target`, abre em
+  //    `target − leadTotal`. Antes da âncora vira "urgente" e fixa na âncora.
+  type Vaga = { openIdx: number; startIdx: number; urgente: boolean };
+  const vagas: Vaga[] = [];
+  for (let target = 0; target < n; target++) {
+    for (let k = 0; k < novasNoMes[target]; k++) {
+      const idealOpen = target - leadTotal;
+      const urgente = idealOpen < mesAncoraIdx;
+      const openIdx = Math.max(mesAncoraIdx, idealOpen);
+      vagas.push({ openIdx, startIdx: openIdx + leadMeses, urgente });
+    }
+  }
+
+  // 4) Curvas por mês. Rampa linear: 0 no mês de entrada, 100% após rampaMeses.
+  const rampFrac = (v: Vaga, m: number): number => {
+    if (m < v.startIdx) return 0;
+    if (rampaMeses <= 0) return 1;
+    return Math.min(1, (m - v.startIdx) / rampaMeses);
+  };
+  const porMes: PlanoMesCargo[] = meses.map((mes, m) => {
+    const necessario = necessarioPorMes[m] ?? 0;
+    const produtivoProjetado =
+      atual + vagas.reduce((acc, v) => acc + rampFrac(v, m), 0);
+    return {
+      mes,
+      necessario,
+      atual,
+      abrirVagas: vagas.filter((v) => v.openIdx === m).length,
+      abrirUrgente: vagas.some((v) => v.openIdx === m && v.urgente),
+      hcContratado: atual + vagas.filter((v) => v.startIdx <= m).length,
+      produtivoProjetado,
+      gap: necessario - produtivoProjetado,
+    };
+  });
+
+  return { cargo, leadMeses, rampaMeses, leadTotal, porMes, totalVagas: vagas.length };
 }
 
 /**

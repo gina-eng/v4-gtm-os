@@ -108,12 +108,10 @@ export async function createOrganization(input: CreateOrganizationInput): Promis
       name: input.name,
       status: "active",
       horizonteAtual: input.horizonteAtual,
-      socioExecutivoNome: input.socioExecutivoNome ?? null,
-      socioExecutivoEmail: input.socioExecutivoEmail ?? null,
+      idTenant: input.idTenant ?? null,
+      cnpj: input.cnpj ?? null,
+      franqueado: input.franqueado ?? null,
       regional: input.regional ?? null,
-      estado: input.estado ?? null,
-      cidade: input.cidade ?? null,
-      telefone: input.telefone ?? null,
       dataInicio: input.dataInicio ?? null,
     })
     .returning();
@@ -129,13 +127,10 @@ export async function updateOrganization(
   if (input.name !== undefined) patch.name = input.name;
   if (input.status !== undefined) patch.status = input.status;
   if (input.horizonteAtual !== undefined) patch.horizonteAtual = input.horizonteAtual;
-  if (input.socioExecutivoNome !== undefined) patch.socioExecutivoNome = input.socioExecutivoNome;
-  if (input.socioExecutivoEmail !== undefined)
-    patch.socioExecutivoEmail = input.socioExecutivoEmail;
+  if (input.idTenant !== undefined) patch.idTenant = input.idTenant;
+  if (input.cnpj !== undefined) patch.cnpj = input.cnpj;
+  if (input.franqueado !== undefined) patch.franqueado = input.franqueado;
   if (input.regional !== undefined) patch.regional = input.regional;
-  if (input.estado !== undefined) patch.estado = input.estado;
-  if (input.cidade !== undefined) patch.cidade = input.cidade;
-  if (input.telefone !== undefined) patch.telefone = input.telefone;
   if (input.dataInicio !== undefined) patch.dataInicio = input.dataInicio;
 
   const [row] = await db

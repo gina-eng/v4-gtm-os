@@ -4,7 +4,6 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, ExternalLink, Network } from "lucide-react";
 import { formatBRL, formatBRLk, formatInt, formatPercent } from "@/components/premissas/format";
-import { FieldHelp } from "@/components/ui/field-help";
 import type {
   DistSplitHorizonte,
   Horizonte,
@@ -156,8 +155,8 @@ export function ForecastClient({
     ? "Soma das unidades visíveis. Cada unidade calcula com o próprio horizonte e ancora no realizado."
     : horizonteAtual
       ? transicoesHorizonte.length > 0
-        ? `Funil reverso 2026: meses fechados vêm do realizado; o horizonte é promovido automaticamente quando o patamar ultrapassa faixaMax. Cada faixa aplica suas próprias premissas (P1, P4, P6, P16).`
-        : `Funil reverso 2026: meses fechados vêm do realizado; meses futuros projetados pela taxa do horizonte ${horizonteAtual} (P1).`
+        ? `Funil reverso 2026: meses fechados vêm do realizado; o horizonte é promovido automaticamente quando o patamar ultrapassa faixaMax. Cada faixa aplica suas próprias premissas.`
+        : `Funil reverso 2026: meses fechados vêm do realizado; meses futuros projetados pela taxa do horizonte ${horizonteAtual}.`
       : "Funil reverso 2026 a partir das premissas da unidade.";
 
   return (
@@ -206,10 +205,10 @@ export function ForecastClient({
             )}
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <SummaryCard label="Target do ano" value={formatBRLk(targetAno)} help="Soma do faturamento-alvo dos 12 meses." />
-            <SummaryCard label="Investimento total" value={formatBRLk(investAno)} help="Soma do investimento em mídia no ano." />
-            <SummaryCard label="Receita gerada" value={formatBRLk(receitaAno)} help="Soma da receita total (IB + OB)." />
-            <SummaryCard label="Pico de headcount" value={formatInt(picoHc)} help="Maior HC total exigido em um mês (P17)." />
+            <SummaryCard label="Target do ano" value={formatBRLk(targetAno)} />
+            <SummaryCard label="Investimento total" value={formatBRLk(investAno)} />
+            <SummaryCard label="Receita gerada" value={formatBRLk(receitaAno)} />
+            <SummaryCard label="Pico de headcount" value={formatInt(picoHc)} />
           </div>
         </div>
 
@@ -404,7 +403,6 @@ function TabelaCanalSubCanal({
   return (
     <TabelaChrome
       titulo="Canal × Sub-canal"
-      subtitulo="investimento, funil e decomposição da receita por produto (P3) — cada sub-canal abre o detalhe por tier de cliente"
       horizonteByMes={horizonteByMes}
       transicoesMeses={transicoesMeses}
       skipMesesHeader
@@ -663,7 +661,6 @@ const METRICAS_RECEITA: Array<MetricRampUp> = [
     get: (l) => l.metaMatriz,
     fmt: "money",
     emphasize: true,
-    help: "Receita que a matriz projeta para o mês: parte do último realizado e capitaliza só pela taxa de crescimento do horizonte (P1). Referência fixa — não muda quando você edita investimento ou premissas do funil.",
   },
   {
     label: "Δ vs Meta",
@@ -671,20 +668,18 @@ const METRICAS_RECEITA: Array<MetricRampUp> = [
     fmt: "money",
     signed: true,
     indent: true,
-    help: "Receita Projetada − Meta Matriz. Verde = projeção acima da meta da matriz; bordô = abaixo.",
   },
   {
     label: "Receita Total",
     get: (l) => l.recTotal,
     fmt: "money",
     emphasize: true,
-    help: "Receita projetada pelo funil com as premissas e o investimento atuais — o que a unidade imagina fazer no mês.",
   },
-  { label: "Saber", get: (l) => l.saber, fmt: "money", indent: true, help: "Parcela do produto Saber (P3)." },
-  { label: "Ter", get: (l) => l.ter, fmt: "money", indent: true, help: "Parcela do produto Ter (P3)." },
-  { label: "Executar", get: (l) => l.executar, fmt: "money", indent: true, help: "Parcela do produto Executar (P3)." },
-  { label: "Receita Inbound", get: (l) => l.recInbound, fmt: "money", muted: true, help: "Receita gerada pelos sub-canais inbound (Lead Broker, Black Box, Meeting Broker, Eventos)." },
-  { label: "Receita Outbound", get: (l) => l.recOutbound, fmt: "money", muted: true, help: "Receita gerada pelo canal outbound." },
+  { label: "Saber", get: (l) => l.saber, fmt: "money", indent: true },
+  { label: "Ter", get: (l) => l.ter, fmt: "money", indent: true },
+  { label: "Executar", get: (l) => l.executar, fmt: "money", indent: true },
+  { label: "Receita Inbound", get: (l) => l.recInbound, fmt: "money", muted: true },
+  { label: "Receita Outbound", get: (l) => l.recOutbound, fmt: "money", muted: true },
 ];
 
 function TabelaReceita({
@@ -699,7 +694,6 @@ function TabelaReceita({
   return (
     <TabelaChrome
       titulo="Receita"
-      subtitulo="total, por categoria de produto (P3) e por canal (inbound/outbound)"
       horizonteByMes={horizonteByMes}
       transicoesMeses={transicoesMeses}
     >
@@ -718,10 +712,10 @@ function TabelaReceita({
 
 const METRICAS_INVESTIMENTO: Array<MetricRampUp> = [
   { label: "Investimento Total", get: (l) => l.investTotal, fmt: "money", emphasize: true },
-  { label: "Lead Broker", get: (l) => l.investLb, fmt: "money", indent: true, help: "Investimento alocado em Lead Broker (P6 splitLb)." },
-  { label: "Black Box", get: (l) => l.investBb, fmt: "money", indent: true, help: "Investimento alocado em Black Box (P6 splitBb)." },
-  { label: "Meeting Broker", get: (l) => l.investMb, fmt: "money", indent: true, help: "Investimento alocado em Meeting Broker (P6 splitMt — enterprise)." },
-  { label: "Eventos", get: (l) => l.investEv, fmt: "money", indent: true, help: "Investimento alocado em Eventos (P6 splitEv — multi-tier)." },
+  { label: "Lead Broker", get: (l) => l.investLb, fmt: "money", indent: true },
+  { label: "Black Box", get: (l) => l.investBb, fmt: "money", indent: true },
+  { label: "Meeting Broker", get: (l) => l.investMb, fmt: "money", indent: true },
+  { label: "Eventos", get: (l) => l.investEv, fmt: "money", indent: true },
 ];
 
 function TabelaInvestimentoTotal({
@@ -736,7 +730,6 @@ function TabelaInvestimentoTotal({
   return (
     <TabelaChrome
       titulo="Investimento total"
-      subtitulo="total e por fonte de mídia (P3)"
       horizonteByMes={horizonteByMes}
       transicoesMeses={transicoesMeses}
     >
@@ -867,7 +860,6 @@ type Fmt = "money" | "int" | "pct";
 
 type MetricRampUp = {
   label: string;
-  help?: string;
   get: (l: LinhaRampUp) => number;
   fmt: Fmt;
   total?: "sum" | "max" | "weighted";
@@ -918,7 +910,6 @@ function MetricRowRampUp({
       <td className={`sticky left-0 z-10 ${labelBg} border-r border-border ${metric.indent ? "pl-8 pr-3" : "px-3"} py-2 text-xs text-foreground font-medium`}>
         <span className="inline-flex items-center gap-1">
           {metric.label}
-          {metric.help && <FieldHelp text={metric.help} position="bottom" />}
         </span>
       </td>
       {MESES.map((mes) => {
@@ -972,12 +963,11 @@ function CellTotal({ valor, fmt, signed }: { valor: number; fmt: Fmt; signed?: b
   );
 }
 
-function SummaryCard({ label, value, help }: { label: string; value: string; help: string }) {
+function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded border border-border bg-card px-4 py-3">
       <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
         {label}
-        <FieldHelp text={help} position="bottom" />
       </div>
       <div className="mt-1 text-xl font-bold tabular-nums text-foreground">{value}</div>
     </div>

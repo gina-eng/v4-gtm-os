@@ -24,7 +24,11 @@ import {
   savePremissas,
   type PremissasBlocks,
 } from "@/db/repositories/premissas";
-import type { RealizadoMensal } from "@/lib/premissas/matriz-defaults";
+import type {
+  MetricaOperacional,
+  RealizadoMensal,
+  TimeComercialMembro,
+} from "@/lib/premissas/matriz-defaults";
 import {
   SETUP_STEPS,
   type SaveStepInput,
@@ -267,6 +271,39 @@ export async function getStepValues(
       return { values: unit ?? matrizDefault, matrizDefault, fromMatriz: unit === null };
     }
   }
+}
+
+/**
+ * Dados efetivos de TIME + CAPACIDADE juntos (premissa própria da unidade ou
+ * fallback Matriz), para a tela unificada `TimeCapacidade`. Substitui o uso de
+ * `getStepValues("metricas-operacionais")` agora que esse step saiu de
+ * `SETUP_STEPS` (a persistência continua pelos blocos timeComercial /
+ * metricasOperacionais).
+ */
+export type TimeCapacidadeSetup = {
+  team: TimeComercialMembro[];
+  teamMatriz: TimeComercialMembro[];
+  teamFromMatriz: boolean;
+  metrics: MetricaOperacional[];
+  metricsMatriz: MetricaOperacional[];
+  metricsFromMatriz: boolean;
+};
+
+export async function getTimeCapacidadeSetup(
+  organizationId: string,
+): Promise<TimeCapacidadeSetup> {
+  const [setup, matriz] = await Promise.all([
+    getUnitSetup(organizationId),
+    getMatrizBlocks(),
+  ]);
+  return {
+    team: setup.timeComercial ?? matriz.timeComercial,
+    teamMatriz: matriz.timeComercial,
+    teamFromMatriz: setup.timeComercial === null,
+    metrics: setup.metricasOperacionais ?? matriz.metricasOperacionais,
+    metricsMatriz: matriz.metricasOperacionais,
+    metricsFromMatriz: setup.metricasOperacionais === null,
+  };
 }
 
 // ============================================================

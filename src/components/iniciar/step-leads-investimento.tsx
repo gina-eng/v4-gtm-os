@@ -3,9 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info, Lock } from "lucide-react";
-import { CurrencyCell, PercentCell } from "@/components/premissas/editable-cell";
+import { PercentCell } from "@/components/premissas/editable-cell";
 import { formatBRL, formatPercent } from "@/components/premissas/format";
-import { FieldHelp } from "@/components/ui/field-help";
 import { WizardFooter } from "./wizard-footer";
 import type {
   DistMercado,
@@ -25,6 +24,12 @@ type Props = {
 };
 
 const HORIZONTES: Horizonte[] = ["H1", "H2", "H3", "H4", "H5"];
+
+/**
+ * Custo por SQL via Meeting Broker — referência travada da Matriz (P2.cpmqlMt = R$5.000).
+ * A unidade só visualiza; a edição fica na Matriz. Herança na camada de dados é follow-up.
+ */
+const CUSTO_SQL_MT_MATRIZ = 5_000;
 
 function horizonteIndex(h: Horizonte): number {
   return HORIZONTES.indexOf(h);
@@ -143,7 +148,7 @@ export function StepLeadsInvestimento({
         <header className="px-4 py-2.5 border-b border-border flex items-center gap-2">
           <span aria-hidden className="inline-block w-0.5 h-3.5 bg-accent rounded-sm" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-            Distribuição de Mercado por Tier
+            Distribuição de Tier por Horizonte
           </h3>
         </header>
         <div className="overflow-x-auto">
@@ -153,19 +158,16 @@ export function StepLeadsInvestimento({
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1">
                     Tier
-                    <FieldHelp text="Porte do cliente — mesmos tiers da seção anterior." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    % Mercado
-                    <FieldHelp text={`Parcela do mercado endereçável deste tier — entre os tiers já ativos em ${horizonteAtual}. A soma dos tiers ativos deve totalizar 100%.`} position="bottom" />
+                    % Distribuição
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1">
                     Entra em
-                    <FieldHelp text="A partir de qual horizonte (H1–H5) este tier passa a ser ativo na unidade." position="bottom" />
                   </span>
                 </th>
               </tr>
@@ -241,7 +243,7 @@ export function StepLeadsInvestimento({
           </h3>
         </header>
         <div className="px-4 py-2 text-[11px] text-muted-foreground border-b border-border/60">
-          % Produção = parcela do faturamento investida em mídia. Splits LB/BB/MT/EV definem a divisão entre Lead Broker, Black Box, Meeting Broker (inbound enterprise) e Eventos (inbound multi-tier). Soma deve ser ≤ 100%.
+          % Investimento = parcela do faturamento investida em mídia. Define a divisão entre Lead Broker, Black Box, Meeting Broker e Eventos.
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -250,49 +252,36 @@ export function StepLeadsInvestimento({
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1">
                     Horizonte
-                    <FieldHelp text="Faixa de faturamento da unidade (H1: até R$60K → H5: R$1,5M+). A estratégia de investimento varia por horizonte." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    % Produção
-                    <FieldHelp text="Percentual do faturamento mensal investido em mídia (LB + BB)." position="bottom" />
+                    % Investimento
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split LB
-                    <FieldHelp text="% do investimento em mídia alocado em Lead Broker (inbound pago — Meta/Google)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split BB
-                    <FieldHelp text="% do investimento em mídia alocado em Black Box (outbound estruturado — SDR + ferramentas)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split MT
-                    <FieldHelp text="% do investimento em mídia alocado em Meeting Broker (inbound enterprise, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split EV
-                    <FieldHelp text="% do investimento em mídia alocado em Eventos (inbound multi-tier, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    BB Piso
-                    <FieldHelp text="Investimento mínimo absoluto em BB. Se o split percentual ficar abaixo desse valor em R$, o piso prevalece." position="bottom" />
-                  </span>
-                </th>
-                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    Regra
-                    <FieldHelp text="Observação sobre a estratégia daquele horizonte (texto livre — não entra em fórmulas)." position="bottom" />
+                    Custo/SQL (MT)
                   </span>
                 </th>
               </tr>
@@ -338,24 +327,12 @@ export function StepLeadsInvestimento({
                     />
                   </td>
                   <td className="px-2 py-2 text-xs text-right">
-                    <CurrencyCell
-                      isEditing
-                      value={r.bbPiso}
-                      matrizValue={matrizInvest[idx]?.bbPiso}
-                      onChange={(v) => patchInvest(idx, "bbPiso", v)}
-                      step={1000}
-                      lockableZero
-                    />
-                  </td>
-                  <td className="px-2 py-2 text-xs">
-                    <span className="inline-flex items-center px-2 py-0.5 border border-dashed border-warning bg-warning/5 rounded">
-                      <input
-                        type="text"
-                        value={r.regra}
-                        onChange={(e) => patchInvest(idx, "regra", e.target.value)}
-                        placeholder="—"
-                        className="bg-transparent text-xs focus:outline-none text-foreground w-full min-w-0"
-                      />
+                    <span
+                      title="Custo por SQL via Meeting Broker — referência da Matriz (travado)"
+                      className="inline-flex items-center justify-end gap-1 w-full tabular-nums text-muted-foreground"
+                    >
+                      <Lock className="h-2.5 w-2.5 shrink-0 text-muted-foreground/60" />
+                      {formatBRL(CUSTO_SQL_MT_MATRIZ)}
                     </span>
                   </td>
                 </tr>

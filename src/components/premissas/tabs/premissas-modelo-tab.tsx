@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
 import { EditableSection, SectionBadge } from "../editable-section";
 import {
   CurrencyCell,
@@ -18,7 +18,6 @@ import {
   type TimeComercialMembro,
 } from "@/lib/premissas/matriz-defaults";
 import type { PremissaBlockPatch, PremissasBlocks } from "@/db/repositories/premissas";
-import { FieldHelp } from "@/components/ui/field-help";
 import { CargoSelect } from "@/components/iniciar/cargo-select";
 
 type PersistBlock = (patch: PremissaBlockPatch) => Promise<boolean>;
@@ -26,15 +25,26 @@ type PersistBlock = (patch: PremissaBlockPatch) => Promise<boolean>;
 type CacContext = {
   investido: number;
   won: number;
+  /** Faturamento realizado do último mês fechado — base da comissão por produção. */
+  faturamento: number;
   unidades: number;
 } | null;
 
 type Props = {
   canEdit: boolean;
-  actingAsMatriz: boolean;
+  /** Horizonte da unidade impersonada a destacar (P1/P6). null na visão matriz consolidada. */
+  horizonteAtual: Horizonte["h"] | null;
   cacContext: CacContext;
   blocks: PremissasBlocks;
   persist: PersistBlock;
+  /** CPMQL (P2) é premissa da Matriz: na visão unidade fica só-leitura. Default false (matriz edita). */
+  cpmqlReadOnly?: boolean;
+  /**
+   * Mostra Time Comercial + Capacidade Operacional no topo (template por cargo).
+   * Default true (matriz). O /premissas-unidade passa false — lá o time vive na
+   * aba dedicada "Time & Capacidade", com o modelo completo por pessoa.
+   */
+  showTimeCapacidade?: boolean;
 };
 
 /** Mapeia o membro simplificado da tela pro shape completo do bloco (template da matriz). */
@@ -42,7 +52,7 @@ function toMembroBlock(m: Membro): TimeComercialMembro {
   return { email: "", cargo: m.cargo, salario: m.salario, comissaoPct: m.comissaoPct, capacidadePct: 100 };
 }
 
-export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks, persist }: Props) {
+export function PremissasModeloTab({ canEdit, horizonteAtual, cacContext, blocks, persist, cpmqlReadOnly = false, showTimeCapacidade = true }: Props) {
   // Estado do TIME COMERCIAL fica aqui pra alimentar P17 com os mesmos cargos.
   // Cada cargo cadastrado no TIME vira uma linha na Capacidade Operacional.
   const [team, setTeam] = useState<Membro[]>(() =>
@@ -62,26 +72,30 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks
 
   return (
     <>
-      <TimeComercialSection
-        canEdit={canEdit}
-        team={team}
-        onTeamChange={setTeam}
-        cacContext={cacContext}
-        onPersist={(rows) => persist({ block: "timeComercial", data: rows.map(toMembroBlock) })}
-      />
+      {showTimeCapacidade && (
+        <>
+          <TimeComercialSection
+            canEdit={canEdit}
+            team={team}
+            onTeamChange={setTeam}
+            cacContext={cacContext}
+            onPersist={(rows) => persist({ block: "timeComercial", data: rows.map(toMembroBlock) })}
+          />
 
-      {/* P17 — capacidade / operação */}
-      <CapacidadeSection
-        canEdit={canEdit}
-        cargos={cargos}
-        initial={blocks.metricasOperacionais}
-        onPersist={(rows) => persist({ block: "metricasOperacionais", data: rows })}
-      />
+          {/* P17 — capacidade / operação */}
+          <CapacidadeSection
+            canEdit={canEdit}
+            cargos={cargos}
+            initial={blocks.metricasOperacionais}
+            onPersist={(rows) => persist({ block: "metricasOperacionais", data: rows })}
+          />
+        </>
+      )}
 
       {/* P1 — horizontes */}
       <HorizontesSection
         canEdit={canEdit}
-        actingAsMatriz={actingAsMatriz}
+        horizonteAtual={horizonteAtual}
         initial={blocks.horizontes}
         onPersist={(rows) => persist({ block: "horizontes", data: rows })}
       />
@@ -89,7 +103,7 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks
       {/* P6 — investimento em mídia */}
       <InvestimentoMidiaSection
         canEdit={canEdit}
-        actingAsMatriz={actingAsMatriz}
+        horizonteAtual={horizonteAtual}
         initial={blocks.investimentoMidia}
         onPersist={(rows) => persist({ block: "investimentoMidia", data: rows })}
       />
@@ -97,6 +111,7 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks
       {/* P2 — tiers de cliente */}
       <TiersClienteSection
         canEdit={canEdit}
+        cpmqlReadOnly={cpmqlReadOnly}
         initial={blocks.tiersCliente}
         produtos={blocks.receitaProduto}
         onPersist={(rows) => persist({ block: "tiersCliente", data: rows })}
@@ -127,10 +142,6 @@ export function PremissasModeloTab({ canEdit, actingAsMatriz, cacContext, blocks
 
 type Membro = { cargo: string; salario: number; comissaoPct: number };
 
-function custoMes(m: Membro): number {
-  return m.salario * (1 + m.comissaoPct / 100);
-}
-
 function TimeComercialSection({
   canEdit,
   team,
@@ -154,6 +165,14 @@ function TimeComercialSection({
   // - Sem dado preenchido (cacContext=null): CAC não é exibido.
   const investidoUltMes = cacContext?.investido ?? 0;
   const wonUltMes = cacContext?.won ?? 0;
+  // Comissão incide sobre a produção (faturamento realizado do último mês
+  // fechado), trazida pra escala de UMA unidade — o time aqui é template por
+  // unidade, mas o faturamento pode vir somado de N unidades (visão matriz).
+  // Cada cargo (1 pessoa, capacidade cheia no template) incide sobre a produção
+  // do cargo, então comissão da linha = comissão% × produção/cargo.
+  const faturamentoUltMes = cacContext?.faturamento ?? 0;
+  const producaoPorCargo = faturamentoUltMes / Math.max(cacContext?.unidades ?? 1, 1);
+  const custoMes = (m: Membro): number => m.salario + (m.comissaoPct / 100) * producaoPorCargo;
   const custoTimeTotal = rows.reduce((acc, m) => acc + custoMes(m), 0);
   const cacCalculado = wonUltMes > 0 ? (custoTimeTotal + investidoUltMes) / wonUltMes : 0;
   const cacIndisponivel = cacContext === null;
@@ -182,10 +201,10 @@ function TimeComercialSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Posição/role do time comercial.">Cargo</Th>
-              <Th align="right" help="Salário mensal bruto sem comissão. Em reais.">Salário Base</Th>
-              <Th align="right" help="% de comissão sobre o salário base — usada pra estimar o custo total mensal do cargo.">Comissão %</Th>
-              <Th align="right" help="Salário × (1 + Comissão %). Calculado automaticamente — entra no CAC dinâmico.">Custo/Mês Est.</Th>
+              <Th>Cargo</Th>
+              <Th align="right">Salário Base</Th>
+              <Th align="right">Comissão %</Th>
+              <Th align="right">Custo/Mês Est.</Th>
               <Th align="right"> </Th>
             </tr>
           </thead>
@@ -273,7 +292,7 @@ function TimeComercialSection({
               <div className="text-xl font-bold text-accent tabular-nums">{formatBRL(cacCalculado)}</div>
               <div className="text-[10px] text-muted-foreground mt-0.5">
                 Custo time {formatBRL(custoTimeTotal)} · Investido {formatBRL(investidoUltMes)} ·{" "}
-                {wonUltMes} won
+                {wonUltMes} won · comissão s/ produção {formatBRL(producaoPorCargo)}/cargo
                 {cacContext && cacContext.unidades > 1 ? ` · soma de ${cacContext.unidades} unidades` : ""}
               </div>
             </>
@@ -309,43 +328,36 @@ const CAP_NUM_COLS: Array<{
   key: keyof MetricaOperacional;
   label: string;
   suffix?: string;
-  help: string;
 }> = [
   {
     key: "wipLimit",
     label: "WIP Limit",
     suffix: "/mês",
-    help: "Work-in-progress: capacidade máxima do cargo em plena produção. Unidade depende do cargo (MQLs para SDR, leads para BDR, reuniões para Closer).",
   },
   {
     key: "contratacao",
     label: "Contratação",
     suffix: "dias",
-    help: "Tempo médio em dias entre abrir a vaga e a pessoa começar.",
   },
   {
     key: "onboarding",
     label: "Onboarding",
     suffix: "dias",
-    help: "Tempo em dias de treinamento inicial — da entrada até começar a executar com supervisão.",
   },
   {
     key: "rampagem",
     label: "Rampagem",
     suffix: "meses",
-    help: "Tempo em meses até a pessoa atingir produtividade plena (100% do WIP).",
   },
   {
     key: "atingimentoMes",
     label: "Atinge 100%",
     suffix: "º mês",
-    help: "A partir de qual mês de casa o colaborador entrega 100% do WIP Limit.",
   },
   {
     key: "permanencia",
     label: "Permanência",
     suffix: "meses",
-    help: "Tempo médio em meses que a pessoa permanece no cargo antes de sair.",
   },
 ];
 
@@ -405,7 +417,7 @@ function CapacidadeSection({
 
   return (
     <EditableSection
-      title="P17 — Capacidade Operacional"
+      title="Capacidade Operacional"
       badge={<SectionBadge>Linha por cargo · WIP · Ramp · Turnover</SectionBadge>}
       canEdit={canEdit}
       isEditing={isEditing}
@@ -433,12 +445,7 @@ function CapacidadeSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th>
-                <span className="inline-flex items-center gap-1">
-                  Cargo
-                  <FieldHelp text="Posição operacional do time comercial." position="bottom" />
-                </span>
-              </Th>
+              <Th>Cargo</Th>
               {CAP_NUM_COLS.map((c) => (
                 <Th key={c.key as string} align="right">
                   <span className="inline-flex items-center gap-1 justify-end">
@@ -448,28 +455,12 @@ function CapacidadeSection({
                         ({c.suffix})
                       </span>
                     )}
-                    <FieldHelp text={c.help} position="bottom" />
                   </span>
                 </Th>
               ))}
-              <Th align="right">
-                <span className="inline-flex items-center gap-1 justify-end">
-                  Turnover/Mês
-                  <FieldHelp text="Percentual mensal de saídas do cargo. Ex: 2% = a cada 50 colaboradores, 1 sai por mês." position="bottom" />
-                </span>
-              </Th>
-              <Th align="right">
-                <span className="inline-flex items-center gap-1 justify-end">
-                  Ligações/Mês
-                  <FieldHelp text="Volume médio de ligações por mês. Aplica-se a cargos de prospecção; use 0 para cargos sem cadência de ligação." position="bottom" />
-                </span>
-              </Th>
-              <Th align="right">
-                <span className="inline-flex items-center gap-1 justify-end">
-                  Conexão %
-                  <FieldHelp text="Taxa de conexão das ligações em %. Use 0 para cargos sem cadência de ligação." position="bottom" />
-                </span>
-              </Th>
+              <Th align="right">Turnover/Mês</Th>
+              <Th align="right">Ligações/Mês</Th>
+              <Th align="right">Conexão %</Th>
             </tr>
           </thead>
           <tbody>
@@ -550,12 +541,12 @@ type Horizonte = {
 
 function HorizontesSection({
   canEdit,
-  actingAsMatriz,
+  horizonteAtual,
   initial,
   onPersist,
 }: {
   canEdit: boolean;
-  actingAsMatriz: boolean;
+  horizonteAtual: Horizonte["h"] | null;
   initial: Horizonte[];
   onPersist: (rows: Horizonte[]) => Promise<boolean>;
 }) {
@@ -563,7 +554,6 @@ function HorizontesSection({
   const [draft, setDraft] = useState<Horizonte[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
-  const horizonteAtual: Horizonte["h"] | null = actingAsMatriz ? null : "H4";
 
   function patch<K extends keyof Horizonte>(idx: number, key: K, v: Horizonte[K]) {
     setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
@@ -571,8 +561,7 @@ function HorizontesSection({
 
   return (
     <EditableSection
-      title="P1 — Horizontes de Crescimento"
-      badge={<SectionBadge>Premissa 01</SectionBadge>}
+      title="Horizontes de Crescimento"
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
@@ -610,10 +599,7 @@ function HorizontesSection({
                 )}
               </div>
               <dl className="px-3 py-2.5 text-xs flex-1 space-y-2">
-                <CardField
-                  label="Faixa Min"
-                  help="Piso da faixa de faturamento mensal que caracteriza este horizonte (em R$)."
-                >
+                <CardField label="Faixa Min">
                   <CurrencyCell
                     isEditing={isEditing}
                     value={r.faixaMin}
@@ -622,10 +608,7 @@ function HorizontesSection({
                     align="left"
                   />
                 </CardField>
-                <CardField
-                  label="Faixa Máx"
-                  help="Teto da faixa de faturamento mensal (em R$). Marque 'Sem teto' em H5 (unidade já consolidada, sem teto superior)."
-                >
+                <CardField label="Faixa Máx">
                   <NullableCurrencyCell
                     isEditing={isEditing}
                     value={r.faixaMax}
@@ -634,10 +617,7 @@ function HorizontesSection({
                     align="left"
                   />
                 </CardField>
-                <CardField
-                  label="Tempo Máx (meses)"
-                  help="Tempo máximo recomendado, em meses, para a unidade passar para o próximo horizonte. Marque 'Sem prazo' em H5."
-                >
+                <CardField label="Tempo Máx (meses)">
                   <NullableIntegerCell
                     isEditing={isEditing}
                     value={r.tempoMaxMeses}
@@ -645,10 +625,7 @@ function HorizontesSection({
                     align="left"
                   />
                 </CardField>
-                <CardField
-                  label="Cresc. Mensal"
-                  help="Crescimento mensal mínimo esperado dentro do horizonte para evoluir no prazo."
-                >
+                <CardField label="Cresc. Mensal">
                   <span className="inline-flex items-center gap-1 text-success font-medium">
                     <PercentCell
                       isEditing={isEditing}
@@ -663,9 +640,6 @@ function HorizontesSection({
             </div>
           );
         })}
-      </div>
-      <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        Fórmula: <code className="text-foreground">[(Receita atual ÷ anterior) − 1] × 100</code>
       </div>
     </EditableSection>
   );
@@ -690,12 +664,13 @@ type Investimento = {
 
 function InvestimentoMidiaSection({
   canEdit,
-  actingAsMatriz,
+  horizonteAtual,
   initial,
   onPersist,
 }: {
   canEdit: boolean;
-  actingAsMatriz: boolean;
+  // null na visão matriz (consolidada): nenhuma unidade impersonada a destacar.
+  horizonteAtual: Investimento["h"] | null;
   initial: Investimento[];
   onPersist: (rows: Investimento[]) => Promise<boolean>;
 }) {
@@ -703,9 +678,6 @@ function InvestimentoMidiaSection({
   const [draft, setDraft] = useState<Investimento[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
-  // Quando a sessão é matriz (visão consolidada), nenhuma unidade está sendo
-  // "impersonada", então não há horizonte atual a destacar.
-  const horizonteAtual: Investimento["h"] | null = actingAsMatriz ? null : "H4";
 
   function patch<K extends keyof Investimento>(idx: number, key: K, v: Investimento[K]) {
     setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
@@ -713,8 +685,8 @@ function InvestimentoMidiaSection({
 
   return (
     <EditableSection
-      title="P6 — Investimento em Mídia por Horizonte"
-      badge={<SectionBadge>Premissa 06 · Editável</SectionBadge>}
+      title="Investimento em Mídia por Horizonte"
+      badge={<SectionBadge>Editável</SectionBadge>}
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
@@ -746,7 +718,7 @@ function InvestimentoMidiaSection({
       }}
     >
       <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        % Produção = parcela do faturamento investida em mídia. Splits LB/BB/MT/EV definem a divisão entre Lead Broker, Black Box, Meeting Broker (inbound enterprise) e Eventos (inbound multi-tier). Soma deve ser ≤ 100%.
+        % Investimento = parcela do faturamento investida em mídia. Splits LB/BB/MT/EV definem a divisão entre Lead Broker, Black Box, Meeting Broker (inbound enterprise) e Eventos (inbound multi-tier). Soma deve ser ≤ 100%.
       </div>
       <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {rows.map((r, idx) => {
@@ -769,10 +741,7 @@ function InvestimentoMidiaSection({
                 )}
               </div>
               <dl className="px-3 py-2.5 text-xs flex-1 space-y-2">
-                <CardField
-                  label="% Produção"
-                  help="% do faturamento mensal investido em mídia (LB + BB)."
-                >
+                <CardField label="% Investimento">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.pctProducao}
@@ -780,10 +749,7 @@ function InvestimentoMidiaSection({
                     align="left"
                   />
                 </CardField>
-                <CardField
-                  label="Split LB"
-                  help="% do investimento em mídia alocado em Lead Broker (inbound pago)."
-                >
+                <CardField label="Split LB">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitLb}
@@ -791,10 +757,7 @@ function InvestimentoMidiaSection({
                     align="left"
                   />
                 </CardField>
-                <CardField
-                  label="Split BB"
-                  help="% do investimento em mídia alocado em Black Box (outbound estruturado)."
-                >
+                <CardField label="Split BB">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitBb}
@@ -803,10 +766,7 @@ function InvestimentoMidiaSection({
                     align="left"
                   />
                 </CardField>
-                <CardField
-                  label="Split MT"
-                  help="% do investimento em mídia alocado em Meeting Broker (inbound enterprise, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte."
-                >
+                <CardField label="Split MT">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitMt}
@@ -815,10 +775,7 @@ function InvestimentoMidiaSection({
                     align="left"
                   />
                 </CardField>
-                <CardField
-                  label="Split EV"
-                  help="% do investimento em mídia alocado em Eventos (inbound multi-tier, funil curto SQL→SAL→WON). 0 = não liberado p/ horizonte."
-                >
+                <CardField label="Split EV">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitEv}
@@ -826,39 +783,6 @@ function InvestimentoMidiaSection({
                     lockableZero
                     align="left"
                   />
-                </CardField>
-                <CardField
-                  label="BB Piso"
-                  help="Investimento mínimo absoluto em BB. Se o split % ficar abaixo, o piso prevalece."
-                >
-                  <CurrencyCell
-                    isEditing={isEditing}
-                    value={r.bbPiso}
-                    onChange={(v) => patch(idx, "bbPiso", v)}
-                    step={1000}
-                    lockableZero
-                    align="left"
-                  />
-                </CardField>
-                <CardField
-                  label="Regra"
-                  help="Observação sobre a estratégia daquele horizonte (texto livre, não entra em fórmulas)."
-                >
-                  {isEditing ? (
-                    <span className="inline-flex items-center px-1.5 py-0.5 border border-dashed border-warning bg-warning/5 rounded w-full">
-                      <input
-                        type="text"
-                        value={r.regra}
-                        onChange={(e) => patch(idx, "regra", e.target.value)}
-                        placeholder="—"
-                        className="bg-transparent text-xs focus:outline-none text-foreground w-full min-w-0"
-                      />
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground break-words">
-                      {r.regra ? r.regra : <span className="text-muted-foreground/40">—</span>}
-                    </span>
-                  )}
                 </CardField>
               </dl>
             </div>
@@ -871,18 +795,15 @@ function InvestimentoMidiaSection({
 
 function CardField({
   label,
-  help,
   children,
 }: {
   label: string;
-  help: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
         {label}
-        <FieldHelp text={help} position="bottom" />
       </dt>
       <dd className="text-xs text-foreground">{children}</dd>
     </div>
@@ -907,11 +828,14 @@ type TierCliente = {
 
 function TiersClienteSection({
   canEdit,
+  cpmqlReadOnly,
   initial,
   produtos,
   onPersist,
 }: {
   canEdit: boolean;
+  /** CPMQL é premissa da Matriz: na visão unidade fica só-leitura mesmo em edição. */
+  cpmqlReadOnly: boolean;
   initial: TierCliente[];
   produtos: Produto[];
   onPersist: (rows: TierCliente[]) => Promise<boolean>;
@@ -933,8 +857,7 @@ function TiersClienteSection({
 
   return (
     <EditableSection
-      title="P2 — Tiers de Cliente"
-      badge={<SectionBadge>Premissa 02</SectionBadge>}
+      title="Tiers de Cliente"
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
@@ -960,60 +883,56 @@ function TiersClienteSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Classificação do cliente por porte: Tiny → Small → Medium → Large → Enterprise.">Tier</Th>
-              <Th align="right" help="Piso da faixa de faturamento anual do cliente neste tier (em R$).">Fat. Min</Th>
-              <Th align="right" help="Teto da faixa de faturamento anual (em R$). Marque 'Sem teto' para faixas abertas à direita (ex: Enterprise R$500M+).">Fat. Máx</Th>
-              <Th align="right" help="TCV Booking Ponderado pela receita realizada por produto (Saber% × Saber TM) + (Ter% × Ter TM) + (Executar% × Executar TM). Calculado automaticamente a partir de P3.">TCV-Booking Pond.</Th>
-              <Th align="right" help="Custo Por MQL via Lead Broker — leads de mídia paga inbound (Meta/Google).">CPMQL LB</Th>
-              <Th align="right" help="Custo Por MQL via Black Box — outbound estruturado. Padrão R$700.">CPMQL BB</Th>
-              <Th align="right" help="Custo Por MQL via Meeting Broker — inbound de eventos. Default = custo SQL (R$5.000).">CPMQL MT</Th>
+              <Th>Tier</Th>
+              <Th align="right">Fat. Min</Th>
+              <Th align="right">Fat. Máx</Th>
+              <Th align="right">CPMQL LB{cpmqlReadOnly ? " · Matriz" : ""}</Th>
+              <Th align="right">CPMQL BB{cpmqlReadOnly ? " · Matriz" : ""}</Th>
+              <Th align="right">CPMQL MT{cpmqlReadOnly ? " · Matriz" : ""}</Th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => {
-              const tcvPond = tcvByTier.get(r.tier) ?? r.tcvBooking;
-              return (
-                <tr
-                  key={r.tier}
-                  className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-                >
-                  <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.tier}</td>
-                  <td className="px-1.5 py-2 text-xs text-right">
-                    <CurrencyCell
-                      isEditing={isEditing}
-                      value={r.faturamentoMin}
-                      onChange={(v) => patch(idx, "faturamentoMin", v)}
-                      step={100_000}
-                    />
-                  </td>
-                  <td className="px-1.5 py-2 text-xs text-right">
-                    <NullableCurrencyCell
-                      isEditing={isEditing}
-                      value={r.faturamentoMax}
-                      onChange={(v) => patch(idx, "faturamentoMax", v)}
-                      step={100_000}
-                    />
-                  </td>
-                  <td className="px-1.5 py-2 text-xs text-right text-muted-foreground">
-                    {formatBRL(tcvPond)}
-                  </td>
-                  <td className="px-1.5 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={isEditing} value={r.cplLb} onChange={(v) => patch(idx, "cplLb", v)} step={10} />
-                  </td>
-                  <td className="px-1.5 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={isEditing} value={r.cplBb} onChange={(v) => patch(idx, "cplBb", v)} step={10} />
-                  </td>
-                  <td className="px-1.5 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={isEditing} value={r.cpmqlMt} onChange={(v) => patch(idx, "cpmqlMt", v)} step={100} />
-                  </td>
-                </tr>
-              );
-            })}
+            {rows.map((r, idx) => (
+              <tr
+                key={r.tier}
+                className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
+              >
+                <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.tier}</td>
+                <td className="px-1.5 py-2 text-xs text-right">
+                  <CurrencyCell
+                    isEditing={isEditing}
+                    value={r.faturamentoMin}
+                    onChange={(v) => patch(idx, "faturamentoMin", v)}
+                    step={100_000}
+                  />
+                </td>
+                <td className="px-1.5 py-2 text-xs text-right">
+                  <NullableCurrencyCell
+                    isEditing={isEditing}
+                    value={r.faturamentoMax}
+                    onChange={(v) => patch(idx, "faturamentoMax", v)}
+                    step={100_000}
+                  />
+                </td>
+                <td className="px-1.5 py-2 text-xs text-right">
+                  <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={r.cplLb} onChange={(v) => patch(idx, "cplLb", v)} step={10} />
+                </td>
+                <td className="px-1.5 py-2 text-xs text-right">
+                  <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={r.cplBb} onChange={(v) => patch(idx, "cplBb", v)} step={10} />
+                </td>
+                <td className="px-1.5 py-2 text-xs text-right">
+                  <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={r.cpmqlMt} onChange={(v) => patch(idx, "cpmqlMt", v)} step={100} />
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
       <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        Tiny: BB piso R$30K/mês. CPMQL BB = R$700 padrão para todos os tiers. CPMQL MT = R$5.000 (custo SQL). TCV-Booking é recalculado a partir de P3 ao salvar.
+        Tiny: BB piso R$30K/mês. CPMQL BB = R$700 padrão para todos os tiers. CPMQL MT = R$5.000 (custo SQL).
+        {cpmqlReadOnly
+          ? " CPMQL é referência da Matriz — só a Matriz edita; a unidade visualiza."
+          : ""}
       </div>
     </EditableSection>
   );
@@ -1069,8 +988,7 @@ function ReceitaProdutoSection({
 
   return (
     <EditableSection
-      title="P3 — Receita por Produto / Tier"
-      badge={<SectionBadge>Premissa 03</SectionBadge>}
+      title="Receita por Produto / Tier"
       canEdit={canEdit}
       isEditing={isEditing}
       canSave={podeSalvar}
@@ -1103,15 +1021,15 @@ function ReceitaProdutoSection({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <Th help="Tier de cliente (mesmo da seção anterior).">Tier</Th>
-              <Th align="right" help="% dos clientes deste tier que adquirem o produto Saber.">Saber %</Th>
-              <Th align="right" help="Ticket Médio — ticket médio do produto Saber neste tier.">Saber TM</Th>
-              <Th align="right" help="% dos clientes deste tier que adquirem o produto Ter.">Ter %</Th>
-              <Th align="right" help="Ticket Médio — ticket médio do produto Ter neste tier.">Ter TM</Th>
-              <Th align="right" help="% dos clientes deste tier que adquirem o produto Executar.">Executar %</Th>
-              <Th align="right" help="Ticket Médio — ticket médio do produto Executar neste tier.">Executar TM</Th>
-              <Th align="right" help="Soma de Saber% + Ter% + Executar% no tier. Deve totalizar 100%.">Soma %</Th>
-              <Th align="right" help="TCV Ponderado = (Saber% × Saber TM) + (Ter% × Ter TM) + (Executar% × Executar TM). Calculado automaticamente.">TCV Pond.</Th>
+              <Th>Tier</Th>
+              <Th align="right">Saber %</Th>
+              <Th align="right">Saber TM</Th>
+              <Th align="right">Ter %</Th>
+              <Th align="right">Ter TM</Th>
+              <Th align="right">Executar %</Th>
+              <Th align="right">Executar TM</Th>
+              <Th align="right">Soma %</Th>
+              <Th align="right">TCV Pond.</Th>
             </tr>
           </thead>
           <tbody>
@@ -1224,6 +1142,22 @@ function DistribuicaoLeadsSection({
       prev.map((r, i) => (i === idx ? { ...r, entraHorizonte: v } : r)),
     );
   }
+  // Grade cumulativa: cada tier fica ativo de `entraHorizonte` em diante.
+  // Clicar um horizonte ainda inativo antecipa a entrada para ali; clicar um
+  // já ativo empurra a entrada para o próximo (mantém o bloco contíguo até H5,
+  // que é sempre ativo — não dá pra desligar um tier por completo).
+  function toggleHoriz(idx: number, h: HorizonteName) {
+    const atual = draftMercado[idx]?.entraHorizonte;
+    if (!atual) return;
+    const hi = HORIZ_LIST.indexOf(h);
+    const ci = HORIZ_LIST.indexOf(atual);
+    if (hi < ci) {
+      patchEntra(idx, h);
+    } else {
+      const prox = Math.min(hi + 1, HORIZ_LIST.length - 1);
+      patchEntra(idx, HORIZ_LIST[prox]);
+    }
+  }
   function patchSplit(idx: number, tier: TierName, v: number) {
     setDraftSplit((prev) =>
       prev.map((r, i) => (i === idx ? { ...r, pcts: { ...r.pcts, [tier]: v } } : r)),
@@ -1238,8 +1172,8 @@ function DistribuicaoLeadsSection({
 
   return (
     <EditableSection
-      title="P4 — Distribuição de Leads por Tier"
-      badge={<SectionBadge>Premissa 04 · Benchmark V4</SectionBadge>}
+      title="Distribuição de Tier por Horizonte"
+      badge={<SectionBadge>Benchmark V4</SectionBadge>}
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
@@ -1260,19 +1194,23 @@ function DistribuicaoLeadsSection({
         setIsEditing(false);
       }}
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4 p-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
         {/* Coluna esquerda — Tier × % Mercado */}
         <div className="min-w-0 rounded border border-border bg-card overflow-hidden">
           <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-            Distribuição base do mercado por tier e em qual horizonte cada tier passa a ser ativo.
+            Distribuição base do mercado por tier. Marque a partir de qual horizonte cada tier fica ativo — a liberação é cumulativa (vale dali até H5).
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <Th help="Tier de cliente por porte.">Tier</Th>
-                  <Th align="right" help="Parcela do mercado endereçável deste tier. A soma de todos deve totalizar 100%.">% Mercado</Th>
-                  <Th help="Horizonte a partir do qual este tier passa a ser ativo na unidade.">Entra em</Th>
+                  <Th>Tier</Th>
+                  <Th align="right">% Distribuição</Th>
+                  {HORIZ_LIST.map((h) => (
+                    <Th key={h} align="center">
+                      {h}
+                    </Th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -1290,23 +1228,36 @@ function DistribuicaoLeadsSection({
                         digits={1}
                       />
                     </td>
-                    <td className="px-1.5 py-2 text-xs">
-                      {isEditing ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 border border-dashed border-warning bg-warning/5 rounded">
-                          <select
-                            value={r.entraHorizonte}
-                            onChange={(e) => patchEntra(idx, e.target.value as HorizonteName)}
-                            className="bg-transparent text-xs focus:outline-none text-foreground"
+                    {HORIZ_LIST.map((h) => {
+                      const ativo = isTierAtivoEm(r.tier, h);
+                      return (
+                        <td key={h} className="px-1 py-2 text-center">
+                          <button
+                            type="button"
+                            role="checkbox"
+                            aria-checked={ativo}
+                            disabled={!isEditing}
+                            onClick={() => toggleHoriz(idx, h)}
+                            title={
+                              isEditing
+                                ? `${ativo ? "Desativar" : "Liberar"} ${r.tier} a partir de ${h}`
+                                : `${r.tier} ${ativo ? "ativo" : "inativo"} em ${h}`
+                            }
+                            className={`inline-flex h-4 w-4 items-center justify-center rounded-[3px] border transition-colors ${
+                              ativo
+                                ? "bg-accent border-accent text-accent-foreground"
+                                : "bg-card border-border text-transparent"
+                            } ${
+                              isEditing
+                                ? "cursor-pointer hover:border-accent/70"
+                                : "cursor-default"
+                            }`}
                           >
-                            {HORIZ_LIST.map((h) => (
-                              <option key={h} value={h}>{h}</option>
-                            ))}
-                          </select>
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">{r.entraHorizonte}</span>
-                      )}
-                    </td>
+                            <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                          </button>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
                 <tr className="bg-muted/40 font-medium">
@@ -1318,7 +1269,7 @@ function DistribuicaoLeadsSection({
                   >
                     {formatPercent(totalMercado, 1)}
                   </td>
-                  <td />
+                  <td colSpan={HORIZ_LIST.length} />
                 </tr>
               </tbody>
             </table>
@@ -1334,9 +1285,9 @@ function DistribuicaoLeadsSection({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <Th help="Horizonte da unidade (H1–H5).">Horizonte</Th>
+                  <Th>Horizonte</Th>
                   {TIER_COLS.map((t) => (
-                    <Th key={t} align="right" help={`% normalizada de leads alocados ao tier ${t} neste horizonte. A soma da linha deve dar 100%.`}>
+                    <Th key={t} align="right">
                       {t}
                     </Th>
                   ))}
@@ -1382,7 +1333,7 @@ function DistribuicaoLeadsSection({
         </div>
       </div>
       <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        * Tiers ativos em cada horizonte vêm da coluna <span className="text-foreground">Entra em</span> ao lado — edite ali para liberar ou ocultar um tier num horizonte.
+        * Os tiers ativos em cada horizonte vêm da <span className="text-foreground">grade de liberação</span> ao lado — marque/desmarque ali para liberar ou ocultar um tier num horizonte.
       </div>
     </EditableSection>
   );
@@ -1396,26 +1347,16 @@ function DistribuicaoLeadsSection({
 function Th({
   children,
   align = "left",
-  help,
 }: {
   children: React.ReactNode;
   align?: "left" | "right" | "center";
-  help?: string;
 }) {
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-  const innerAlign = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
   return (
     <th
       className={`bg-table-header text-table-header-foreground h-8 font-medium px-1.5 py-1.5 text-[10px] uppercase tracking-wider whitespace-nowrap ${alignClass}`}
     >
-      {help ? (
-        <span className={`inline-flex items-center gap-1 ${innerAlign}`}>
-          {children}
-          <FieldHelp text={help} position="bottom" />
-        </span>
-      ) : (
-        children
-      )}
+      {children}
     </th>
   );
 }

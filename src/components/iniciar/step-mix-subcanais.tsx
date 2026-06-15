@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { PercentCell } from "@/components/premissas/editable-cell";
 import { formatPercent } from "@/components/premissas/format";
-import { FieldHelp } from "@/components/ui/field-help";
 import { WizardFooter } from "./wizard-footer";
 import type { MixOutboundHorizonte } from "@/lib/premissas/matriz-defaults";
 
@@ -24,13 +23,6 @@ const COL_LABEL: Record<ColKey, string> = {
   recovery: "Recovery",
   recomendacao: "Recomendação",
   prospeccao: "Prospecção",
-};
-
-const COL_HELP: Record<ColKey, string> = {
-  indicacao: "% dos leads outbound originados de indicações de clientes.",
-  recovery: "% dos leads outbound originados de recuperação de clientes inativos.",
-  recomendacao: "% dos leads outbound originados de recomendação ativa (parceiros).",
-  prospeccao: "% dos leads outbound originados de prospecção fria (cold call/email).",
 };
 
 function mixTotal(r: MixOutboundHorizonte): number {
@@ -76,7 +68,7 @@ export function StepMixSubcanais({ organizationId, initial, matriz, fromMatriz }
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-foreground">8 · Mix Subcanais Outbound</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Distribuição dos leads outbound entre os 5 subcanais em cada horizonte (P16). Cada linha deve totalizar 100%.
+          Distribuição dos leads outbound entre os 5 subcanais em cada horizonte. Cada linha deve totalizar 100%.
         </p>
       </div>
 
@@ -94,7 +86,7 @@ export function StepMixSubcanais({ organizationId, initial, matriz, fromMatriz }
         <header className="px-4 py-2.5 border-b border-border flex items-center gap-2">
           <span aria-hidden className="inline-block w-0.5 h-3.5 bg-accent rounded-sm" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-            P16 — Mix de Subcanais Outbound por Horizonte
+            Mix de Subcanais Outbound por Horizonte
           </h3>
         </header>
         <div className="overflow-x-auto">
@@ -111,14 +103,12 @@ export function StepMixSubcanais({ organizationId, initial, matriz, fromMatriz }
                   >
                     <span className="inline-flex items-center gap-1 justify-end">
                       {COL_LABEL[c]}
-                      <FieldHelp text={COL_HELP[c]} position="bottom" />
                     </span>
                   </th>
                 ))}
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Total
-                    <FieldHelp text="Soma dos 5 subcanais — deve totalizar 100% por horizonte." position="bottom" />
                   </span>
                 </th>
               </tr>

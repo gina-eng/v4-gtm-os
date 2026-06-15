@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Building2,
+  ClipboardList,
   FlagTriangleRight,
   LayoutDashboard,
   LineChart,
@@ -38,6 +39,7 @@ const navItems: NavItem[] = [
   { href: "/validacao-crescimento", label: "Validação de Crescimento", icon: TrendingUp },
   { href: "/usuarios", label: "Usuários", icon: Users },
   { href: "/premissas", label: "Premissas", icon: SlidersHorizontal },
+  { href: "/premissas-unidade", label: "Premissas da Unidade", icon: ClipboardList },
   { href: "/mapa-estrategico", label: "Mapa Estratégico", icon: Target, disabled: true },
   { href: "/em-breve", label: "Em breve", icon: FlagTriangleRight, disabled: true },
 ];
@@ -110,6 +112,83 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // vê a unidade que está visualizando no momento. Sem ativa, cai no primary.
   const displayedOrg = session.activeOrganization ?? primaryMembership?.organization;
 
+  const isUnidade = session.actingMode === "unidade";
+
+  // Renderiza um item da nav (link ativo ou botão desabilitado "breve").
+  // Extraído pra reaproveitar tanto na lista principal quanto no rodapé.
+  function renderNavItem(item: NavItem) {
+    const Icon = item.icon;
+    // Visto de uma unidade, "Premissas" são as da Matriz; na própria
+    // matriz fica só "Premissas".
+    const label =
+      item.href === "/premissas" && isUnidade ? "Premissas Matriz" : item.label;
+    if (item.disabled) {
+      return (
+        <li key={item.href}>
+          <button
+            disabled
+            title={!showLabels ? label : undefined}
+            className={`flex items-center gap-2 rounded-md h-8 w-full text-sidebar-foreground opacity-35 cursor-not-allowed whitespace-nowrap ${
+              showLabels ? "p-2 text-left" : "justify-center"
+            }`}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            {showLabels && (
+              <>
+                <span className="flex-1">{label}</span>
+                <span className="text-[8px] uppercase tracking-widest text-muted-foreground/60 font-semibold">
+                  breve
+                </span>
+              </>
+            )}
+          </button>
+        </li>
+      );
+    }
+    const active = isActive(item.href);
+    return (
+      <li key={item.href}>
+        <Link
+          href={item.href}
+          title={!showLabels ? label : undefined}
+          className={`flex items-center gap-2 rounded-md h-8 whitespace-nowrap ${
+            showLabels ? "p-2" : "justify-center"
+          } ${
+            active
+              ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+              : "text-sidebar-foreground hover:bg-sidebar-accent"
+          }`}
+        >
+          <Icon className="h-4 w-4 shrink-0" />
+          {showLabels && <span>{label}</span>}
+        </Link>
+      </li>
+    );
+  }
+
+  // Itens da nav principal. Filtra telas exclusivas de matriz/unidade e, na
+  // visão de unidade, remove "Premissas Matriz" daqui — ele desce pro rodapé.
+  const topNavItems = navItems.filter((item) => {
+    // Telas exclusivas da matriz consolidada.
+    if (["/unidades", "/validacao-crescimento"].includes(item.href)) {
+      return session.isMatrizUser && session.actingMode === "matriz";
+    }
+    // Revisão do setup é específica da unidade ativa.
+    if (item.href === "/premissas-unidade") {
+      return isUnidade;
+    }
+    // Em unidade, "Premissas Matriz" sai da lista e vai pro rodapé do menu.
+    if (item.href === "/premissas") {
+      return !isUnidade;
+    }
+    return true;
+  });
+
+  // Item "Premissas Matriz" fixado no rodapé da sidebar (só na visão de unidade).
+  const premissasMatrizItem = isUnidade
+    ? navItems.find((i) => i.href === "/premissas")
+    : undefined;
+
   return (
     <div className="flex h-screen w-full overflow-hidden">
       {/* ====================  SIDEBAR  ====================
@@ -148,59 +227,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className={showLabels ? "" : "invisible"}>Navegação</span>
             </div>
             <ul className="flex flex-col gap-1 text-sm">
-              {navItems
-                .filter(
-                  (item) =>
-                    !["/unidades", "/validacao-crescimento"].includes(item.href) ||
-                    (session.isMatrizUser && session.actingMode === "matriz"),
-                )
-                .map((item) => {
-                const Icon = item.icon;
-                if (item.disabled) {
-                  return (
-                    <li key={item.href}>
-                      <button
-                        disabled
-                        title={!showLabels ? item.label : undefined}
-                        className={`flex items-center gap-2 rounded-md h-8 w-full text-sidebar-foreground opacity-35 cursor-not-allowed whitespace-nowrap ${
-                          showLabels ? "p-2 text-left" : "justify-center"
-                        }`}
-                      >
-                        <Icon className="h-4 w-4 shrink-0" />
-                        {showLabels && (
-                          <>
-                            <span className="flex-1">{item.label}</span>
-                            <span className="text-[8px] uppercase tracking-widest text-muted-foreground/60 font-semibold">
-                              breve
-                            </span>
-                          </>
-                        )}
-                      </button>
-                    </li>
-                  );
-                }
-                const active = isActive(item.href);
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      title={!showLabels ? item.label : undefined}
-                      className={`flex items-center gap-2 rounded-md h-8 whitespace-nowrap ${
-                        showLabels ? "p-2" : "justify-center"
-                      } ${
-                        active
-                          ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent"
-                      }`}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {showLabels && <span>{item.label}</span>}
-                    </Link>
-                  </li>
-                );
-              })}
+              {topNavItems.map(renderNavItem)}
             </ul>
           </nav>
+
+          {/* Rodapé da sidebar: "Premissas Matriz" fica fixo embaixo quando
+              navegando como unidade — separado da nav principal por uma borda. */}
+          {premissasMatrizItem && (
+            <div className="border-t border-sidebar-border p-2 shrink-0">
+              <ul className="flex flex-col gap-1 text-sm">
+                {renderNavItem(premissasMatrizItem)}
+              </ul>
+            </div>
+          )}
         </aside>
       </div>
 

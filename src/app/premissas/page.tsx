@@ -26,12 +26,13 @@ export const dynamic = "force-dynamic";
 async function loadCacContext(
   isMatriz: boolean,
   unitIds: string[],
-): Promise<{ investido: number; won: number; unidades: number } | null> {
+): Promise<{ investido: number; won: number; faturamento: number; unidades: number } | null> {
   if (unitIds.length === 0) return null;
 
   const setups = await getUnitSetupsByOrgIds(unitIds);
   let investido = 0;
   let won = 0;
+  let faturamento = 0;
   let temDado = false;
   for (const setup of setups) {
     const linha = setup.realizadoHistorico?.find((r) => r.mes === ULTIMO_MES_FECHADO);
@@ -39,9 +40,10 @@ async function loadCacContext(
     if (linha.investido > 0 || linha.won > 0) temDado = true;
     investido += linha.investido;
     won += linha.won;
+    faturamento += linha.faturamento;
   }
   if (!temDado) return null;
-  return { investido, won, unidades: isMatriz ? unitIds.length : 1 };
+  return { investido, won, faturamento, unidades: isMatriz ? unitIds.length : 1 };
 }
 
 export default async function PremissasPage() {

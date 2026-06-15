@@ -5,26 +5,8 @@ import { ChevronDown, Filter, Calendar } from "lucide-react";
 import { useSession } from "@/lib/auth/auth-context";
 import { PremissasModeloTab } from "./tabs/premissas-modelo-tab";
 import { ConversoesTab } from "./tabs/conversoes-tab";
+import { usePersistBlock } from "./persist-block";
 import type { PremissasBlocks } from "@/db/repositories/premissas";
-import type { PremissaBlockPatch } from "@/db/repositories/premissas";
-
-export type PersistBlock = (patch: PremissaBlockPatch) => Promise<boolean>;
-
-/** PATCH granular por bloco na entidade ativa. Retorna true em caso de sucesso. */
-async function persistBlock(patch: PremissaBlockPatch): Promise<boolean> {
-  try {
-    const res = await fetch("/api/premissas", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) console.error("[premissas] falha ao salvar bloco", patch.block, await res.text());
-    return res.ok;
-  } catch (err) {
-    console.error("[premissas] erro de rede ao salvar bloco", patch.block, err);
-    return false;
-  }
-}
 
 type Tab = "premissas" | "conversoes";
 
@@ -36,6 +18,7 @@ const TABS: Array<{ id: Tab; label: string; sub: string }> = [
 type CacContext = {
   investido: number;
   won: number;
+  faturamento: number;
   unidades: number;
 } | null;
 
@@ -47,6 +30,7 @@ type ClientProps = {
 export function PremissasClient({ cacContext, blocks }: ClientProps) {
   const session = useSession();
   const [tab, setTab] = useState<Tab>("premissas");
+  const persistBlock = usePersistBlock();
 
   // Papel da tela segue o actingMode (matriz "impersonando" unidade vê como unidade):
   // - matriz: edita premissas-modelo e conversões
@@ -137,7 +121,7 @@ export function PremissasClient({ cacContext, blocks }: ClientProps) {
       {tab === "premissas" && (
         <PremissasModeloTab
           canEdit={canEditMatrizPremises}
-          actingAsMatriz={actingAsMatriz}
+          horizonteAtual={actingAsMatriz ? null : session.activeOrganization?.horizonteAtual ?? null}
           cacContext={cacContext}
           blocks={blocks}
           persist={persistBlock}

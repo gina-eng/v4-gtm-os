@@ -11,7 +11,6 @@ import {
   type RegionalSigla,
 } from "@/lib/validations/organizations";
 import { ROLE_LABEL, ROLES, type Role } from "@/lib/validations/users";
-import { FieldHelp } from "@/components/ui/field-help";
 
 type Scope = "unidade" | "regional";
 
@@ -303,14 +302,6 @@ export function InviteUserModal({
           <div>
             <label htmlFor="invite-email" className="text-xs font-medium mb-1 flex items-center gap-1">
               E-mail <span className="text-destructive">*</span>
-              <FieldHelp
-                text={
-                  isEdit
-                    ? "E-mail do usuário. Identificador imutável — pra trocar, revogue o vínculo e convide novamente."
-                    : `E-mail corporativo do convidado. Deve terminar em @${ALLOWED_EMAIL_DOMAIN} — usado pra login e notificações.`
-                }
-                position="bottom"
-              />
             </label>
             <input
               id="invite-email"
@@ -334,7 +325,6 @@ export function InviteUserModal({
           <div>
             <label htmlFor="invite-name" className="text-xs font-medium mb-1 flex items-center gap-1">
               Nome <span className="text-destructive">*</span>
-              <FieldHelp text="Nome completo da pessoa. Aparece na lista de usuários e em logs de auditoria." position="bottom" />
             </label>
             <input
               id="invite-name"
@@ -357,7 +347,6 @@ export function InviteUserModal({
                 <div>
                   <label className="text-xs font-medium mb-1 flex items-center gap-1">
                     Tipo de acesso <span className="text-destructive">*</span>
-                    <FieldHelp text="Por unidade = acesso a uma franquia específica. Por regional = acesso a todas as unidades daquela regional de uma vez." position="bottom" />
                   </label>
                   <div
                     role="tablist"
@@ -400,7 +389,6 @@ export function InviteUserModal({
                 <div>
                   <label htmlFor="invite-org" className="text-xs font-medium mb-1 flex items-center gap-1">
                     Organização <span className="text-destructive">*</span>
-                    <FieldHelp text="Unidade na qual a pessoa terá acesso. Você só vê as orgs em que pode convidar." position="bottom" />
                   </label>
                   <select
                     id="invite-org"
@@ -422,7 +410,6 @@ export function InviteUserModal({
                 <div>
                   <label htmlFor="invite-regional" className="text-xs font-medium mb-1 flex items-center gap-1">
                     Regional <span className="text-destructive">*</span>
-                    <FieldHelp text="Regional V4 a que a pessoa terá acesso. O vínculo cobre automaticamente todas as unidades da regional." position="bottom" />
                   </label>
                   <select
                     id="invite-regional"
@@ -456,7 +443,6 @@ export function InviteUserModal({
           <div>
             <label htmlFor="invite-role" className="text-xs font-medium mb-1 flex items-center gap-1">
               Papel <span className="text-destructive">*</span>
-              <FieldHelp text="Admin: gerencia usuários e estrutura. Gerente: convida e visualiza. Coordenador: só visualiza dados operacionais." position="bottom" />
             </label>
             <select
               id="invite-role"

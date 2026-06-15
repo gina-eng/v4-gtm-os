@@ -40,7 +40,10 @@ export type SetupStep = (typeof SETUP_STEPS)[number];
 
 export const SETUP_STEP_LABEL: Record<SetupStep, string> = {
   horizontes: "Horizontes de Crescimento",
-  "time-comercial": "Time Comercial",
+  // "time-comercial" e "metricas-operacionais" foram fundidos num só passo de UI
+  // ("Time & Capacidade"); o data layer mantém os dois steps. O wizard-shell
+  // colapsa o segundo na exibição (não mostra "Capacidade Operacional" sozinho).
+  "time-comercial": "Time & Capacidade",
   "metricas-operacionais": "Capacidade Operacional",
   "tiers-receita": "Tiers & Receita",
   "leads-investimento": "Leads & Investimento",

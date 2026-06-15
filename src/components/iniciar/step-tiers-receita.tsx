@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { CurrencyCell, NullableCurrencyCell, PercentCell } from "@/components/premissas/editable-cell";
 import { formatBRL, formatPercent } from "@/components/premissas/format";
-import { FieldHelp } from "@/components/ui/field-help";
 import { WizardFooter } from "./wizard-footer";
 import type { ReceitaProduto, TierCliente } from "@/lib/premissas/matriz-defaults";
 
@@ -132,43 +131,36 @@ export function StepTiersReceita({
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1">
                     Tier
-                    <FieldHelp text="Classificação do cliente por porte: Tiny → Small → Medium → Large → Enterprise. Determina mix de produtos e CPL." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Fat. Min
-                    <FieldHelp text="Piso da faixa de faturamento anual do cliente neste tier (em R$)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Fat. Máx
-                    <FieldHelp text="Teto da faixa (em R$). Marque 'Sem teto' para faixas abertas à direita (ex: Enterprise R$500M+)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     TCV-Booking Pond.
-                    <FieldHelp text="TCV Booking Ponderado pela receita realizada por produto (Saber% × Saber TM) + (Ter% × Ter TM) + (Executar% × Executar TM). Calculado automaticamente a partir de P3." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     CPMQL LB
-                    <FieldHelp text="Custo Por MQL via Lead Broker — leads de mídia paga inbound (Meta/Google)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     CPMQL BB
-                    <FieldHelp text="Custo Por MQL via Black Box — outbound estruturado (SDR/BDR + ferramentas). Padrão R$700." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     CPMQL MT
-                    <FieldHelp text="Custo Por MQL via Meeting Broker — inbound de eventos. Default = custo SQL (R$5.000)." position="bottom" />
                   </span>
                 </th>
               </tr>
@@ -235,55 +227,46 @@ export function StepTiersReceita({
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1">
                     Tier
-                    <FieldHelp text="Mesmo tier da seção acima — porte do cliente." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Saber %
-                    <FieldHelp text="% dos clientes deste tier que adquirem o produto Saber (consultoria/estratégia)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Saber TM
-                    <FieldHelp text="Ticket Médio — ticket médio do produto Saber neste tier." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Ter %
-                    <FieldHelp text="% dos clientes deste tier que adquirem o produto Ter (ferramentas/tech)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Ter TM
-                    <FieldHelp text="Ticket Médio — ticket médio do produto Ter neste tier." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Executar %
-                    <FieldHelp text="% dos clientes deste tier que adquirem o produto Executar (execução de marketing)." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Executar TM
-                    <FieldHelp text="Ticket Médio — ticket médio do produto Executar neste tier." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Soma %
-                    <FieldHelp text="Soma de Saber% + Ter% + Executar% no tier. Deve totalizar 100%." position="bottom" />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     TCV Pond.
-                    <FieldHelp text="TCV Ponderado: (Saber% × Saber TM) + (Ter% × Ter TM) + (Executar% × Executar TM). Calculado automaticamente." position="bottom" />
                   </span>
                 </th>
               </tr>
@@ -343,7 +326,7 @@ export function StepTiersReceita({
       </section>
 
       <WizardFooter
-        onBack={() => router.push("/iniciar/metricas-operacionais")}
+        onBack={() => router.push("/iniciar/time-comercial")}
         onContinue={handleContinue}
         saving={saving}
         error={error}
