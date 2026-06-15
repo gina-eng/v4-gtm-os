@@ -455,16 +455,15 @@ function BowtieGravata({
     },
   ];
 
-  // % central de cada etapa = ATINGIMENTO da meta (realizado ÷ projetado). Abaixo,
-  // "Proj:" mostra a CONVERSÃO PROJETADA: pra próxima etapa nas 3 primeiras
-  // (MQL→SQL, SQL→SAL, SAL→WON) e o WIN RATE projetado (Won÷MQL) no WON (estágio
-  // final). As QUANTIDADES (real + Proj) ficam no topo. Funil começa no MQL.
-  const atin = (r: number, p: number): number | null => (p > 0 ? (r / p) * 100 : null);
+  // Centro de cada etapa = CONVERSÃO realizada vs projetada (mesma métrica, pra
+  // comparar direto): número grande = conversão REALIZADA, "Proj:" abaixo = a
+  // projetada. Nas 3 primeiras é a conversão pra próxima etapa (MQL→SQL, SQL→SAL,
+  // SAL→WON); no WON é o WIN RATE (Won÷MQL). Quantidades (real + Proj) no topo.
   const atingimentos: Array<{ x: number; pct: number | null; projPct: number | null }> = [
-    { x: 190.3, pct: atin(realizado.mql, projetado.mql), projPct: projetado.cr2 }, // MQL (proj: MQL→SQL)
-    { x: 314.1, pct: atin(realizado.sql, projetado.sql), projPct: projetado.cr3 }, // SQL (proj: SQL→SAL)
-    { x: 437.3, pct: atin(realizado.sal, projetado.sal), projPct: projetado.cr4 }, // SAL (proj: SAL→WON)
-    { x: 563.9, pct: atin(realizado.won, projetado.won), projPct: projetado.hitRate }, // WON (proj: win rate Won÷MQL)
+    { x: 190.3, pct: realizado.cr2, projPct: projetado.cr2 }, // MQL→SQL (real vs proj)
+    { x: 314.1, pct: realizado.cr3, projPct: projetado.cr3 }, // SQL→SAL
+    { x: 437.3, pct: realizado.cr4, projPct: projetado.cr4 }, // SAL→WON
+    { x: 563.9, pct: realizado.hitRate, projPct: projetado.hitRate }, // WON: hit rate (Won÷MQL)
     { x: 690.1, pct: null, projPct: null },
     { x: 813.3, pct: null, projPct: null },
     { x: 937.3, pct: null, projPct: null },
@@ -612,9 +611,9 @@ function BowtieGravata({
           );
         })}
 
-        {/* % central de cada etapa = atingimento da meta (realizado ÷ projetado),
-            com label "da meta" e, embaixo, a taxa de conversão PROJETADA da etapa
-            ("Proj: X%"). Número grande = quanto da meta a etapa bateu (ex.: 65%). */}
+        {/* Centro de cada etapa: número grande = conversão REALIZADA (rótulo
+            "realizado"); "Proj: X%" abaixo = a projetada. Mesma métrica, comparação
+            direta (ex.: WON realizado 11% vs Proj 9% de hit rate). */}
         {atingimentos.map((c, i) => (
           <g key={`atin-${i}`}>
             <text
@@ -636,7 +635,7 @@ function BowtieGravata({
                 className="fill-muted-foreground"
                 style={{ fontSize: 9, fontWeight: 600, letterSpacing: 1 }}
               >
-                da meta
+                realizado
               </text>
             )}
             {c.projPct !== null && (
