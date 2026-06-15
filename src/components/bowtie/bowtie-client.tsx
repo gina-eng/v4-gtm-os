@@ -456,14 +456,15 @@ function BowtieGravata({
   ];
 
   // % central de cada etapa = ATINGIMENTO da meta (realizado ÷ projetado). Abaixo,
-  // "Proj:" mostra a CONVERSÃO PROJETADA pra próxima etapa (MQL→SQL, SQL→SAL,
-  // SAL→WON). Funil começa no MQL (sem estágio LEAD) — ver agregarProjetado.
+  // "Proj:" mostra a CONVERSÃO PROJETADA: pra próxima etapa nas 3 primeiras
+  // (MQL→SQL, SQL→SAL, SAL→WON) e o WIN RATE projetado (Won÷MQL) no WON, que é o
+  // estágio final (não tem "próxima"). Funil começa no MQL — ver agregarProjetado.
   const atin = (r: number, p: number): number | null => (p > 0 ? (r / p) * 100 : null);
   const atingimentos: Array<{ x: number; pct: number | null; projPct: number | null }> = [
     { x: 190.3, pct: atin(realizado.mql, projetado.mql), projPct: projetado.cr2 }, // MQL (proj: MQL→SQL)
     { x: 314.1, pct: atin(realizado.sql, projetado.sql), projPct: projetado.cr3 }, // SQL (proj: SQL→SAL)
     { x: 437.3, pct: atin(realizado.sal, projetado.sal), projPct: projetado.cr4 }, // SAL (proj: SAL→WON)
-    { x: 563.9, pct: atin(realizado.won, projetado.won), projPct: null },          // WON (último estágio)
+    { x: 563.9, pct: atin(realizado.won, projetado.won), projPct: projetado.hitRate }, // WON (proj: win rate Won÷MQL)
     { x: 690.1, pct: null, projPct: null },
     { x: 813.3, pct: null, projPct: null },
     { x: 937.3, pct: null, projPct: null },
