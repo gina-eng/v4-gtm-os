@@ -456,17 +456,18 @@ function BowtieGravata({
   ];
 
   // % central de cada etapa = ATINGIMENTO da meta (realizado ÷ projetado). Abaixo,
-  // "Proj:" mostra a QUANTIDADE PROJETADA da etapa (o alvo) — pareia com o "X% da
-  // meta" (ex.: 42% de 399). Funil começa no MQL — ver agregarProjetado.
+  // "Proj:" mostra a CONVERSÃO PROJETADA: pra próxima etapa nas 3 primeiras
+  // (MQL→SQL, SQL→SAL, SAL→WON) e o WIN RATE projetado (Won÷MQL) no WON (estágio
+  // final). As QUANTIDADES (real + Proj) ficam no topo. Funil começa no MQL.
   const atin = (r: number, p: number): number | null => (p > 0 ? (r / p) * 100 : null);
-  const atingimentos: Array<{ x: number; pct: number | null; projQtd: number | null }> = [
-    { x: 190.3, pct: atin(realizado.mql, projetado.mql), projQtd: projetado.mql }, // MQL
-    { x: 314.1, pct: atin(realizado.sql, projetado.sql), projQtd: projetado.sql }, // SQL
-    { x: 437.3, pct: atin(realizado.sal, projetado.sal), projQtd: projetado.sal }, // SAL
-    { x: 563.9, pct: atin(realizado.won, projetado.won), projQtd: projetado.won }, // WON
-    { x: 690.1, pct: null, projQtd: null },
-    { x: 813.3, pct: null, projQtd: null },
-    { x: 937.3, pct: null, projQtd: null },
+  const atingimentos: Array<{ x: number; pct: number | null; projPct: number | null }> = [
+    { x: 190.3, pct: atin(realizado.mql, projetado.mql), projPct: projetado.cr2 }, // MQL (proj: MQL→SQL)
+    { x: 314.1, pct: atin(realizado.sql, projetado.sql), projPct: projetado.cr3 }, // SQL (proj: SQL→SAL)
+    { x: 437.3, pct: atin(realizado.sal, projetado.sal), projPct: projetado.cr4 }, // SAL (proj: SAL→WON)
+    { x: 563.9, pct: atin(realizado.won, projetado.won), projPct: projetado.hitRate }, // WON (proj: win rate Won÷MQL)
+    { x: 690.1, pct: null, projPct: null },
+    { x: 813.3, pct: null, projPct: null },
+    { x: 937.3, pct: null, projPct: null },
   ];
 
   return (
@@ -638,7 +639,7 @@ function BowtieGravata({
                 da meta
               </text>
             )}
-            {c.projQtd !== null && (
+            {c.projPct !== null && (
               <text
                 x={c.x}
                 y={CY + 18}
@@ -647,7 +648,7 @@ function BowtieGravata({
                 className="fill-warning"
                 style={{ fontSize: 10, fontWeight: 500 }}
               >
-                {`Proj: ${formatInt(c.projQtd)}`}
+                {`Proj: ${Math.round(c.projPct)}%`}
               </text>
             )}
           </g>
