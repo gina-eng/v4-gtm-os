@@ -49,7 +49,7 @@ function novaCelula(
   tier: Tier,
   categoria: string,
 ): RealizadoFunilDia {
-  return { dia, subcanal, tier, categoria, leads: 0, mql: 0, sql: 0, sal: 0, won: 0, faturamento: 0 };
+  return { dia, subcanal, tier, categoria, leads: 0, mql: 0, sql: 0, sal: 0, won: 0, faturamento: 0, invest: 0 };
 }
 
 async function main() {
@@ -70,6 +70,7 @@ async function main() {
       rr: realizadoImportLead.rr,
       won: realizadoImportLead.won,
       revenueWon: realizadoImportLead.revenueWon,
+      mediaInvestment: realizadoImportLead.mediaInvestment,
     })
     .from(realizadoImportLead)
     .where(isNotNull(realizadoImportLead.organizationId));
@@ -87,7 +88,7 @@ async function main() {
     subcanal: SubCanalKey,
     tier: Tier,
     categoria: string,
-    field: "leads" | "mql" | "sql" | "sal" | "won" | "faturamento",
+    field: "leads" | "mql" | "sql" | "sal" | "won" | "faturamento" | "invest",
     valor: number,
   ) {
     if (valor <= 0) return;
@@ -113,6 +114,10 @@ async function main() {
     const tierLead = normalizeTier(r.tierLead);
     if (tierLead) {
       add(orgId, r.dtCadastro, subcanal, tierLead, "", "leads", r.leads);
+      // Investido de mídia: bucketiza no cadastro do lead (mesma célula dos leads).
+      // ⚠️ media_investment é da REDE e inflado — custos realizados saem absurdos
+      // até virar investido por unidade (ver schema realizado_funil.invest).
+      add(orgId, r.dtCadastro, subcanal, tierLead, "", "invest", r.mediaInvestment);
       // MQL só em funil longo (LB/BB) — espelha o projetado, onde MB/Eventos/
       // Outbound têm mql=0. Mantém o estágio EDUCATION comparável.
       if (subcanalTemMql(subcanal)) {

@@ -165,7 +165,7 @@ export function agregarRealizado(
   celulas: RealizadoFunilCelula[],
   filtro: BowtieFiltro,
 ): BowtieAgg {
-  let leads = 0, sql = 0, sal = 0, won = 0, faturamento = 0;
+  let leads = 0, sql = 0, sal = 0, won = 0, faturamento = 0, invest = 0;
   for (const c of celulas) {
     if (!passaFiltro(c, filtro)) continue;
     leads += c.leads;
@@ -173,11 +173,14 @@ export function agregarRealizado(
     sal += c.sal;
     won += c.won;
     faturamento += c.faturamento;
+    invest += c.invest;
   }
   // MQL = topo do funil = `leads` (entrada de todos os canais), igual ao projetado
   // (ver agregarProjetado). A coluna `mql` do realizado_funil não entra no funil do
-  // bowtie. Investimento realizado granular ainda não é capturado (fica 0).
-  return finalize({ leads, mql: leads, sql, sal, won, faturamento, invest: 0 });
+  // bowtie. Investido realizado vem de `invest` (origem media_investment) — ⚠️ hoje
+  // é da REDE e inflado, então CPMQL/CPSQL/CPSAL/CAC realizados saem absurdos até o
+  // dado virar por unidade.
+  return finalize({ leads, mql: leads, sql, sal, won, faturamento, invest });
 }
 
 /** Quociente realizado ÷ projetado × 100. 0 quando faltar lado. */

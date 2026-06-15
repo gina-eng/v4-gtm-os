@@ -384,17 +384,17 @@ function BowtieGravata({
       // leads comprados já entram como MQL (ver agregarProjetado, mql=leads).
       x: 127.838, phase: "MQL", topY: 115, bottomY: 333,
       real: realizado.mql, proj: projetado.mql,
-      costs: [{ label: "CPMQL", proj: projetado.custoPorMql, real: null }],
+      costs: [{ label: "CPMQL", proj: projetado.custoPorMql, real: realizado.custoPorMql || null }],
     },
     {
       x: 252.762, phase: "SQL", topY: 139, bottomY: 310,
       real: realizado.sql, proj: projetado.sql,
-      costs: [{ label: "CPSQL", proj: projetado.custoPorSql, real: null }],
+      costs: [{ label: "CPSQL", proj: projetado.custoPorSql, real: realizado.custoPorSql || null }],
     },
     {
       x: 375.489, phase: "SAL", topY: 157, bottomY: 291,
       real: realizado.sal, proj: projetado.sal,
-      costs: [{ label: "CPSAL", proj: projetado.custoPorSal, real: null }],
+      costs: [{ label: "CPSAL", proj: projetado.custoPorSal, real: realizado.custoPorSal || null }],
     },
     {
       // Pescoço/cintura da gravata — sem estágio (só a forma visual).
@@ -407,7 +407,7 @@ function BowtieGravata({
       labelX: 500, labelTopY: 172,
       real: realizado.won, proj: projetado.won,
       costs: [
-        { label: "CAC", proj: projetado.cac, real: null },
+        { label: "CAC", proj: projetado.cac, real: realizado.cac || null },
         { label: "TM", proj: projetado.ticketMedio, real: realizado.ticketMedio || null },
         { label: "Fechamento", proj: projetado.faturamento, real: realizado.faturamento || null },
       ],

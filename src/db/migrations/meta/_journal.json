@@ -141,6 +141,13 @@
       "when": 1781535264509,
       "tag": "0019_bouncy_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1781558571007,
+      "tag": "0020_fuzzy_big_bertha",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "realizado_funil" ADD COLUMN "invest" double precision DEFAULT 0 NOT NULL;

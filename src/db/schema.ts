@@ -597,6 +597,12 @@ export const realizadoFunil = pgTable(
     sal: doublePrecision("sal").notNull().default(0),
     won: doublePrecision("won").notNull().default(0),
     faturamento: doublePrecision("faturamento").notNull().default(0),
+    // Investimento de mídia realizado (origem: media_investment do import). ⚠️ Hoje
+    // o dado do banco é da REDE inteira (não por unidade) e inflado — os custos
+    // realizados (CPMQL/CPSQL/CPSAL/CAC) saem absurdos até o time de dados mandar o
+    // investido POR UNIDADE. Estrutura já fiada: ao corrigir o dado + re-derivar, os
+    // custos ficam certos sem mexer no código.
+    invest: doublePrecision("invest").notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

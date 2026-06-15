@@ -31,6 +31,7 @@ export type RealizadoFunilCelula = {
   sal: number;
   won: number;
   faturamento: number;
+  invest: number;
 };
 
 /** Célula DIÁRIA crua (escrita pela derivação). */
@@ -45,6 +46,7 @@ export type RealizadoFunilDia = {
   sal: number;
   won: number;
   faturamento: number;
+  invest: number;
 };
 
 // Colunas agregadas (soma) reusadas nas leituras mensais.
@@ -55,6 +57,7 @@ const aggCols = {
   sal: sql<number>`coalesce(sum(${realizadoFunil.sal}), 0)::float8`,
   won: sql<number>`coalesce(sum(${realizadoFunil.won}), 0)::float8`,
   faturamento: sql<number>`coalesce(sum(${realizadoFunil.faturamento}), 0)::float8`,
+  invest: sql<number>`coalesce(sum(${realizadoFunil.invest}), 0)::float8`,
 } as const;
 
 function toCelula(r: {
@@ -67,6 +70,7 @@ function toCelula(r: {
   sal: number;
   won: number;
   faturamento: number;
+  invest: number;
 }): RealizadoFunilCelula {
   return {
     mes: r.mes,
@@ -78,6 +82,7 @@ function toCelula(r: {
     sal: r.sal,
     won: r.won,
     faturamento: r.faturamento,
+    invest: r.invest,
   };
 }
 
@@ -146,7 +151,8 @@ export async function replaceRealizadoFunilDaily(
       c.sql !== 0 ||
       c.sal !== 0 ||
       c.won !== 0 ||
-      c.faturamento !== 0,
+      c.faturamento !== 0 ||
+      c.invest !== 0,
   );
 
   await db.transaction(async (tx) => {
@@ -167,6 +173,7 @@ export async function replaceRealizadoFunilDaily(
           sal: c.sal,
           won: c.won,
           faturamento: c.faturamento,
+          invest: c.invest,
         })),
       );
     }
