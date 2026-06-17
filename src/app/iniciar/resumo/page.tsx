@@ -35,7 +35,9 @@ export default async function ResumoPage() {
             <div className="text-xs text-muted-foreground">
               Concluído em{" "}
               {setup.completedAt
-                ? new Date(setup.completedAt).toLocaleString("pt-BR")
+                ? new Date(setup.completedAt).toLocaleString("pt-BR", {
+                    timeZone: "America/Sao_Paulo",
+                  })
                 : "—"}
               . Você pode continuar editando seus valores a qualquer momento.
             </div>

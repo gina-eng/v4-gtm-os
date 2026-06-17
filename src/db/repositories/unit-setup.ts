@@ -196,7 +196,7 @@ export async function getRealizadoByOrgIds(
  * (editável em /premissas); se ainda não foi semeada, cai nos defaults
  * hardcoded de matriz-defaults.ts.
  */
-async function getMatrizBlocks(): Promise<PremissasBlocks> {
+export async function getMatrizBlocks(): Promise<PremissasBlocks> {
   const [matriz] = await db
     .select({ id: organizations.id })
     .from(organizations)

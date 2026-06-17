@@ -11,8 +11,10 @@ import { EditableSection, SectionBadge } from "./editable-section";
 import { CurrencyCell, IntegerCell } from "./editable-cell";
 import { formatBRL } from "./format";
 import type { PremissasBlocks } from "@/db/repositories/premissas";
+import type { LinhaRampUp } from "@/lib/premissas/funil-reverso";
 import type {
   Horizonte,
+  InvestimentoMidia,
   MetricaOperacional,
   RealizadoMensal,
   TimeComercialMembro,
@@ -35,7 +37,7 @@ type Tab = "time-capacidade" | "premissas" | "conversoes" | "realizado";
 
 const TABS: Array<{ id: Tab; label: string; sub: string }> = [
   { id: "time-capacidade", label: "TIME & CAPACIDADE", sub: "Pessoas + capacidade" },
-  { id: "premissas", label: "PREMISSAS", sub: "Valores do modelo" },
+  { id: "premissas", label: "INVESTIMENTO, DISTRIBUIÇÃO DE TIERS & RECEITAS", sub: "Valores do modelo" },
   { id: "conversoes", label: "CONVERSÕES", sub: "CRs por canal" },
   { id: "realizado", label: "REALIZADO", sub: "Histórico mensal" },
 ];
@@ -48,6 +50,10 @@ type Props = {
   dataInicio: string | null;
   blocks: PremissasBlocks;
   cacContext: CacContext;
+  /** Investimento em mídia da Matriz — referência só-leitura ("bench") ao lado do % editável da unidade. */
+  investimentoMidiaMatriz: InvestimentoMidia[];
+  /** Ramp-up do forecast da unidade — base da comissão por produção (aba Time & Capacidade). */
+  linhasRampUp: LinhaRampUp[];
   /** Time real da unidade (modelo completo por pessoa) — aba Time & Capacidade. */
   team: TimeComercialMembro[];
   /** Métricas operacionais por cargo da unidade. */
@@ -79,6 +85,8 @@ export function PremissasUnidadeClient({
   dataInicio,
   blocks,
   cacContext,
+  investimentoMidiaMatriz,
+  linhasRampUp,
   team,
   metrics,
   metricsMatriz,
@@ -115,7 +123,11 @@ export function PremissasUnidadeClient({
                 </span>
                 Setup concluído
                 {completedAt
-                  ? ` em ${new Date(completedAt).toLocaleDateString("pt-BR")}`
+                  ? ` em ${new Date(completedAt).toLocaleDateString("pt-BR", {
+                      // timeZone fixo evita hydration mismatch (#418): perto da
+                      // meia-noite UTC, server e browser cairiam em dias diferentes.
+                      timeZone: "America/Sao_Paulo",
+                    })}`
                   : ""}
               </div>
             ) : (
@@ -163,13 +175,17 @@ export function PremissasUnidadeClient({
           initialMetrics={metrics}
           metricsMatriz={metricsMatriz}
           cacContext={cacContext}
+          linhasRampUp={linhasRampUp}
+          dataInicio={dataInicio}
         />
       )}
       {tab === "premissas" && (
         <PremissasModeloTab
           canEdit
-          cpmqlReadOnly
+          tiersReadOnly
+          horizontesReadOnly
           showTimeCapacidade={false}
+          investimentoMidiaMatriz={investimentoMidiaMatriz}
           horizonteAtual={horizonteAtual}
           cacContext={cacContext}
           blocks={blocks}
@@ -222,12 +238,16 @@ function TimeCapacidadeEditable({
   initialMetrics,
   metricsMatriz,
   cacContext,
+  linhasRampUp,
+  dataInicio,
 }: {
   organizationId: string;
   initialTeam: TimeComercialMembro[];
   initialMetrics: MetricaOperacional[];
   metricsMatriz: MetricaOperacional[];
   cacContext: CacContext;
+  linhasRampUp: LinhaRampUp[];
+  dataInicio: string | null;
 }) {
   const router = useRouter();
   const [team, setTeam] = useState<TimeComercialMembro[]>(initialTeam);
@@ -278,6 +298,8 @@ function TimeCapacidadeEditable({
         }}
         metricsMatriz={metricsMatriz}
         cacContext={cacContext}
+        linhasRampUp={linhasRampUp}
+        dataInicio={dataInicio}
       />
       <div className="sticky bottom-0 flex items-center justify-end gap-3 rounded border border-border bg-card/95 backdrop-blur px-4 py-2.5">
         {errorMsg && <span className="mr-auto text-xs text-destructive">{errorMsg}</span>}

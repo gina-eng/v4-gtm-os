@@ -14,6 +14,9 @@ type Props = {
   /** Tiers de Cliente são fixados pela Matriz — não editáveis na unidade. */
   matrizTiers: TierCliente[];
   matrizProdutos: ReceitaProduto[];
+  /** Custo/SQL (Meeting Broker / Eventos) — premissa de custo da Matriz; aqui só visualização. */
+  meetingBrokerCustoSql: number;
+  eventosCustoSql: number;
   fromMatriz: boolean;
 };
 
@@ -34,6 +37,8 @@ export function StepTiersReceita({
   initialProdutos,
   matrizTiers,
   matrizProdutos,
+  meetingBrokerCustoSql,
+  eventosCustoSql,
   fromMatriz,
 }: Props) {
   const router = useRouter();
@@ -323,6 +328,24 @@ export function StepTiersReceita({
               .join(", ")}.
           </div>
         )}
+        <div className="px-4 py-3 border-t border-border bg-muted/10">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2 inline-flex items-center gap-2">
+            Custo/SQL · funil curto inbound
+            <span className="inline-flex items-center rounded bg-muted text-muted-foreground px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider whitespace-nowrap">
+              Somente leitura · Matriz
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs items-center">
+            <div className="inline-flex items-center gap-2">
+              <span className="text-muted-foreground">Meeting Broker (Enterprise)</span>
+              <span className="tabular-nums text-foreground font-medium">{formatBRL(meetingBrokerCustoSql)}</span>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <span className="text-muted-foreground">Eventos (todos os tiers)</span>
+              <span className="tabular-nums text-foreground font-medium">{formatBRL(eventosCustoSql)}</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <WizardFooter

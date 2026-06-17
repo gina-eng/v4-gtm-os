@@ -61,6 +61,18 @@ export type ConversoesInboundData = {
   eventos: ConversaoEventos[];
 };
 
+/**
+ * Subconjunto que o step "Conversões Inbound" do wizard /iniciar realmente edita:
+ * Lead Broker, Black Box e Meeting Broker. Eventos (custo/SQL + CR3/CR4 por tier)
+ * não tem UI no wizard — é herdado do default da Matriz e editado em /premissas.
+ * Por isso o payload do step não os carrega; o merge em applyStepToBlocks preserva
+ * o que já existe no snapshot da entidade.
+ */
+export type ConversoesInboundStepData = Pick<
+  ConversoesInboundData,
+  "leadBroker" | "blackBox" | "meetingBroker"
+>;
+
 export type ConversoesOutboundData = {
   indicacao: ConversaoOutbound[];
   recovery: ConversaoOutbound[];
@@ -98,7 +110,7 @@ export type SaveStepInput =
       step: "leads-investimento";
       data: { distMercado: DistMercado[]; investimentoMidia: InvestimentoMidia[] };
     }
-  | { step: "conversoes-inbound"; data: ConversoesInboundData }
+  | { step: "conversoes-inbound"; data: ConversoesInboundStepData }
   | { step: "conversoes-outbound"; data: ConversoesOutboundData }
   | { step: "mix-subcanais"; data: MixOutboundHorizonte[] }
   | { step: "realizado-historico"; data: RealizadoMensal[] };

@@ -687,3 +687,51 @@ export const realizadoImportLead = pgTable(
 
 export type RealizadoImportLeadRow = typeof realizadoImportLead.$inferSelect;
 export type NewRealizadoImportLeadRow = typeof realizadoImportLead.$inferInsert;
+
+// ============================================================
+// realizado_import_investimento — landing do INVESTIDO por subcanal (grão diário)
+//
+// Tabela dedicada ao investido de mídia, separada do funil. Substitui o
+// `realizado_import_lead.media_investment` (que era da REDE, inflado e quebrava os
+// custos do bowtie). O time de dados entrega aqui o investido POR SUBCANAL POR DIA,
+// já por unidade, num formato "wide": uma linha por (data × id_tenant) com uma
+// coluna de investido por subcanal.
+//
+// Colunas de subcanal (códigos do time de dados → de-para em INVEST_COL_TO_SUBCANAL):
+//   lb → lead_broker (Lead Broker)
+//   mb → meeting_broker (Meeting Broker)
+//   bb → black_box (Black Box)
+//   db → SEM subcanal definido por ora — guardado cru, NÃO conectado ao funil/bowtie
+//        até o de-para ser fechado (ver de-para.ts). Eventos (EV) não vem nesta
+//        entrega, então não recebe investido por aqui.
+//
+// Grão: 1 linha por (data × id_tenant). A unidade é resolvida na derivação
+// (scripts/derive-realizado-funil.ts) via id_tenant → organizations.id_tenant, e o
+// investido de cada dia/subcanal é distribuído entre os tiers (proporcional aos
+// leads do dia) ao gravar `realizado_funil.invest` — mantém o downstream intacto.
+// ============================================================
+
+export const realizadoImportInvestimento = pgTable(
+  "realizado_import_investimento",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Chave de unidade crua (mesmo padrão da landing de leads). A org é resolvida
+    // na derivação por id_tenant → organizations.id_tenant.
+    idTenant: varchar("id_tenant", { length: 120 }),
+    // Competência DIÁRIA do investido (pode ser null/fora de 2026 — derivação filtra).
+    data: date("data"),
+    // ── Investido por subcanal (R$) ──
+    lb: doublePrecision("lb").notNull().default(0), // Lead Broker
+    db: doublePrecision("db").notNull().default(0), // parado: sem subcanal (não conectado)
+    mb: doublePrecision("mb").notNull().default(0), // Meeting Broker
+    bb: doublePrecision("bb").notNull().default(0), // Black Box
+    loadedAt: timestamp("loaded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_realizado_invest_tenant").on(table.idTenant),
+    index("idx_realizado_invest_data").on(table.data),
+  ],
+);
+
+export type RealizadoImportInvestimentoRow = typeof realizadoImportInvestimento.$inferSelect;
+export type NewRealizadoImportInvestimentoRow = typeof realizadoImportInvestimento.$inferInsert;

@@ -19,6 +19,13 @@ import {
   type LinhaRampUp,
   type PlanoContratacaoCargo,
 } from "@/lib/premissas/funil-reverso";
+import {
+  comissaoPessoa as calcComissao,
+  custoLinhaMes as calcCustoMes,
+  disponivelPorCargoDe,
+  mesReferenciaComissao,
+  producaoPessoa as calcProducao,
+} from "@/lib/premissas/custo-time";
 import { formatMesPt, getMesAncora, MESES_ANO_2026 } from "@/lib/realizado/projecao";
 
 type Props = {
@@ -140,14 +147,7 @@ export function TimeComercialClient({
   }
 
   // Disponível por cargo = soma da capacidadePct/100 das pessoas com aquele cargo.
-  const disponivelPorCargo = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of rows) {
-      if (!r.cargo) continue;
-      m.set(r.cargo, (m.get(r.cargo) ?? 0) + (r.capacidadePct ?? 0) / 100);
-    }
-    return m;
-  }, [rows]);
+  const disponivelPorCargo = useMemo(() => disponivelPorCargoDe(rows), [rows]);
 
   const rampUpByMes = useMemo(() => {
     const m = new Map<string, LinhaRampUp>();
@@ -157,31 +157,19 @@ export function TimeComercialClient({
 
   // Mês de referência pra comissão: onde a unidade está agora (mês corrente),
   // com piso no início de operação e teto no fim do horizonte do forecast.
-  const mesReferencia = useMemo(() => {
-    const ancora = getMesAncora(dataInicio);
-    const hoje = new Date();
-    const atual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
-    let mes = atual < ancora ? ancora : atual;
-    if (mes < MESES[0]) mes = MESES[0];
-    const ultimo = MESES[MESES.length - 1];
-    if (mes > ultimo) mes = ultimo;
-    return mes;
-  }, [dataInicio]);
+  const mesReferencia = useMemo(() => mesReferenciaComissao(dataInicio), [dataInicio]);
 
   // Receita projetada do mês de referência — base da comissão por produção.
   const receitaMesRef = rampUpByMes.get(mesReferencia)?.recTotal ?? 0;
 
-  // Produção atribuída a cada pessoa: a receita do mês incide por cargo e é
-  // rateada entre as pessoas do mesmo cargo pela capacidade atual de cada uma.
-  const producaoPessoa = (m: TimeComercialMembro): number => {
-    const capCargo = disponivelPorCargo.get(m.cargo) ?? 0;
-    if (capCargo <= 0) return 0;
-    return receitaMesRef * ((m.capacidadePct / 100) / capCargo);
-  };
+  // Custo/comissão por pessoa: comissão sobre a produção (resultado) gerada, não
+  // sobre o salário. Lógica única em @/lib/premissas/custo-time.
+  const producaoPessoa = (m: TimeComercialMembro): number =>
+    calcProducao(m, receitaMesRef, disponivelPorCargo);
   const comissaoPessoa = (m: TimeComercialMembro): number =>
-    producaoPessoa(m) * (m.comissaoPct / 100);
-  // Custo mensal = salário base + comissão sobre a produção gerada (não sobre o salário).
-  const custoLinhaMes = (m: TimeComercialMembro): number => m.salario + comissaoPessoa(m);
+    calcComissao(m, receitaMesRef, disponivelPorCargo);
+  const custoLinhaMes = (m: TimeComercialMembro): number =>
+    calcCustoMes(m, receitaMesRef, disponivelPorCargo);
 
   const custoTotal = rows.reduce((acc, r) => acc + custoLinhaMes(r), 0);
 

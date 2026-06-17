@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
-import { CurrencyCell, PercentCell } from "@/components/premissas/editable-cell";
+import { PercentCell } from "@/components/premissas/editable-cell";
 import { WizardFooter } from "./wizard-footer";
 import type {
   ConversaoInbound,
@@ -118,6 +118,7 @@ export function StepConversoesInbound({
         </header>
         <div className="px-4 py-2 text-[11px] text-muted-foreground border-b border-border/60">
           Canal exclusivo para tier Enterprise. Funil curto: paga por SQL qualificado.
+          O Custo/SQL fica em Premissas → Receita por Produto / Tier.
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -125,11 +126,6 @@ export function StepConversoesInbound({
               <tr className="border-b border-border">
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   Canal
-                </th>
-                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1 justify-end">
-                    Custo/SQL
-                  </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
@@ -141,27 +137,11 @@ export function StepConversoesInbound({
                     CR4 SAL→Won
                   </span>
                 </th>
-                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  Meta
-                </th>
-                <th className="bg-table-header text-table-header-foreground h-8 font-medium text-left px-2 py-1.5 text-[10px] uppercase tracking-wider">
-                  Pipeline
-                </th>
               </tr>
             </thead>
             <tbody>
               <tr className="bg-card border-b border-border/60">
                 <td className="px-2 py-2 text-xs font-medium text-accent">Meeting Broker</td>
-                <td className="px-2 py-2 text-xs text-right">
-                  <CurrencyCell
-                    isEditing
-                    value={meetingBroker.custoSql}
-                    matrizValue={matrizMeetingBroker.custoSql}
-                    onChange={(v) => patchMB("custoSql", v)}
-                    step={500}
-                    lockableZero
-                  />
-                </td>
                 <td className="px-2 py-2 text-xs text-right">
                   <PercentCell
                     isEditing
@@ -181,28 +161,6 @@ export function StepConversoesInbound({
                     digits={0}
                     lockableZero
                   />
-                </td>
-                <td className="px-2 py-2 text-xs">
-                  <span className="inline-flex items-center px-2 py-0.5 border border-dashed border-warning bg-warning/5 rounded">
-                    <input
-                      type="text"
-                      value={meetingBroker.meta}
-                      onChange={(e) => patchMB("meta", e.target.value)}
-                      placeholder="—"
-                      className="bg-transparent text-xs focus:outline-none text-foreground w-full min-w-0"
-                    />
-                  </span>
-                </td>
-                <td className="px-2 py-2 text-xs">
-                  <span className="inline-flex items-center px-2 py-0.5 border border-dashed border-warning bg-warning/5 rounded">
-                    <input
-                      type="text"
-                      value={meetingBroker.pipeline}
-                      onChange={(e) => patchMB("pipeline", e.target.value)}
-                      placeholder="—"
-                      className="bg-transparent text-xs focus:outline-none text-foreground w-full min-w-0"
-                    />
-                  </span>
                 </td>
               </tr>
             </tbody>

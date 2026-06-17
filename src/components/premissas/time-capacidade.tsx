@@ -5,6 +5,7 @@ import { Plus, X } from "lucide-react";
 import { CurrencyCell, IntegerCell, PercentCell } from "./editable-cell";
 import { formatBRL } from "./format";
 import { CargoSelect } from "@/components/iniciar/cargo-select";
+import { FieldHelp } from "@/components/ui/field-help";
 import {
   CAPACIDADE_OPTIONS,
   CARGOS_COMERCIAIS,
@@ -12,16 +13,22 @@ import {
   type MetricaOperacional,
   type TimeComercialMembro,
 } from "@/lib/premissas/matriz-defaults";
+import type { LinhaRampUp } from "@/lib/premissas/funil-reverso";
+import {
+  comissaoPessoa,
+  custoLinhaMes,
+  disponivelPorCargoDe,
+  mesReferenciaComissao,
+  producaoPessoa,
+  receitaMesReferencia,
+} from "@/lib/premissas/custo-time";
+import { formatMesPt } from "@/lib/realizado/projecao";
 
 export type CacContext = {
   investido: number;
   won: number;
   unidades: number;
 } | null;
-
-function custoLinhaMes(m: TimeComercialMembro): number {
-  return m.salario * (1 + m.comissaoPct / 100);
-}
 
 function isValidEmail(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -32,11 +39,13 @@ const NUM_COLS: Array<{
   key: keyof MetricaOperacional;
   label: string;
   suffix?: string;
+  help?: string;
 }> = [
   {
     key: "wipLimit",
     label: "WIP Limit",
     suffix: "/mês",
+    help: "Capacidade máxima por mês de cada cargo — a unidade muda conforme a posição: LDR, BDR e SDR medem leads; Closer mede reuniões realizadas; Account Manager mede contas.",
   },
   {
     key: "contratacao",
@@ -73,6 +82,11 @@ type Props = {
   /** Premissa da Matriz por cargo (mesma ordem das métricas) — alimenta os badges de diferença. */
   metricsMatriz?: MetricaOperacional[];
   cacContext: CacContext;
+  /** Ramp-up do forecast da unidade — base da comissão por produção. Ausente
+   *  (ex.: passo do wizard, antes de existir forecast) ⇒ comissão zero, custo = salário. */
+  linhasRampUp?: LinhaRampUp[];
+  /** Data de início da unidade — define o mês de referência da comissão. */
+  dataInicio?: string | null;
   readOnly?: boolean;
 };
 
@@ -92,6 +106,8 @@ export function TimeCapacidade({
   onMetricsChange,
   metricsMatriz,
   cacContext,
+  linhasRampUp,
+  dataInicio = null,
   readOnly = false,
 }: Props) {
   const editing = !readOnly;
@@ -122,7 +138,21 @@ export function TimeCapacidade({
     onMetricsChange(metrics.map((r, i) => (i === idx ? { ...r, [k]: v } : r)));
   }
 
-  const custoTotal = team.reduce((acc, r) => acc + custoLinhaMes(r), 0);
+  // Comissão sobre o resultado (produção) que cada pessoa ajuda a gerar — não
+  // sobre o salário. Base = receita projetada do mês de referência, rateada por
+  // capacidade do cargo (mesma lógica do /time-comercial). Sem `linhasRampUp`
+  // (ex.: wizard antes do forecast), a receita é 0 ⇒ custo = só salário.
+  const disponivelPorCargo = useMemo(() => disponivelPorCargoDe(team), [team]);
+  const receitaMesRef = useMemo(
+    () => receitaMesReferencia(linhasRampUp, dataInicio),
+    [linhasRampUp, dataInicio],
+  );
+  const mesReferencia = useMemo(() => mesReferenciaComissao(dataInicio), [dataInicio]);
+
+  const custoTotal = team.reduce(
+    (acc, r) => acc + custoLinhaMes(r, receitaMesRef, disponivelPorCargo),
+    0,
+  );
 
   // CAC dinâmico (mesma fórmula da seção antiga): (custo do time + investido) / won,
   // do último mês fechado. Só exibido quando há contexto (ex.: /premissas-unidade).
@@ -251,8 +281,15 @@ export function TimeCapacidade({
                           <span className="tabular-nums">{m.capacidadePct}%</span>
                         )}
                       </td>
-                      <td className="px-2 py-2 text-xs text-right tabular-nums text-success font-medium">
-                        {formatBRL(custoLinhaMes(m))}
+                      <td
+                        className="px-2 py-2 text-xs text-right tabular-nums text-success font-medium"
+                        title={
+                          receitaMesRef > 0
+                            ? `${formatBRL(m.salario)} salário + ${formatBRL(comissaoPessoa(m, receitaMesRef, disponivelPorCargo))} comissão (${m.comissaoPct}% da produção ${formatBRL(producaoPessoa(m, receitaMesRef, disponivelPorCargo))} atribuída no mês de ${formatMesPt(mesReferencia)})`
+                            : `${formatBRL(m.salario)} salário — comissão entra quando houver forecast de receita`
+                        }
+                      >
+                        {formatBRL(custoLinhaMes(m, receitaMesRef, disponivelPorCargo))}
                       </td>
                       {editing && (
                         <td className="px-2">
@@ -314,6 +351,7 @@ export function TimeCapacidade({
                     <Th key={c.key as string} align="right">
                       {c.label}
                       {c.suffix && <span className="text-table-header-foreground/60 normal-case"> ({c.suffix})</span>}
+                      {c.help && <FieldHelp text={c.help} className="ml-1" />}
                     </Th>
                   ))}
                   <Th align="right">Turnover/Mês</Th>
@@ -414,7 +452,7 @@ export function TimeCapacidade({
                   <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">
                     {wip !== undefined ? (
                       <>
-                        Matriz: {wip.toLocaleString("pt-BR")}/pessoa
+                        {wip.toLocaleString("pt-BR")}/pessoa
                         {pct !== null && (
                           <>
                             {" · "}

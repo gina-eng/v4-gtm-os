@@ -650,7 +650,13 @@ export function applyStepToBlocks(base: PremissasBlocks, input: SaveStepInput): 
     case "leads-investimento":
       return { ...base, distMercado: input.data.distMercado, investimentoMidia: input.data.investimentoMidia };
     case "conversoes-inbound":
-      return { ...base, conversoesInbound: input.data };
+      // O wizard só edita leadBroker/blackBox/meetingBroker; eventosCusto/eventos
+      // não têm UI no step e são preservados do snapshot atual (default da Matriz
+      // ou premissa já gravada) via merge — sem isso o save derrubava o bloco eventos.
+      return {
+        ...base,
+        conversoesInbound: { ...base.conversoesInbound, ...input.data },
+      };
     case "conversoes-outbound":
       return { ...base, conversoesOutbound: input.data };
     case "mix-subcanais":

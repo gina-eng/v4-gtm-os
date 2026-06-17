@@ -214,12 +214,19 @@ export const conversaoEventosSchema = z.object({
   cr4: z.number().min(0).max(100),
 });
 
+/**
+ * Payload do step "Conversões Inbound" do wizard /iniciar. Cobre só os 3 sub-blocos
+ * que a tela edita: Lead Broker, Black Box e Meeting Broker. Eventos (custo/SQL +
+ * CR3/CR4 por tier) NÃO tem UI no wizard — é herdado do default da Matriz e editado
+ * em /premissas; applyStepToBlocks preserva o que já existe no merge, então o step
+ * não precisa reenviá-lo (exigi-lo aqui travava o save com 400). Os schemas de
+ * eventos (eventosCustoSchema/conversaoEventosSchema) seguem usados pela rota
+ * granular PATCH /api/premissas.
+ */
 export const conversoesInboundSchema = z.object({
   leadBroker: z.array(conversaoInboundSchema).min(1),
   blackBox: z.array(conversaoInboundSchema).min(1),
   meetingBroker: conversaoMeetingBrokerSchema,
-  eventosCusto: eventosCustoSchema,
-  eventos: z.array(conversaoEventosSchema).min(1),
 });
 
 // ============================================================

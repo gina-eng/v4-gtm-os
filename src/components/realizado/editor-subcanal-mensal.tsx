@@ -125,6 +125,24 @@ export function EditorSubcanalMensal({
     return isInbound(sub) ? l.invest : l.leads;
   };
 
+  // NOTA (integridade de dado): o editor NÃO encolhe nem regrava os overrides pra
+  // caber no cap. O usuário digita um valor e ele é gravado exatamente como digitado.
+  // O hard-cap (Σ do grupo ≤ total do mês) é aplicado só no CÁLCULO, pelo motor
+  // (`alocacaoInboundEfetiva` / equivalente outbound), que escala proporcionalmente
+  // ao derivar a alocação efetiva. Assim, se o total do mês cair (ex.: redução no
+  // Pace) e voltar a subir, a alocação original do usuário é preservada — antes,
+  // um clamp persistido sobrescrevia o valor digitado por uma versão reduzida.
+  // `maxCelula` ainda impede DIGITAR acima do cap no fluxo normal.
+
+  // Assinatura estável dos caps por mês — muda só quando o investimento total
+  // (cap inbound) ou a capacidade outbound mudam. É a dependência que faz o
+  // estado reagir à redução do total no Pace, mesmo sem mudança nos overrides.
+  const capsSig = useMemo(
+    () => MESES.map((m) => `${capInbound(m)}:${capOutbound(m)}`).join("|"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rampUpByMes],
+  );
+
   // Estado: overrides explícitos por célula. Ausência = "auto" (rateio).
   // Descarta overrides de células travadas (não liberadas pela matriz) ou em
   // meses read-only — defensivo contra dados antigos / mudança de premissa.
@@ -142,12 +160,17 @@ export function EditorSubcanalMensal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const lastSavedRef = useRef<string>(serialize(buildInitial()));
+  // Ressincroniza com o banco quando os overrides salvos mudam OU quando o cap do
+  // mês muda (a mudança de cap pode re-filtrar quais células seguem liberadas).
+  // Guardamos SEMPRE o valor cru que o usuário digitou — nunca um valor reduzido
+  // pelo cap (ver nota acima). lastSaved = raw → o save effect não dispara à toa
+  // quando só o cap muda; o motor cuida do hard-cap no cálculo.
   useEffect(() => {
-    const next = buildInitial();
-    setOverrides(next);
-    lastSavedRef.current = serialize(next);
+    const raw = buildInitial();
+    setOverrides(raw);
+    lastSavedRef.current = serialize(raw);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overridesSubcanalMes]);
+  }, [overridesSubcanalMes, capsSig]);
 
   // Soma dos overrides explícitos de um grupo num mês (exceto opcionalmente um sub).
   const somaGrupoMes = (mes: string, grupo: "inbound" | "outbound", exceto?: SubCanalKey) => {
@@ -477,7 +500,10 @@ function LinhaSubcanal({
             </td>
           );
         }
-        const max = maxCelula(sub, mes) + ov; // disponível + o próprio valor
+        // Teto da célula = cap do mês − Σ dos OUTROS overrides do grupo
+        // (`maxCelula` já exclui esta célula). Não soma `ov`: somar o próprio
+        // valor deixaria a soma do grupo estourar o cap ao digitar.
+        const max = maxCelula(sub, mes);
         const Cell = grupo === "inbound" ? CurrencyCell : IntegerCell;
         const cellViab = viabByCell.get(cellKey(sub, mes));
         // Reset posicionado em absoluto na borda esquerda (área de padding, onde

@@ -1,16 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { Inbox, Megaphone, type LucideIcon } from "lucide-react";
 import { EditableSection, SectionBadge } from "../editable-section";
-import { CurrencyCell, PercentCell } from "../editable-cell";
-import { formatBRL, formatPercent } from "../format";
+import { PercentCell } from "../editable-cell";
 import {
   type ConversaoEventos,
   type ConversaoInbound,
   type ConversaoMeetingBroker,
   type ConversaoOutbound,
-  type EventosCusto,
-  type MixOutboundHorizonte,
   type Tier,
 } from "@/lib/premissas/matriz-defaults";
 import type { PremissaBlockPatch, PremissasBlocks } from "@/db/repositories/premissas";
@@ -24,66 +22,122 @@ export function ConversoesTab({ canEdit, blocks, persist }: Props) {
   const outbound = blocks.conversoesOutbound;
   return (
     <>
-      {/* INBOUND — canais que iniciam em Lead/MQL */}
-      <InboundCRSection
-        title="CRs Lead Broker por Tier"
-        seed={inbound.leadBroker}
-        canEdit={canEdit}
-        onPersist={(data) => persist({ block: "conversaoInbound", canal: "lead_broker", data })}
+      {/* ============ CANAL: INBOUND — subcanais que iniciam em Lead/MQL ============ */}
+      <ChannelHeader
+        icon={Inbox}
+        label="Inbound"
+        countLabel="4 subcanais"
+        description="O lead chega até nós. Funil completo iniciando em Lead/MQL."
       />
-      <InboundCRSection
-        title="CRs Black Box por Tier"
-        seed={inbound.blackBox}
-        canEdit={canEdit}
-        onPersist={(data) => persist({ block: "conversaoInbound", canal: "black_box", data })}
-      />
-      <MeetingBrokerSection
-        canEdit={canEdit}
-        seed={inbound.meetingBroker}
-        onPersist={(data) => persist({ block: "meetingBroker", data })}
-      />
-      <EventosSection
-        canEdit={canEdit}
-        custoSeed={inbound.eventosCusto}
-        crSeed={inbound.eventos}
-        onPersistCusto={(data) => persist({ block: "eventosCusto", data })}
-        onPersistCr={(data) => persist({ block: "conversaoEventos", data })}
-      />
+      <ChannelGroup>
+        <InboundCRSection
+          title="Lead Broker"
+          seed={inbound.leadBroker}
+          canEdit={canEdit}
+          onPersist={(data) => persist({ block: "conversaoInbound", canal: "lead_broker", data })}
+        />
+        <InboundCRSection
+          title="Black Box"
+          seed={inbound.blackBox}
+          canEdit={canEdit}
+          onPersist={(data) => persist({ block: "conversaoInbound", canal: "black_box", data })}
+        />
+        <MeetingBrokerSection
+          canEdit={canEdit}
+          seed={inbound.meetingBroker}
+          onPersist={(data) => persist({ block: "meetingBroker", data })}
+        />
+        <EventosSection
+          canEdit={canEdit}
+          crSeed={inbound.eventos}
+          onPersistCr={(data) => persist({ block: "conversaoEventos", data })}
+        />
+      </ChannelGroup>
 
-      {/* OUTBOUND — canais que iniciam em Lead → SQL (sem etapa MQL) */}
-      <OutboundCRSection
-        title="Outbound: Indicação"
-        seed={outbound.indicacao}
-        canEdit={canEdit}
-        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "indicacao", data })}
+      {/* ============ CANAL: OUTBOUND — subcanais que iniciam em Lead → SQL (sem MQL) ============ */}
+      <ChannelHeader
+        icon={Megaphone}
+        label="Outbound"
+        countLabel="4 subcanais"
+        description="Nós abordamos o lead. Funil curto, pula MQL (Lead → SQL)."
+        className="mt-9"
       />
-      <OutboundCRSection
-        title="Outbound: Recovery"
-        seed={outbound.recovery}
-        canEdit={canEdit}
-        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recovery", data })}
-      />
-      <OutboundCRSection
-        title="Outbound: Recomendação"
-        seed={outbound.recomendacao}
-        canEdit={canEdit}
-        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recomendacao", data })}
-      />
-      <OutboundCRSection
-        title="Outbound: Prospecção Ativa"
-        seed={outbound.prospeccao}
-        canEdit={canEdit}
-        onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "prospeccao", data })}
-      />
-
-      {/* MIX */}
-      <MixSubcanaisSection
-        canEdit={canEdit}
-        seed={blocks.mixSubcanais}
-        onPersist={(data) => persist({ block: "mixSubcanais", data })}
-      />
+      <ChannelGroup>
+        <OutboundCRSection
+          title="Indicação"
+          seed={outbound.indicacao}
+          canEdit={canEdit}
+          onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "indicacao", data })}
+        />
+        <OutboundCRSection
+          title="Recovery"
+          seed={outbound.recovery}
+          canEdit={canEdit}
+          onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recovery", data })}
+        />
+        <OutboundCRSection
+          title="Recomendação"
+          seed={outbound.recomendacao}
+          canEdit={canEdit}
+          onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "recomendacao", data })}
+        />
+        <OutboundCRSection
+          title="Prospecção Ativa"
+          seed={outbound.prospeccao}
+          canEdit={canEdit}
+          onPersist={(data) => persist({ block: "conversaoOutbound", subcanal: "prospeccao", data })}
+        />
+      </ChannelGroup>
     </>
   );
+}
+
+// ============================================================
+// CABEÇALHO DE CANAL + AGRUPAMENTO DE SUBCANAIS
+// ============================================================
+
+/**
+ * Banner que abre um CANAL (Inbound / Outbound) acima dos seus subcanais.
+ * Estabelece a hierarquia canal → subcanais que antes só existia em comentário.
+ */
+function ChannelHeader({
+  icon: Icon,
+  label,
+  countLabel,
+  description,
+  className = "",
+}: {
+  icon: LucideIcon;
+  label: string;
+  countLabel: string;
+  description: string;
+  className?: string;
+}) {
+  return (
+    <div className={`flex items-center gap-3 mb-3 ${className}`}>
+      <span
+        aria-hidden
+        className="inline-flex items-center justify-center h-9 w-9 rounded-md bg-accent/10 text-accent shrink-0"
+      >
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-foreground">{label}</h2>
+          <span className="inline-flex items-center rounded-full bg-accent/10 text-accent px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap">
+            Canal · {countLabel}
+          </span>
+        </div>
+        <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{description}</p>
+      </div>
+      <span aria-hidden className="flex-1 h-px bg-border ml-1" />
+    </div>
+  );
+}
+
+/** Trilho lateral que "abraça" os subcanais de um canal, reforçando o vínculo visual. */
+function ChannelGroup({ children }: { children: React.ReactNode }) {
+  return <div className="border-l-2 border-accent/25 pl-3 sm:pl-4">{children}</div>;
 }
 
 // ============================================================
@@ -233,33 +287,26 @@ function MeetingBrokerSection({
     >
       <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
         Canal exclusivo para tier Enterprise. Funil curto (sem MQL): paga por SQL qualificado.
+        O Custo/SQL fica em Premissas → Receita por Produto / Tier.
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
               <Th>Canal</Th>
-              <Th align="right">Custo/SQL</Th>
               <Th align="right">CR3 SQL→SAL</Th>
               <Th align="right">CR4 SAL→Won</Th>
-              <Th>Meta</Th>
-              <Th>Pipeline</Th>
             </tr>
           </thead>
           <tbody>
             <tr className="bg-card border-b border-border/60">
               <td className="px-2 py-2 text-xs font-medium text-accent">Meeting Broker</td>
               <td className="px-2 py-2 text-xs text-right">
-                <CurrencyCell isEditing={isEditing} value={r.custoSql} onChange={(v) => patch("custoSql", v)} step={500} lockableZero />
-              </td>
-              <td className="px-2 py-2 text-xs text-right">
                 <PercentCell isEditing={isEditing} value={r.cr3} onChange={(v) => patch("cr3", v)} digits={0} lockableZero />
               </td>
               <td className="px-2 py-2 text-xs text-right">
                 <PercentCell isEditing={isEditing} value={r.cr4} onChange={(v) => patch("cr4", v)} digits={0} lockableZero />
               </td>
-              <TextCell value={r.meta} isEditing={isEditing} onChange={(v) => patch("meta", v)} />
-              <TextCell value={r.pipeline} isEditing={isEditing} onChange={(v) => patch("pipeline", v)} />
             </tr>
           </tbody>
         </table>
@@ -276,28 +323,18 @@ const TIER_ORDER_EV: Tier[] = ["Tiny", "Small", "Medium", "Large", "Enterprise"]
 
 function EventosSection({
   canEdit,
-  custoSeed,
   crSeed,
-  onPersistCusto,
   onPersistCr,
 }: {
   canEdit: boolean;
-  custoSeed: EventosCusto;
   crSeed: ConversaoEventos[];
-  onPersistCusto: (data: EventosCusto) => Promise<boolean>;
   onPersistCr: (data: ConversaoEventos[]) => Promise<boolean>;
 }) {
-  const [savedCusto, setSavedCusto] = useState<EventosCusto>(custoSeed);
-  const [draftCusto, setDraftCusto] = useState<EventosCusto>(custoSeed);
   const [savedCr, setSavedCr] = useState<ConversaoEventos[]>(crSeed);
   const [draftCr, setDraftCr] = useState<ConversaoEventos[]>(crSeed);
   const [isEditing, setIsEditing] = useState(false);
-  const c = isEditing ? draftCusto : savedCusto;
   const rows = isEditing ? draftCr : savedCr;
 
-  function patchCusto<K extends keyof EventosCusto>(key: K, v: EventosCusto[K]) {
-    setDraftCusto((prev) => ({ ...prev, [key]: v }));
-  }
   function patchCr<K extends keyof ConversaoEventos>(idx: number, key: K, v: ConversaoEventos[K]) {
     setDraftCr((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
   }
@@ -309,49 +346,23 @@ function EventosSection({
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
-        setDraftCusto(savedCusto);
         setDraftCr(savedCr);
         setIsEditing(true);
       }}
       onSave={() => {
-        setSavedCusto(draftCusto);
         setSavedCr(draftCr);
         setIsEditing(false);
-        void onPersistCusto(draftCusto);
         void onPersistCr(draftCr);
       }}
       onCancel={() => {
-        setDraftCusto(savedCusto);
         setDraftCr(savedCr);
         setIsEditing(false);
       }}
     >
       <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        Eventos próprios/de mercado — inbound funil curto (sem MQL). Custo/SQL é único; CR3/CR4 variam por tier. Orçamento vem do Split EV.
+        Eventos próprios/de mercado — inbound funil curto (sem MQL). CR3/CR4 variam por tier; orçamento vem do Split EV. O Custo/SQL fica em Premissas → Receita por Produto / Tier.
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <Th>Configuração</Th>
-              <Th align="right">Custo/SQL</Th>
-              <Th>Meta</Th>
-              <Th>Pipeline</Th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="bg-card border-b border-border/60">
-              <td className="px-2 py-2 text-xs font-medium text-accent">Eventos</td>
-              <td className="px-2 py-2 text-xs text-right">
-                <CurrencyCell isEditing={isEditing} value={c.custoSql} onChange={(v) => patchCusto("custoSql", v)} step={500} lockableZero />
-              </td>
-              <TextCell value={c.meta} isEditing={isEditing} onChange={(v) => patchCusto("meta", v)} />
-              <TextCell value={c.pipeline} isEditing={isEditing} onChange={(v) => patchCusto("pipeline", v)} />
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div className="overflow-x-auto border-t border-border/60">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
@@ -478,105 +489,6 @@ function OutboundCRSection({
 }
 
 // ============================================================
-// P16 — MIX SUBCANAIS OUTBOUND (% DE LEADS) POR HORIZONTE
-// ============================================================
-
-function mixTotal(r: MixOutboundHorizonte): number {
-  return r.indicacao + r.recovery + r.recomendacao + r.prospeccao;
-}
-
-function MixSubcanaisSection({
-  canEdit,
-  seed,
-  onPersist,
-}: {
-  canEdit: boolean;
-  seed: MixOutboundHorizonte[];
-  onPersist: (data: MixOutboundHorizonte[]) => Promise<boolean>;
-}) {
-  const [saved, setSaved] = useState<MixOutboundHorizonte[]>(seed);
-  const [draft, setDraft] = useState<MixOutboundHorizonte[]>(seed);
-  const [isEditing, setIsEditing] = useState(false);
-  const rows = isEditing ? draft : saved;
-
-  function patch<K extends keyof MixOutboundHorizonte>(idx: number, key: K, v: MixOutboundHorizonte[K]) {
-    setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
-  }
-
-  return (
-    <EditableSection
-      title="Mix de Subcanais Outbound por Horizonte"
-      badge={<SectionBadge>% de Leads</SectionBadge>}
-      canEdit={canEdit}
-      isEditing={isEditing}
-      onEdit={() => {
-        setDraft(saved);
-        setIsEditing(true);
-      }}
-      onSave={() => {
-        setSaved(draft);
-        setIsEditing(false);
-        void onPersist(draft);
-      }}
-      onCancel={() => {
-        setDraft(saved);
-        setIsEditing(false);
-      }}
-    >
-      <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        Distribuição dos leads outbound entre subcanais em cada horizonte. Total deve somar 100%.
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <Th>Horizonte</Th>
-              <Th align="right">Indicação</Th>
-              <Th align="right">Recovery</Th>
-              <Th align="right">Recomendação</Th>
-              <Th align="right">Prospecção</Th>
-              <Th align="right">Total</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, idx) => {
-              const total = mixTotal(r);
-              const totalOk = Math.abs(total - 100) < 0.5;
-              return (
-                <tr
-                  key={r.h}
-                  className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-                >
-                  <td className="px-2 py-2 text-xs font-medium text-accent">{r.h}</td>
-                  {(["indicacao", "recovery", "recomendacao", "prospeccao"] as const).map((key) => (
-                    <td key={key} className="px-2 py-2 text-xs text-right">
-                      <PercentCell
-                        isEditing={isEditing}
-                        value={r[key]}
-                        onChange={(v) => patch(idx, key, v)}
-                        digits={0}
-                        lockableZero
-                      />
-                    </td>
-                  ))}
-                  <td
-                    className={`px-2 py-2 text-xs text-right tabular-nums font-medium ${
-                      totalOk ? "text-success" : "text-destructive"
-                    }`}
-                  >
-                    {formatPercent(total, 0)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </EditableSection>
-  );
-}
-
-// ============================================================
 // Helpers
 // ============================================================
 
@@ -597,35 +509,4 @@ function Th({
   );
 }
 
-function TextCell({
-  value,
-  isEditing,
-  onChange,
-  placeholder = "—",
-}: {
-  value: string;
-  isEditing: boolean;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  if (!isEditing) {
-    return (
-      <td className="px-2 py-2 text-xs text-muted-foreground">
-        {value ? value : <span className="text-muted-foreground/40">{placeholder}</span>}
-      </td>
-    );
-  }
-  return (
-    <td className="px-2 py-2 text-xs">
-      <span className="inline-flex items-center px-2 py-0.5 border border-dashed border-warning bg-warning/5 rounded">
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="bg-transparent text-xs focus:outline-none text-foreground w-full min-w-0"
-        />
-      </span>
-    </td>
-  );
-}
+// `TextCell` removido: Meta/Pipeline saíram de Meeting Broker e Eventos.

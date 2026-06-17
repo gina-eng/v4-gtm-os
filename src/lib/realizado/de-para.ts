@@ -42,6 +42,24 @@ export function mapCanal(raw: string | null | undefined): SubCanalKey | null {
   return null;
 }
 
+/**
+ * De-para das colunas de investido da landing `realizado_import_investimento`
+ * (entrega "wide" do time de dados) para os subcanais do sistema.
+ *
+ * Fechado hoje: lb→Lead Broker, mb→Meeting Broker, bb→Black Box. A coluna `db`
+ * fica DE FORA por ora (subcanal ainda indefinido) — é guardada crua na landing,
+ * mas não entra no funil/bowtie até o de-para ser definido. Eventos (EV) não vem
+ * nesta entrega, então não recebe investido por esta fonte.
+ *
+ * Ao definir `db` (e/ou eventos), basta acrescentar a chave aqui — a derivação e o
+ * bowtie já consomem o mapa, sem outras mudanças.
+ */
+export const INVEST_COL_TO_SUBCANAL = {
+  lb: "lead_broker",
+  mb: "meeting_broker",
+  bb: "black_box",
+} as const satisfies Record<string, SubCanalKey>;
+
 const TIER_BY_UPPER: Record<string, Tier> = {
   TINY: "Tiny",
   SMALL: "Small",

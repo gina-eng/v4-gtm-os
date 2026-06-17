@@ -318,6 +318,9 @@ function UsersTable({
                       ? new Date(u.lastLoginAt).toLocaleString("pt-BR", {
                           dateStyle: "short",
                           timeStyle: "short",
+                          // timeZone fixo: sem ele, server (UTC na Vercel) e browser
+                          // (BRT) formatam horas diferentes → hydration mismatch (#418).
+                          timeZone: "America/Sao_Paulo",
                         })
                       : "—"}
                   </td>

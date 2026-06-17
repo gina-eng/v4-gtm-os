@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info, Lock } from "lucide-react";
 import { PercentCell } from "@/components/premissas/editable-cell";
+import { FieldHelp } from "@/components/ui/field-help";
 import { formatBRL, formatPercent } from "@/components/premissas/format";
 import { WizardFooter } from "./wizard-footer";
 import type {
@@ -243,7 +244,7 @@ export function StepLeadsInvestimento({
           </h3>
         </header>
         <div className="px-4 py-2 text-[11px] text-muted-foreground border-b border-border/60">
-          % Investimento = parcela do faturamento investida em mídia. Define a divisão entre Lead Broker, Black Box, Meeting Broker e Eventos.
+          Percentual do faturamento mensal investido em mídia via canais Inbound (LB, BB, MT ou Eventos)
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -257,26 +258,31 @@ export function StepLeadsInvestimento({
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     % Investimento
+                    <FieldHelp text="% Investimento = parcela do faturamento investida em mídia. Define a divisão entre Lead Broker, Black Box, Meeting Broker e Eventos." />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split LB
+                    <FieldHelp text="% do investimento de mídia alocado em Leadbroker." />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split BB
+                    <FieldHelp text="% do investimento de mídia alocado em Blackbox." />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split MT
+                    <FieldHelp text="% do investimento de mídia alocado em Meetingbroker." />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1 justify-end">
                     Split EV
+                    <FieldHelp text="% do investimento de mídia alocado em Eventos." />
                   </span>
                 </th>
                 <th className="bg-table-header text-table-header-foreground h-8 font-medium text-right px-2 py-1.5 text-[10px] uppercase tracking-wider">

@@ -148,6 +148,13 @@
       "when": 1781558571007,
       "tag": "0020_fuzzy_big_bertha",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1781668969301,
+      "tag": "0021_noisy_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

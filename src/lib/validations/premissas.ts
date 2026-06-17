@@ -1,8 +1,10 @@
 import { z } from "zod";
 import {
+  conversaoEventosSchema,
   conversaoInboundSchema,
   conversaoMeetingBrokerSchema,
   conversaoOutboundSchema,
+  eventosCustoSchema,
   horizontesSchema,
   investimentoMidiaSchema,
   metricasOperacionaisSchema,
@@ -52,6 +54,11 @@ export const premissaBlockBodySchema = z.discriminatedUnion("block", [
     data: z.array(conversaoInboundSchema).min(1),
   }),
   z.object({ block: z.literal("meetingBroker"), data: conversaoMeetingBrokerSchema }),
+  z.object({ block: z.literal("eventosCusto"), data: eventosCustoSchema }),
+  z.object({
+    block: z.literal("conversaoEventos"),
+    data: z.array(conversaoEventosSchema).min(1),
+  }),
   z.object({
     block: z.literal("conversaoOutbound"),
     subcanal: z.enum(["indicacao", "eventos", "recovery", "recomendacao", "prospeccao"]),

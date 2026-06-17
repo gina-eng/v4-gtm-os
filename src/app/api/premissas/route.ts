@@ -40,6 +40,17 @@ export async function PATCH(req: NextRequest) {
       if (!unidade || unidade.type !== "unidade") {
         throw new ForbiddenError("Sem unidade ativa para editar premissas");
       }
+      // Premissas travadas na Matriz — a unidade nunca personaliza. Bloqueia no
+      // servidor mesmo que a UI escape (essas seções já são só-leitura na unidade):
+      // - tiersCliente: faixas de faturamento, TCV, CPL/CPMQL e o conjunto de tiers.
+      // - distMercado: % de mercado por tier + grade de liberação por horizonte
+      //   (a unidade só ajusta o split por horizonte, bloco distSplit).
+      const BLOCOS_SO_MATRIZ = new Set(["tiersCliente", "distMercado"]);
+      if (BLOCOS_SO_MATRIZ.has(body.block)) {
+        throw new ForbiddenError(
+          "Esta premissa é definida pela Matriz e não pode ser editada na unidade",
+        );
+      }
       entidadeId = unidade.id;
     }
 

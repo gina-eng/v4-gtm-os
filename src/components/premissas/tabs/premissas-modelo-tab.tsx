@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
 import { EditableSection, SectionBadge } from "../editable-section";
+import { FieldHelp } from "@/components/ui/field-help";
 import {
   CurrencyCell,
   IntegerCell,
@@ -14,7 +15,9 @@ import { formatBRL, formatPercent } from "../format";
 import {
   CARGOS_COMERCIAIS,
   METRICAS_OPERACIONAIS_DEFAULT,
+  type InvestimentoMidia,
   type MetricaOperacional,
+  type MixOutboundHorizonte,
   type TimeComercialMembro,
 } from "@/lib/premissas/matriz-defaults";
 import type { PremissaBlockPatch, PremissasBlocks } from "@/db/repositories/premissas";
@@ -37,14 +40,38 @@ type Props = {
   cacContext: CacContext;
   blocks: PremissasBlocks;
   persist: PersistBlock;
-  /** CPMQL (P2) é premissa da Matriz: na visão unidade fica só-leitura. Default false (matriz edita). */
-  cpmqlReadOnly?: boolean;
+  /**
+   * Tiers de Cliente (P2 — faixas de faturamento, TCV, CPL/CPMQL) são premissa
+   * travada da Matriz: a unidade não negocia tier, só visualiza. Quando true, a
+   * seção inteira fica só-leitura (sem botão Editar). Default false (matriz edita).
+   */
+  tiersReadOnly?: boolean;
+  /**
+   * Horizontes de Crescimento (P1 — faixas de faturamento, prazo e crescimento
+   * mínimo por horizonte) são premissa travada da Matriz: a unidade não negocia
+   * os horizontes, só visualiza. Quando true, a seção fica só-leitura (sem botão
+   * Editar) e exibe o selo "Matriz". Default false (matriz edita).
+   */
+  horizontesReadOnly?: boolean;
   /**
    * Mostra Time Comercial + Capacidade Operacional no topo (template por cargo).
    * Default true (matriz). O /premissas-unidade passa false — lá o time vive na
    * aba dedicada "Time & Capacidade", com o modelo completo por pessoa.
    */
   showTimeCapacidade?: boolean;
+  /**
+   * Mostra a seção "Receita por Produto / Tier" (P3 — adesão/ticket + CPMQL por
+   * tier). Default true (matriz e wizard). O /premissas-unidade passa false: como
+   * é premissa travada da Matriz que a unidade só visualizaria, a seção fica
+   * oculta na aba PREMISSAS da unidade. O dado segue alimentando o forecast.
+   */
+  showReceitaProduto?: boolean;
+  /**
+   * Investimento em mídia da Matriz, exibido como referência só-leitura ("bench")
+   * ao lado do % editável da unidade — pra não perder a premissa-base depois de
+   * editar. Ausente na visão Matriz (lá o próprio valor já é a premissa).
+   */
+  investimentoMidiaMatriz?: InvestimentoMidia[];
 };
 
 /** Mapeia o membro simplificado da tela pro shape completo do bloco (template da matriz). */
@@ -52,7 +79,7 @@ function toMembroBlock(m: Membro): TimeComercialMembro {
   return { email: "", cargo: m.cargo, salario: m.salario, comissaoPct: m.comissaoPct, capacidadePct: 100 };
 }
 
-export function PremissasModeloTab({ canEdit, horizonteAtual, cacContext, blocks, persist, cpmqlReadOnly = false, showTimeCapacidade = true }: Props) {
+export function PremissasModeloTab({ canEdit, horizonteAtual, cacContext, blocks, persist, tiersReadOnly = false, horizontesReadOnly = false, showTimeCapacidade = true, showReceitaProduto = true, investimentoMidiaMatriz }: Props) {
   // Estado do TIME COMERCIAL fica aqui pra alimentar P17 com os mesmos cargos.
   // Cada cargo cadastrado no TIME vira uma linha na Capacidade Operacional.
   const [team, setTeam] = useState<Membro[]>(() =>
@@ -69,6 +96,19 @@ export function PremissasModeloTab({ canEdit, horizonteAtual, cacContext, blocks
     }
     return out;
   }, [team]);
+
+  // tiersCliente é UM bloco editado em DUAS seções: faixas de faturamento ficam
+  // em "Tiers de Cliente"; CPMQL (LB/BB/MT) migrou pra "Receita por Produto / Tier".
+  // Guardamos o array num só lugar (fonte da verdade) pra que salvar uma seção não
+  // sobrescreva os campos editados na outra — setTiers é síncrono, sem flicker.
+  const [tiers, setTiers] = useState<TierCliente[]>(blocks.tiersCliente);
+  const persistTiers = useCallback(
+    async (next: TierCliente[]) => {
+      setTiers(next);
+      return persist({ block: "tiersCliente", data: next });
+    },
+    [persist],
+  );
 
   return (
     <>
@@ -92,9 +132,10 @@ export function PremissasModeloTab({ canEdit, horizonteAtual, cacContext, blocks
         </>
       )}
 
-      {/* P1 — horizontes */}
+      {/* P1 — horizontes (premissa travada da Matriz: a unidade só visualiza) */}
       <HorizontesSection
-        canEdit={canEdit}
+        canEdit={canEdit && !horizontesReadOnly}
+        matrizLocked={horizontesReadOnly}
         horizonteAtual={horizonteAtual}
         initial={blocks.horizontes}
         onPersist={(rows) => persist({ block: "horizontes", data: rows })}
@@ -105,32 +146,59 @@ export function PremissasModeloTab({ canEdit, horizonteAtual, cacContext, blocks
         canEdit={canEdit}
         horizonteAtual={horizonteAtual}
         initial={blocks.investimentoMidia}
+        matriz={investimentoMidiaMatriz}
         onPersist={(rows) => persist({ block: "investimentoMidia", data: rows })}
       />
 
-      {/* P2 — tiers de cliente */}
-      <TiersClienteSection
-        canEdit={canEdit}
-        cpmqlReadOnly={cpmqlReadOnly}
-        initial={blocks.tiersCliente}
-        produtos={blocks.receitaProduto}
-        onPersist={(rows) => persist({ block: "tiersCliente", data: rows })}
-      />
+      {/* P3 — receita por produto / tier (+ CPMQL por tier, travado na Matriz).
+          Oculto na aba PREMISSAS da unidade (showReceitaProduto=false): premissa
+          da Matriz que a unidade só visualizaria. */}
+      {showReceitaProduto && (
+        <ReceitaProdutoSection
+          canEdit={canEdit}
+          cpmqlReadOnly={tiersReadOnly}
+          tiers={tiers}
+          initial={blocks.receitaProduto}
+          onPersist={(rows) => persist({ block: "receitaProduto", data: rows })}
+          onPersistTiers={persistTiers}
+          meetingBrokerCustoSql={blocks.conversoesInbound.meetingBroker.custoSql}
+          eventosCustoSql={blocks.conversoesInbound.eventosCusto.custoSql}
+          onPersistMeetingBrokerCusto={(custoSql) =>
+            persist({
+              block: "meetingBroker",
+              data: { ...blocks.conversoesInbound.meetingBroker, custoSql },
+            })
+          }
+          onPersistEventosCusto={(custoSql) =>
+            persist({
+              block: "eventosCusto",
+              data: { ...blocks.conversoesInbound.eventosCusto, custoSql },
+            })
+          }
+        />
+      )}
 
-      {/* P3 — receita por produto / tier */}
-      <ReceitaProdutoSection
-        canEdit={canEdit}
-        initial={blocks.receitaProduto}
-        onPersist={(rows) => persist({ block: "receitaProduto", data: rows })}
-      />
-
-      {/* P4 — distribuição de leads por tier */}
+      {/* P4 — distribuição de tier por horizonte. À esquerda, premissa travada da
+          Matriz: faixas de faturamento (FAT. MIN/MÁX), % de mercado e grade de
+          liberação por tier (antiga seção "Tiers de Cliente", agora embutida aqui).
+          À direita, o split por horizonte que a unidade ajusta (linha = 100%). */}
       <DistribuicaoLeadsSection
         canEdit={canEdit}
+        mercadoReadOnly={tiersReadOnly}
+        tiers={tiers}
+        produtos={blocks.receitaProduto}
+        onPersistTiers={persistTiers}
         initial={blocks.distMercado}
         onPersist={(rows) => persist({ block: "distMercado", data: rows })}
         initialSplit={blocks.distSplit}
         onPersistSplit={(rows) => persist({ block: "distSplit", data: rows })}
+      />
+
+      {/* P16 — mix de subcanais outbound (% de leads) por horizonte */}
+      <MixSubcanaisSection
+        canEdit={canEdit}
+        seed={blocks.mixSubcanais}
+        onPersist={(data) => persist({ block: "mixSubcanais", data })}
       />
     </>
   );
@@ -541,11 +609,18 @@ type Horizonte = {
 
 function HorizontesSection({
   canEdit,
+  matrizLocked,
   horizonteAtual,
   initial,
   onPersist,
 }: {
   canEdit: boolean;
+  /**
+   * Horizontes de Crescimento são premissa travada da Matriz. Na visão unidade
+   * isto vem true: a seção inteira fica só-leitura (sem botão Editar) e exibe o
+   * selo "Matriz".
+   */
+  matrizLocked: boolean;
   horizonteAtual: Horizonte["h"] | null;
   initial: Horizonte[];
   onPersist: (rows: Horizonte[]) => Promise<boolean>;
@@ -562,6 +637,7 @@ function HorizontesSection({
   return (
     <EditableSection
       title="Horizontes de Crescimento"
+      badge={matrizLocked ? <SectionBadge>Somente leitura · Matriz</SectionBadge> : undefined}
       canEdit={canEdit}
       isEditing={isEditing}
       onEdit={() => {
@@ -641,6 +717,11 @@ function HorizontesSection({
           );
         })}
       </div>
+      {matrizLocked && (
+        <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
+          Horizontes de Crescimento são premissa da Matriz — só a Matriz edita; a unidade visualiza.
+        </div>
+      )}
     </EditableSection>
   );
 }
@@ -666,18 +747,29 @@ function InvestimentoMidiaSection({
   canEdit,
   horizonteAtual,
   initial,
+  matriz,
   onPersist,
 }: {
   canEdit: boolean;
   // null na visão matriz (consolidada): nenhuma unidade impersonada a destacar.
   horizonteAtual: Investimento["h"] | null;
   initial: Investimento[];
+  /** Premissa da Matriz por horizonte — referência só-leitura ao lado do %
+   *  editável da unidade. Ausente na própria visão Matriz. */
+  matriz?: Investimento[];
   onPersist: (rows: Investimento[]) => Promise<boolean>;
 }) {
   const [saved, setSaved] = useState<Investimento[]>(initial);
   const [draft, setDraft] = useState<Investimento[]>(initial);
   const [isEditing, setIsEditing] = useState(false);
   const rows = isEditing ? draft : saved;
+
+  // Mapa horizonte → % Investimento da Matriz, pra mostrar como bench ao lado.
+  const matrizPctByH = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of matriz ?? []) m.set(r.h, r.pctProducao);
+    return m;
+  }, [matriz]);
 
   function patch<K extends keyof Investimento>(idx: number, key: K, v: Investimento[K]) {
     setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
@@ -718,7 +810,7 @@ function InvestimentoMidiaSection({
       }}
     >
       <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        % Investimento = parcela do faturamento investida em mídia. Splits LB/BB/MT/EV definem a divisão entre Lead Broker, Black Box, Meeting Broker (inbound enterprise) e Eventos (inbound multi-tier). Soma deve ser ≤ 100%.
+        Percentual do faturamento mensal investido em mídia via canais Inbound (LB, BB, MT ou Eventos)
       </div>
       <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {rows.map((r, idx) => {
@@ -741,15 +833,26 @@ function InvestimentoMidiaSection({
                 )}
               </div>
               <dl className="px-3 py-2.5 text-xs flex-1 space-y-2">
-                <CardField label="% Investimento">
-                  <PercentCell
-                    isEditing={isEditing}
-                    value={r.pctProducao}
-                    onChange={(v) => patch(idx, "pctProducao", v)}
-                    align="left"
-                  />
+                <CardField label="% Investimento" help="% Investimento = parcela do faturamento investida em mídia. Define a divisão entre Lead Broker, Black Box, Meeting Broker e Eventos.">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <PercentCell
+                      isEditing={isEditing}
+                      value={r.pctProducao}
+                      onChange={(v) => patch(idx, "pctProducao", v)}
+                      align="left"
+                    />
+                    {matrizPctByH.has(r.h) && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground tabular-nums"
+                        title="Premissa da Matriz — referência (não editável)"
+                      >
+                        <span className="uppercase tracking-wider">Matriz</span>
+                        {formatPercent(matrizPctByH.get(r.h)!, 1)}
+                      </span>
+                    )}
+                  </div>
                 </CardField>
-                <CardField label="Split LB">
+                <CardField label="Split LB" help="% do investimento de mídia alocado em Leadbroker.">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitLb}
@@ -757,7 +860,7 @@ function InvestimentoMidiaSection({
                     align="left"
                   />
                 </CardField>
-                <CardField label="Split BB">
+                <CardField label="Split BB" help="% do investimento de mídia alocado em Blackbox.">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitBb}
@@ -766,7 +869,7 @@ function InvestimentoMidiaSection({
                     align="left"
                   />
                 </CardField>
-                <CardField label="Split MT">
+                <CardField label="Split MT" help="% do investimento de mídia alocado em Meetingbroker.">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitMt}
@@ -775,7 +878,7 @@ function InvestimentoMidiaSection({
                     align="left"
                   />
                 </CardField>
-                <CardField label="Split EV">
+                <CardField label="Split EV" help="% do investimento de mídia alocado em Eventos.">
                   <PercentCell
                     isEditing={isEditing}
                     value={r.splitEv}
@@ -795,15 +898,19 @@ function InvestimentoMidiaSection({
 
 function CardField({
   label,
+  help,
   children,
 }: {
   label: string;
+  /** Texto do tooltip de ajuda (?) ao lado do label. Omitido = sem ícone. */
+  help?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
         {label}
+        {help && <FieldHelp text={help} />}
       </dt>
       <dd className="text-xs text-foreground">{children}</dd>
     </div>
@@ -826,117 +933,10 @@ type TierCliente = {
   cpmqlMt: number;
 };
 
-function TiersClienteSection({
-  canEdit,
-  cpmqlReadOnly,
-  initial,
-  produtos,
-  onPersist,
-}: {
-  canEdit: boolean;
-  /** CPMQL é premissa da Matriz: na visão unidade fica só-leitura mesmo em edição. */
-  cpmqlReadOnly: boolean;
-  initial: TierCliente[];
-  produtos: Produto[];
-  onPersist: (rows: TierCliente[]) => Promise<boolean>;
-}) {
-  const [saved, setSaved] = useState<TierCliente[]>(initial);
-  const [draft, setDraft] = useState<TierCliente[]>(initial);
-  const [isEditing, setIsEditing] = useState(false);
-  const rows = isEditing ? draft : saved;
-
-  const tcvByTier = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const p of produtos) map.set(p.tier, tcvPonderado(p));
-    return map;
-  }, [produtos]);
-
-  function patch<K extends keyof TierCliente>(idx: number, key: K, v: TierCliente[K]) {
-    setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
-  }
-
-  return (
-    <EditableSection
-      title="Tiers de Cliente"
-      canEdit={canEdit}
-      isEditing={isEditing}
-      onEdit={() => {
-        setDraft(saved);
-        setIsEditing(true);
-      }}
-      onSave={() => {
-        // TCV-Booking é ponderado pela receita realizada por produto (P3) — sobrescreve no save.
-        const rowsToSave = draft.map((r) => ({
-          ...r,
-          tcvBooking: tcvByTier.get(r.tier) ?? r.tcvBooking,
-        }));
-        setSaved(rowsToSave);
-        setIsEditing(false);
-        void onPersist(rowsToSave);
-      }}
-      onCancel={() => {
-        setDraft(saved);
-        setIsEditing(false);
-      }}
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <Th>Tier</Th>
-              <Th align="right">Fat. Min</Th>
-              <Th align="right">Fat. Máx</Th>
-              <Th align="right">CPMQL LB{cpmqlReadOnly ? " · Matriz" : ""}</Th>
-              <Th align="right">CPMQL BB{cpmqlReadOnly ? " · Matriz" : ""}</Th>
-              <Th align="right">CPMQL MT{cpmqlReadOnly ? " · Matriz" : ""}</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, idx) => (
-              <tr
-                key={r.tier}
-                className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-              >
-                <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.tier}</td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell
-                    isEditing={isEditing}
-                    value={r.faturamentoMin}
-                    onChange={(v) => patch(idx, "faturamentoMin", v)}
-                    step={100_000}
-                  />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <NullableCurrencyCell
-                    isEditing={isEditing}
-                    value={r.faturamentoMax}
-                    onChange={(v) => patch(idx, "faturamentoMax", v)}
-                    step={100_000}
-                  />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={r.cplLb} onChange={(v) => patch(idx, "cplLb", v)} step={10} />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={r.cplBb} onChange={(v) => patch(idx, "cplBb", v)} step={10} />
-                </td>
-                <td className="px-1.5 py-2 text-xs text-right">
-                  <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={r.cpmqlMt} onChange={(v) => patch(idx, "cpmqlMt", v)} step={100} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        Tiny: BB piso R$30K/mês. CPMQL BB = R$700 padrão para todos os tiers. CPMQL MT = R$5.000 (custo SQL).
-        {cpmqlReadOnly
-          ? " CPMQL é referência da Matriz — só a Matriz edita; a unidade visualiza."
-          : ""}
-      </div>
-    </EditableSection>
-  );
-}
+// `TiersClienteSection` foi removida: as faixas de faturamento (FAT. MIN/MÁX)
+// agora vivem dentro da tabela "Mercado por Tier" da seção "Distribuição de Tier
+// por Horizonte" (DistribuicaoLeadsSection). O type `TierCliente` acima segue
+// sendo a fonte da verdade do bloco tiersCliente (CPMQL etc.).
 
 // ============================================================
 // P3 — RECEITA POR PRODUTO / TIER
@@ -966,17 +966,52 @@ function somaAdesao(p: Produto): number {
 
 function ReceitaProdutoSection({
   canEdit,
+  cpmqlReadOnly,
+  tiers,
   initial,
   onPersist,
+  onPersistTiers,
+  meetingBrokerCustoSql,
+  eventosCustoSql,
+  onPersistMeetingBrokerCusto,
+  onPersistEventosCusto,
 }: {
   canEdit: boolean;
+  /** CPMQL (LB/BB/MT) é premissa travada da Matriz: só-leitura na unidade, mesmo em edição. */
+  cpmqlReadOnly: boolean;
+  /** Fonte da verdade dos tiers (compartilhada com "Tiers de Cliente", que edita o faturamento). */
+  tiers: TierCliente[];
   initial: Produto[];
   onPersist: (rows: Produto[]) => Promise<boolean>;
+  onPersistTiers: (rows: TierCliente[]) => Promise<boolean>;
+  /**
+   * Custo/SQL do funil curto inbound, movidos das Conversões pra cá (todo custo num
+   * lugar só): Meeting Broker (Enterprise) e Eventos. Singletons — não mexem no
+   * cálculo (o forecast segue lendo os mesmos campos). Edição só na Matriz (como CPMQL).
+   */
+  meetingBrokerCustoSql: number;
+  eventosCustoSql: number;
+  onPersistMeetingBrokerCusto: (custoSql: number) => Promise<boolean>;
+  onPersistEventosCusto: (custoSql: number) => Promise<boolean>;
 }) {
   const [saved, setSaved] = useState<Produto[]>(initial);
   const [draft, setDraft] = useState<Produto[]>(initial);
+  // Draft do CPMQL — só editado na Matriz; semeado da fonte da verdade ao entrar em edição.
+  const [tierDraft, setTierDraft] = useState<TierCliente[]>(tiers);
   const [isEditing, setIsEditing] = useState(false);
+  // Custo/SQL (funil curto inbound) — só editável na Matriz, como CPMQL/CPL.
+  const [draftMbCusto, setDraftMbCusto] = useState(meetingBrokerCustoSql);
+  const [draftEvCusto, setDraftEvCusto] = useState(eventosCustoSql);
+  const custoEditing = isEditing && !cpmqlReadOnly;
+  const mbCusto = custoEditing ? draftMbCusto : meetingBrokerCustoSql;
+  const evCusto = custoEditing ? draftEvCusto : eventosCustoSql;
   const rows = isEditing ? draft : saved;
+  const tierRows = isEditing ? tierDraft : tiers;
+  const cpmqlByTier = useMemo(() => {
+    const m = new Map<string, TierCliente>();
+    for (const t of tierRows) m.set(t.tier, t);
+    return m;
+  }, [tierRows]);
   // Invariante P3: Saber% + Ter% + Executar% deve somar 100% em cada tier.
   // Bloqueia o save enquanto alguma linha estiver fora (tolerância 0.5).
   const linhasInvalidas = draft.filter((r) => Math.abs(somaAdesao(r) - 100) > 0.5);
@@ -984,6 +1019,9 @@ function ReceitaProdutoSection({
 
   function patch<K extends keyof Produto>(idx: number, key: K, v: Produto[K]) {
     setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
+  }
+  function patchTier(tier: TierCliente["tier"], key: "cplLb" | "cplBb" | "cpmqlMt", v: number) {
+    setTierDraft((prev) => prev.map((t) => (t.tier === tier ? { ...t, [key]: v } : t)));
   }
 
   return (
@@ -1001,6 +1039,9 @@ function ReceitaProdutoSection({
       }
       onEdit={() => {
         setDraft(saved);
+        setTierDraft(tiers);
+        setDraftMbCusto(meetingBrokerCustoSql);
+        setDraftEvCusto(eventosCustoSql);
         setIsEditing(true);
       }}
       onSave={() => {
@@ -1008,34 +1049,65 @@ function ReceitaProdutoSection({
         setSaved(draft);
         setIsEditing(false);
         void onPersist(draft);
+        // CPMQL só persiste quando editável (Matriz). Recalcula o TCV-Booking
+        // ponderado a partir da receita por produto recém-salva.
+        if (!cpmqlReadOnly) {
+          const tcvBy = new Map(draft.map((p) => [p.tier, tcvPonderado(p)] as const));
+          const nextTiers = tierDraft.map((t) => ({
+            ...t,
+            tcvBooking: tcvBy.get(t.tier) ?? t.tcvBooking,
+          }));
+          void onPersistTiers(nextTiers);
+          // Custo/SQL (Meeting Broker / Eventos): persiste só o que mudou.
+          if (draftMbCusto !== meetingBrokerCustoSql) void onPersistMeetingBrokerCusto(draftMbCusto);
+          if (draftEvCusto !== eventosCustoSql) void onPersistEventosCusto(draftEvCusto);
+        }
       }}
       onCancel={() => {
         setDraft(saved);
+        setTierDraft(tiers);
+        setDraftMbCusto(meetingBrokerCustoSql);
+        setDraftEvCusto(eventosCustoSql);
         setIsEditing(false);
       }}
     >
-      <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        % de adesão por tier × ticket médio (AT) de cada produto. TCV Pond. = soma ponderada.
-      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
               <Th>Tier</Th>
               <Th align="right">Saber %</Th>
-              <Th align="right">Saber TM</Th>
               <Th align="right">Ter %</Th>
-              <Th align="right">Ter TM</Th>
               <Th align="right">Executar %</Th>
-              <Th align="right">Executar TM</Th>
+              <Th align="right">Saber R$</Th>
+              <Th align="right">Ter R$</Th>
+              <Th align="right">Executar R$</Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  CPMQL LB{cpmqlReadOnly ? " · Matriz" : ""}
+                  <FieldHelp text="Custo por MQL via Leadbroker (leads de mídia paga) com opção de escolha." />
+                </span>
+              </Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  CPMQL BB{cpmqlReadOnly ? " · Matriz" : ""}
+                  <FieldHelp text="Custo por MQL via Black Box (leads de mídia paga) sem opção de escolha." />
+                </span>
+              </Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  CPMQL MT{cpmqlReadOnly ? " · Matriz" : ""}
+                  <FieldHelp text="Custo por MQL via Meeting Broker (leads enterprise) com opção de escolha." />
+                </span>
+              </Th>
               <Th align="right">Soma %</Th>
-              <Th align="right">TCV Pond.</Th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => {
               const soma = somaAdesao(r);
               const somaOk = Math.abs(soma - 100) < 0.5;
+              const cpmql = cpmqlByTier.get(r.tier);
               return (
                 <tr
                   key={r.tier}
@@ -1046,19 +1118,28 @@ function ReceitaProdutoSection({
                     <PercentCell isEditing={isEditing} value={r.saberPct} onChange={(v) => patch(idx, "saberPct", v)} digits={0} lockableZero />
                   </td>
                   <td className="px-1.5 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={isEditing} value={r.saberAt} onChange={(v) => patch(idx, "saberAt", v)} lockableZero />
-                  </td>
-                  <td className="px-1.5 py-2 text-xs text-right">
                     <PercentCell isEditing={isEditing} value={r.terPct} onChange={(v) => patch(idx, "terPct", v)} digits={0} lockableZero />
-                  </td>
-                  <td className="px-1.5 py-2 text-xs text-right">
-                    <CurrencyCell isEditing={isEditing} value={r.terAt} onChange={(v) => patch(idx, "terAt", v)} lockableZero />
                   </td>
                   <td className="px-1.5 py-2 text-xs text-right">
                     <PercentCell isEditing={isEditing} value={r.execPct} onChange={(v) => patch(idx, "execPct", v)} digits={0} lockableZero />
                   </td>
                   <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing} value={r.saberAt} onChange={(v) => patch(idx, "saberAt", v)} lockableZero />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing} value={r.terAt} onChange={(v) => patch(idx, "terAt", v)} lockableZero />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
                     <CurrencyCell isEditing={isEditing} value={r.execAt} onChange={(v) => patch(idx, "execAt", v)} lockableZero />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={cpmql?.cplLb ?? 0} onChange={(v) => patchTier(r.tier, "cplLb", v)} step={10} />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={cpmql?.cplBb ?? 0} onChange={(v) => patchTier(r.tier, "cplBb", v)} step={10} />
+                  </td>
+                  <td className="px-1.5 py-2 text-xs text-right">
+                    <CurrencyCell isEditing={isEditing && !cpmqlReadOnly} value={cpmql?.cpmqlMt ?? 0} onChange={(v) => patchTier(r.tier, "cpmqlMt", v)} step={100} />
                   </td>
                   <td
                     className={`px-1.5 py-2 text-xs text-right tabular-nums font-medium ${
@@ -1068,14 +1149,33 @@ function ReceitaProdutoSection({
                   >
                     {formatPercent(soma, 0)}
                   </td>
-                  <td className="px-1.5 py-2 text-xs text-right tabular-nums font-medium text-success">
-                    {formatBRL(tcvPonderado(r))}
-                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
+      <div className="px-4 py-3 border-t border-border bg-muted/10">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2 inline-flex items-center gap-2">
+          Custo/SQL · funil curto inbound
+          {cpmqlReadOnly && <SectionBadge>Somente leitura · Matriz</SectionBadge>}
+        </div>
+        <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs items-center">
+          <div className="inline-flex items-center gap-2">
+            <span className="text-muted-foreground">Meeting Broker (Enterprise)</span>
+            <CurrencyCell isEditing={custoEditing} value={mbCusto} onChange={setDraftMbCusto} step={500} lockableZero />
+          </div>
+          <div className="inline-flex items-center gap-2">
+            <span className="text-muted-foreground">Eventos (todos os tiers)</span>
+            <CurrencyCell isEditing={custoEditing} value={evCusto} onChange={setDraftEvCusto} step={500} lockableZero />
+          </div>
+        </div>
+      </div>
+      <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
+        BB piso R$30K/mês. CPMQL BB = R$700 padrão para todos os tiers. CPMQL MT = R$5.000 (custo SQL).
+        {cpmqlReadOnly
+          ? " CPMQL é premissa da Matriz — só a Matriz edita; a unidade visualiza."
+          : ""}
       </div>
       {isEditing && !podeSalvar && (
         <div className="px-4 py-2 text-[11px] text-destructive border-t border-border bg-destructive/5">
@@ -1111,12 +1211,27 @@ type SplitHoriz = {
 
 function DistribuicaoLeadsSection({
   canEdit,
+  mercadoReadOnly,
+  tiers,
+  produtos,
+  onPersistTiers,
   initial,
   onPersist,
   initialSplit,
   onPersistSplit,
 }: {
   canEdit: boolean;
+  /**
+   * Faixas de faturamento + % de mercado por tier + grade de liberação por horizonte
+   * (tabela da esquerda) são premissa da Matriz. Quando true (unidade), a esquerda
+   * fica só-leitura e a unidade ajusta apenas o split por horizonte (tabela da direita).
+   */
+  mercadoReadOnly: boolean;
+  /** Faixas de faturamento por tier (bloco tiersCliente) — embutidas na tabela da esquerda. */
+  tiers: TierCliente[];
+  /** Receita por produto (P3) — usada pra recalcular o TCV-Booking no save dos tiers. */
+  produtos: Produto[];
+  onPersistTiers: (rows: TierCliente[]) => Promise<boolean>;
   initial: DistMercado[];
   onPersist: (rows: DistMercado[]) => Promise<boolean>;
   initialSplit: SplitHoriz[];
@@ -1127,6 +1242,20 @@ function DistribuicaoLeadsSection({
   const [savedSplit, setSavedSplit] = useState<SplitHoriz[]>(initialSplit);
   const [draftSplit, setDraftSplit] = useState<SplitHoriz[]>(initialSplit);
   const [isEditing, setIsEditing] = useState(false);
+  const [draftTiers, setDraftTiers] = useState<TierCliente[]>(tiers);
+
+  // A esquerda (mercado + grade) só é editável na Matriz; a direita (split) é
+  // editável também pela unidade.
+  const mercadoEditing = isEditing && !mercadoReadOnly;
+
+  // Faixas de faturamento por tier (premissa da Matriz, junto da grade de mercado).
+  // Fora de edição mostra a fonte da verdade (`tiers`), que reflete o CPMQL salvo
+  // pela seção Receita por Produto.
+  const tiersAtuais = mercadoEditing ? draftTiers : tiers;
+  const tierByName = new Map(tiersAtuais.map((t) => [t.tier, t] as const));
+  function patchTier<K extends keyof TierCliente>(tier: string, key: K, v: TierCliente[K]) {
+    setDraftTiers((prev) => prev.map((r) => (r.tier === tier ? { ...r, [key]: v } : r)));
+  }
 
   const mercado = isEditing ? draftMercado : savedMercado;
   const split = isEditing ? draftSplit : savedSplit;
@@ -1170,41 +1299,80 @@ function DistribuicaoLeadsSection({
     return HORIZ_LIST.indexOf(h) >= HORIZ_LIST.indexOf(entra);
   }
 
+  // Soma do split por horizonte considerando só os tiers ativos na linha.
+  // Invariante exigido: cada horizonte (linha) deve somar 100%.
+  function somaSplit(r: SplitHoriz): number {
+    return TIER_COLS.reduce(
+      (acc, t) => acc + (isTierAtivoEm(t, r.h) ? r.pcts[t] ?? 0 : 0),
+      0,
+    );
+  }
+  const splitInvalidas = split.filter((r) => Math.abs(somaSplit(r) - 100) > 0.5);
+  const splitValido = splitInvalidas.length === 0;
+
   return (
     <EditableSection
       title="Distribuição de Tier por Horizonte"
       badge={<SectionBadge>Benchmark V4</SectionBadge>}
       canEdit={canEdit}
       isEditing={isEditing}
+      canSave={splitValido}
+      saveDisabledHint={
+        splitValido
+          ? undefined
+          : `Cada horizonte deve somar 100%. Ajuste: ${splitInvalidas
+              .map((r) => `${r.h} (${somaSplit(r).toFixed(0)}%)`)
+              .join(", ")}.`
+      }
       onEdit={() => {
         setDraftMercado(savedMercado);
         setDraftSplit(savedSplit);
+        setDraftTiers(tiers);
         setIsEditing(true);
       }}
       onSave={() => {
-        setSavedMercado(draftMercado);
+        if (!splitValido) return;
         setSavedSplit(draftSplit);
-        setIsEditing(false);
-        void onPersist(draftMercado);
         void onPersistSplit(draftSplit);
+        // A grade de mercado só persiste na Matriz; na unidade fica só-leitura.
+        if (!mercadoReadOnly) {
+          setSavedMercado(draftMercado);
+          void onPersist(draftMercado);
+          // Faixas de faturamento: TCV-Booking é ponderado pela receita por produto
+          // (P3) — recalcula no save, como fazia a antiga seção Tiers de Cliente.
+          const tcvByTier = new Map(produtos.map((p) => [p.tier, tcvPonderado(p)] as const));
+          void onPersistTiers(
+            draftTiers.map((r) => ({ ...r, tcvBooking: tcvByTier.get(r.tier) ?? r.tcvBooking })),
+          );
+        }
+        setIsEditing(false);
       }}
       onCancel={() => {
         setDraftMercado(savedMercado);
         setDraftSplit(savedSplit);
+        setDraftTiers(tiers);
         setIsEditing(false);
       }}
     >
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
-        {/* Coluna esquerda — Tier × % Mercado */}
+      <div className="px-4 pt-3 pb-1 text-[11px] text-muted-foreground">
+        Painel de gerenciamento e distribuição de tiers por horizontes a definir pelo franqueado — o total de cada linha (horizonte) deve somar 100%.
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 pt-2">
+        {/* Coluna esquerda — Tier × % Mercado (premissa da Matriz) */}
         <div className="min-w-0 rounded border border-border bg-card overflow-hidden">
-          <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-            Distribuição base do mercado por tier. Marque a partir de qual horizonte cada tier fica ativo — a liberação é cumulativa (vale dali até H5).
+          <div className="px-3 py-2 border-b border-border/60 flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Mercado por Tier
+            </span>
+            {mercadoReadOnly && <SectionBadge>Somente leitura · Matriz</SectionBadge>}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <Th>Tier</Th>
+                  <Th align="right">Fat. Min</Th>
+                  <Th align="right">Fat. Máx</Th>
                   <Th align="right">% Distribuição</Th>
                   {HORIZ_LIST.map((h) => (
                     <Th key={h} align="center">
@@ -1221,8 +1389,24 @@ function DistribuicaoLeadsSection({
                   >
                     <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.tier}</td>
                     <td className="px-1.5 py-2 text-xs text-right">
+                      <CurrencyCell
+                        isEditing={mercadoEditing}
+                        value={tierByName.get(r.tier)?.faturamentoMin ?? 0}
+                        onChange={(v) => patchTier(r.tier, "faturamentoMin", v)}
+                        step={100_000}
+                      />
+                    </td>
+                    <td className="px-1.5 py-2 text-xs text-right">
+                      <NullableCurrencyCell
+                        isEditing={mercadoEditing}
+                        value={tierByName.get(r.tier)?.faturamentoMax ?? null}
+                        onChange={(v) => patchTier(r.tier, "faturamentoMax", v)}
+                        step={100_000}
+                      />
+                    </td>
+                    <td className="px-1.5 py-2 text-xs text-right">
                       <PercentCell
-                        isEditing={isEditing}
+                        isEditing={mercadoEditing}
                         value={r.pctMercado}
                         onChange={(v) => patchMercado(idx, v)}
                         digits={1}
@@ -1236,10 +1420,10 @@ function DistribuicaoLeadsSection({
                             type="button"
                             role="checkbox"
                             aria-checked={ativo}
-                            disabled={!isEditing}
+                            disabled={!mercadoEditing}
                             onClick={() => toggleHoriz(idx, h)}
                             title={
-                              isEditing
+                              mercadoEditing
                                 ? `${ativo ? "Desativar" : "Liberar"} ${r.tier} a partir de ${h}`
                                 : `${r.tier} ${ativo ? "ativo" : "inativo"} em ${h}`
                             }
@@ -1248,7 +1432,7 @@ function DistribuicaoLeadsSection({
                                 ? "bg-accent border-accent text-accent-foreground"
                                 : "bg-card border-border text-transparent"
                             } ${
-                              isEditing
+                              mercadoEditing
                                 ? "cursor-pointer hover:border-accent/70"
                                 : "cursor-default"
                             }`}
@@ -1262,6 +1446,8 @@ function DistribuicaoLeadsSection({
                 ))}
                 <tr className="bg-muted/40 font-medium">
                   <td className="px-1.5 py-2 text-xs text-foreground">TOTAL</td>
+                  <td />
+                  <td />
                   <td
                     className={`px-1.5 py-2 text-xs text-right tabular-nums ${
                       Math.abs(totalMercado - 100) < 0.5 ? "text-success" : "text-destructive"
@@ -1276,10 +1462,12 @@ function DistribuicaoLeadsSection({
           </div>
         </div>
 
-        {/* Coluna direita — Horizonte × Tiers (split normalizado) */}
+        {/* Coluna direita — Horizonte × Tiers (split editável pela unidade) */}
         <div className="min-w-0 rounded border border-border bg-card overflow-hidden">
-          <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60 bg-muted/10">
-            Distribuição normalizada (renormalizada para 100%) considerando apenas os tiers ativos em cada horizonte.
+          <div className="px-3 py-2 border-b border-border/60">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+              Distribuição por Horizonte
+            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1291,54 +1479,190 @@ function DistribuicaoLeadsSection({
                       {t}
                     </Th>
                   ))}
+                  <Th align="right">Soma</Th>
                 </tr>
               </thead>
               <tbody>
-                {split.map((r, idx) => (
-                  <tr
-                    key={r.h}
-                    className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-                  >
-                    <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.h}</td>
-                    {TIER_COLS.map((t) => {
-                      if (!isTierAtivoEm(t, r.h)) {
+                {split.map((r, idx) => {
+                  const soma = somaSplit(r);
+                  const somaOk = Math.abs(soma - 100) < 0.5;
+                  return (
+                    <tr
+                      key={r.h}
+                      className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
+                    >
+                      <td className="px-1.5 py-2 text-xs font-medium text-accent">{r.h}</td>
+                      {TIER_COLS.map((t) => {
+                        if (!isTierAtivoEm(t, r.h)) {
+                          return (
+                            <td
+                              key={t}
+                              className="px-1.5 py-2 text-xs text-right text-muted-foreground/40"
+                              title={`Tier ${t} entra a partir de ${
+                                mercado.find((m) => m.tier === t)?.entraHorizonte ?? "—"
+                              }`}
+                            >
+                              —
+                            </td>
+                          );
+                        }
                         return (
-                          <td
-                            key={t}
-                            className="px-1.5 py-2 text-xs text-right text-muted-foreground/40"
-                            title={`Tier ${t} entra a partir de ${
-                              mercado.find((m) => m.tier === t)?.entraHorizonte ?? "—"
-                            }`}
-                          >
-                            —
+                          <td key={t} className="px-1.5 py-2 text-xs text-right">
+                            <PercentCell
+                              isEditing={isEditing}
+                              value={r.pcts[t] ?? 0}
+                              onChange={(nv) => patchSplit(idx, t, nv)}
+                              digits={1}
+                            />
                           </td>
                         );
-                      }
-                      return (
-                        <td key={t} className="px-1.5 py-2 text-xs text-right">
-                          <PercentCell
-                            isEditing={isEditing}
-                            value={r.pcts[t] ?? 0}
-                            onChange={(nv) => patchSplit(idx, t, nv)}
-                            digits={1}
-                          />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                      })}
+                      <td
+                        className={`px-1.5 py-2 text-xs text-right tabular-nums font-medium ${
+                          somaOk ? "text-success" : "text-destructive"
+                        }`}
+                        title={somaOk ? undefined : `Soma deve ser 100% — atual ${soma.toFixed(1)}%.`}
+                      >
+                        {formatPercent(soma, 1)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
       </div>
-      <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        * Os tiers ativos em cada horizonte vêm da <span className="text-foreground">grade de liberação</span> ao lado — marque/desmarque ali para liberar ou ocultar um tier num horizonte.
-      </div>
+      {isEditing && !splitValido && (
+        <div className="px-4 py-2 text-[11px] text-destructive border-t border-border bg-destructive/5">
+          Cada horizonte deve somar 100% entre os tiers ativos. Ajuste antes de salvar: {splitInvalidas
+            .map((r) => `${r.h} (${somaSplit(r).toFixed(0)}%)`)
+            .join(", ")}.
+        </div>
+      )}
     </EditableSection>
   );
 }
 
+
+// ============================================================
+// P16 — MIX SUBCANAIS OUTBOUND (% DE LEADS) POR HORIZONTE
+// ============================================================
+
+function mixTotal(r: MixOutboundHorizonte): number {
+  return r.indicacao + r.recovery + r.recomendacao + r.prospeccao;
+}
+
+function MixSubcanaisSection({
+  canEdit,
+  seed,
+  onPersist,
+}: {
+  canEdit: boolean;
+  seed: MixOutboundHorizonte[];
+  onPersist: (data: MixOutboundHorizonte[]) => Promise<boolean>;
+}) {
+  const [saved, setSaved] = useState<MixOutboundHorizonte[]>(seed);
+  const [draft, setDraft] = useState<MixOutboundHorizonte[]>(seed);
+  const [isEditing, setIsEditing] = useState(false);
+  const rows = isEditing ? draft : saved;
+
+  function patch<K extends keyof MixOutboundHorizonte>(idx: number, key: K, v: MixOutboundHorizonte[K]) {
+    setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: v } : r)));
+  }
+
+  return (
+    <EditableSection
+      title="Mix de Subcanais Outbound por Horizonte"
+      badge={<SectionBadge>% de Leads</SectionBadge>}
+      canEdit={canEdit}
+      isEditing={isEditing}
+      onEdit={() => {
+        setDraft(saved);
+        setIsEditing(true);
+      }}
+      onSave={() => {
+        setSaved(draft);
+        setIsEditing(false);
+        void onPersist(draft);
+      }}
+      onCancel={() => {
+        setDraft(saved);
+        setIsEditing(false);
+      }}
+    >
+      <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
+        Distribuição dos leads outbound entre subcanais em cada horizonte. Total deve somar 100%.
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border">
+              <Th>Horizonte</Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  Indicação
+                  <FieldHelp text="% dos leads outbound originados de indicações de clientes/parceiros atuais." />
+                </span>
+              </Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  Recovery
+                  <FieldHelp text="% dos leads outbound originados de recuperação de leads inativos." />
+                </span>
+              </Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  Recomendação
+                  <FieldHelp text="% dos leads outbound originados através de reuniões realizadas com potenciais clientes." />
+                </span>
+              </Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  Prospecção
+                  <FieldHelp text="% dos leads outbound originados de prospecção ativa (cold outreach)." />
+                </span>
+              </Th>
+              <Th align="right">Total</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, idx) => {
+              const total = mixTotal(r);
+              const totalOk = Math.abs(total - 100) < 0.5;
+              return (
+                <tr
+                  key={r.h}
+                  className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
+                >
+                  <td className="px-2 py-2 text-xs font-medium text-accent">{r.h}</td>
+                  {(["indicacao", "recovery", "recomendacao", "prospeccao"] as const).map((key) => (
+                    <td key={key} className="px-2 py-2 text-xs text-right">
+                      <PercentCell
+                        isEditing={isEditing}
+                        value={r[key]}
+                        onChange={(v) => patch(idx, key, v)}
+                        digits={0}
+                        lockableZero
+                      />
+                    </td>
+                  ))}
+                  <td
+                    className={`px-2 py-2 text-xs text-right tabular-nums font-medium ${
+                      totalOk ? "text-success" : "text-destructive"
+                    }`}
+                  >
+                    {formatPercent(total, 0)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </EditableSection>
+  );
+}
 
 // ============================================================
 // Helpers internos

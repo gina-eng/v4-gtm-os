@@ -11,7 +11,7 @@ import type { PremissasBlocks } from "@/db/repositories/premissas";
 type Tab = "premissas" | "conversoes";
 
 const TABS: Array<{ id: Tab; label: string; sub: string }> = [
-  { id: "premissas", label: "PREMISSAS", sub: "Valores do modelo" },
+  { id: "premissas", label: "INVESTIMENTO, DISTRIBUIÇÃO DE TIERS & RECEITAS", sub: "Valores do modelo" },
   { id: "conversoes", label: "CONVERSÕES", sub: "CRs por canal" },
 ];
 
