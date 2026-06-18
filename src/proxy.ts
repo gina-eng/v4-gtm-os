@@ -13,12 +13,15 @@ export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isAuthed = !!req.cookies.get(AUTH_COOKIE_NAME);
 
-  // Rotas que NÃO exigem autenticação
+  // Rotas que NÃO exigem autenticação por cookie de sessão.
   const publicPaths = [
     "/login",
     "/api/auth/login",
     "/api/auth/check-email",
     "/api/auth/setup-password",
+    // Cron do Vercel: não tem cookie de sessão. Protegida pelo CRON_SECRET
+    // dentro do próprio handler (Authorization: Bearer <secret>).
+    "/api/realizado/derive",
   ];
   const isPublic = publicPaths.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),

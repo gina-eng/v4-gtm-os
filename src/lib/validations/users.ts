@@ -107,8 +107,13 @@ export const listUsersQuerySchema = z.object({
 });
 export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>;
 
-// PATCH /api/auth/active-organization
-export const updateActiveOrgSchema = z.object({
-  organizationId: uuidLike.nullable(),
-});
+// PATCH /api/auth/active-organization — escopo do seletor global (4 modos).
+// 'geral'/'todas_unidades'/'matriz_propria' = visões de rede (só matriz-user; a
+// AUTORIZAÇÃO é checada no route, não aqui — Zod valida só a forma).
+export const updateActiveOrgSchema = z.discriminatedUnion("scope", [
+  z.object({ scope: z.literal("geral") }),
+  z.object({ scope: z.literal("todas_unidades") }),
+  z.object({ scope: z.literal("matriz_propria") }),
+  z.object({ scope: z.literal("unidade"), organizationId: uuidLike }),
+]);
 export type UpdateActiveOrgInput = z.infer<typeof updateActiveOrgSchema>;

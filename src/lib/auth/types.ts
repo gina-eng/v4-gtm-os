@@ -27,6 +27,17 @@ export type MembershipWithOrg = Membership & {
 export type ActingMode = "matriz" | "unidade";
 
 /**
+ * Escopo fino do seletor global (eixo ortogonal a actingMode). Refina os 3 modos
+ * "matriz-like" e é lido SÓ por bowtie/realizado (+ header/home cosmético) — NÃO
+ * por permissões/nav, que seguem usando actingMode. Ver docs/escopo-seletor-4-modos.md.
+ * - `geral`: matriz + todas as unidades.
+ * - `todas_unidades`: só as unidades (= comportamento histórico do consolidado).
+ * - `matriz_propria`: só os dados da org matriz.
+ * - `unidade`: uma unidade específica.
+ */
+export type ScopeMode = "geral" | "todas_unidades" | "matriz_propria" | "unidade";
+
+/**
  * Sessão do usuário ativo — o que /api/auth/me retorna.
  */
 export type AuthSession = {
@@ -39,6 +50,8 @@ export type AuthSession = {
   availableOrganizations: Organization[];
   /** Em qual contexto o user está operando agora (deriva de isMatrizUser + activeOrganization). */
   actingMode: ActingMode;
+  /** Escopo fino da visão (geral/todas_unidades/matriz_propria/unidade). Lido só por bowtie/realizado. */
+  activeScope: ScopeMode;
 };
 
 /** Nome do cookie usado em dev para identificar o usuário "logado". */

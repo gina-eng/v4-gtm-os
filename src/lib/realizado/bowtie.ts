@@ -13,7 +13,7 @@ import type { LinhaSubCanalTier, SubCanalKey } from "@/lib/premissas/funil-rever
 import { SUB_CANAIS } from "@/lib/premissas/funil-reverso";
 import type { PremissasBlocks } from "@/db/repositories/premissas";
 import type { Horizonte, Tier } from "@/lib/premissas/matriz-defaults";
-import type { RealizadoFunilCelula } from "@/db/repositories/realizado-funil";
+import type { BaldeMes, RealizadoFunilCelula } from "@/db/repositories/realizado-funil";
 
 export type CanalGrupo = "inbound" | "outbound";
 
@@ -180,6 +180,47 @@ export function agregarRealizado(
   // bowtie. Investido realizado vem de `invest` (origem media_investment) — ⚠️ hoje
   // é da REDE e inflado, então CPMQL/CPSQL/CPSAL/CAC realizados saem absurdos até o
   // dado virar por unidade.
+  return finalize({ leads, mql: leads, sql, sal, won, faturamento, invest });
+}
+
+/**
+ * Igual a `agregarRealizado`, mas soma TAMBÉM o balde (não-classificado) no total.
+ * O balde só tem `mes` (sem tier/subcanal), então só é somado quando o filtro NÃO
+ * restringe tier/canal/subcanal — senão distorceria um recorte que o balde não tem.
+ * O filtro de meses É aplicado ao balde (default-allow). Assim o TOTAL bate com a
+ * fonte (grid + balde), enquanto as linhas por célula (que sempre têm dimensão
+ * setada) seguem usando `agregarRealizado` puro (só grid). Ver docs/escopo-seletor-4-modos.md.
+ */
+export function agregarRealizadoComBalde(
+  celulas: RealizadoFunilCelula[],
+  balde: BaldeMes[],
+  filtro: BowtieFiltro,
+): BowtieAgg {
+  let leads = 0, sql = 0, sal = 0, won = 0, faturamento = 0, invest = 0;
+  for (const c of celulas) {
+    if (!passaFiltro(c, filtro)) continue;
+    leads += c.leads;
+    sql += c.sql;
+    sal += c.sal;
+    won += c.won;
+    faturamento += c.faturamento;
+    invest += c.invest;
+  }
+  // Balde só entra quando não há recorte por tier/canal/subcanal (dimensões que ele
+  // não possui). O filtro de meses continua valendo (default-allow).
+  const semRecorteDimensao =
+    isEmpty(filtro.tiers) && isEmpty(filtro.canais) && isEmpty(filtro.subcanais);
+  if (semRecorteDimensao) {
+    for (const b of balde) {
+      if (!isEmpty(filtro.meses) && !filtro.meses!.includes(b.mes)) continue;
+      leads += b.leads;
+      sql += b.sql;
+      sal += b.sal;
+      won += b.won;
+      faturamento += b.faturamento;
+      // invest do balde não existe (fica 0).
+    }
+  }
   return finalize({ leads, mql: leads, sql, sal, won, faturamento, invest });
 }
 

@@ -112,6 +112,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // vê a unidade que está visualizando no momento. Sem ativa, cai no primary.
   const displayedOrg = session.activeOrganization ?? primaryMembership?.organization;
 
+  // Rótulo do escopo no header: 'geral'/'todas_unidades' não têm org ativa (ambos
+  // cairiam no nome da matriz), então derivamos do activeScope. Ver org-switcher.
+  const scopeLabel =
+    session.activeScope === "geral"
+      ? "Resultado geral"
+      : session.activeScope === "todas_unidades"
+        ? "Todas Unidades"
+        : (session.activeOrganization?.name ?? displayedOrg?.name ?? "");
+
   const isUnidade = session.actingMode === "unidade";
 
   // Renderiza um item da nav (link ativo ou botão desabilitado "breve").
@@ -262,8 +271,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 Matriz não tem horizonte vinculado — esconde o badge. */}
             {displayedOrg && (
               <div className="flex items-baseline gap-3 min-w-0">
-                <span className="text-lg font-semibold text-foreground truncate" title={displayedOrg.name}>
-                  {displayedOrg.name}
+                <span className="text-lg font-semibold text-foreground truncate" title={scopeLabel}>
+                  {scopeLabel}
                 </span>
                 {displayedOrg.type === "unidade" && (
                   <span
@@ -294,7 +303,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <Building2 className="h-3 w-3" />
                     )}
                     {roleLabel[primaryMembership.role] ?? primaryMembership.role} ·{" "}
-                    {displayedOrg.name}
+                    {scopeLabel}
                   </span>
                 </div>
                 <div className="h-8 w-8 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-xs font-semibold uppercase">

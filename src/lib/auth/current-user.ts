@@ -6,7 +6,12 @@ import {
   listMembershipsByUser,
 } from "@/db/repositories/users";
 import type { Organization } from "@/db/schema";
-import { AUTH_COOKIE_NAME, type AuthSession, type MembershipWithOrg } from "./types";
+import {
+  AUTH_COOKIE_NAME,
+  type AuthSession,
+  type MembershipWithOrg,
+  type ScopeMode,
+} from "./types";
 import { hasPermission, type PermissionAction } from "./permissions";
 
 /**
@@ -87,6 +92,18 @@ export const getCurrentSession = cache(async (): Promise<AuthSession | null> => 
   const actingMode: "matriz" | "unidade" =
     activeOrganization?.type === "unidade" ? "unidade" : "matriz";
 
+  // Escopo fino (ortogonal a actingMode; lido só por bowtie/realizado). Os 3 modos
+  // matriz-like continuam actingMode='matriz'. matriz_scope só importa quando não
+  // há org ativa (null) — NULL cai em 'todas_unidades' (retrocompat = hoje).
+  const activeScope: ScopeMode =
+    activeOrganization?.type === "unidade"
+      ? "unidade"
+      : activeOrganization?.type === "matriz"
+        ? "matriz_propria"
+        : user.matrizScope === "geral"
+          ? "geral"
+          : "todas_unidades";
+
   return {
     user,
     memberships,
@@ -94,6 +111,7 @@ export const getCurrentSession = cache(async (): Promise<AuthSession | null> => 
     isMatrizUser,
     availableOrganizations,
     actingMode,
+    activeScope,
   };
 });
 

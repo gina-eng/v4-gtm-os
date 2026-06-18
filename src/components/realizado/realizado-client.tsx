@@ -64,8 +64,10 @@ const PCT_LABEL = "14%";
 const PCT_MES = "6.5%";
 const PCT_TOTAL = "8%";
 // Piso pra evitar colunas ilegíveis em telas pequenas — abaixo disso o
-// wrapper de scroll horizontal escora.
-const MIN_TABLE_WIDTH = 1400;
+// wrapper de scroll horizontal escora. Dimensionado pra os valores da matriz
+// consolidada (casa dos bilhões) caberem em uma linha: ~100px por coluna de
+// mês (6.5% · 1550); abaixo disso o wrapper rola no eixo X em vez de empilhar.
+const MIN_TABLE_WIDTH = 1550;
 const MESES = MESES_ANO_2026 as readonly string[];
 
 function mesCurto(mes: string): string {
@@ -480,7 +482,7 @@ function SecaoCanal({
           return (
             <td
               key={mes}
-              className="sticky top-9 z-30 bg-accent h-9 px-3 text-right text-[10px] uppercase tracking-wider tabular-nums align-middle"
+              className="sticky top-9 z-30 bg-accent h-9 px-2 text-right text-[10px] uppercase tracking-wider tabular-nums align-middle"
             >
               <div className="flex flex-col items-end leading-tight">
                 <span className="font-medium">{mesCurto(mes)}</span>
@@ -493,7 +495,7 @@ function SecaoCanal({
             </td>
           );
         })}
-        <td className="sticky top-9 z-30 bg-accent h-9 px-3 text-right text-[10px] uppercase tracking-wider font-semibold border-l-2 border-border align-middle">
+        <td className="sticky top-9 z-30 bg-accent h-9 px-2 text-right text-[10px] uppercase tracking-wider font-semibold border-l-2 border-border align-middle">
           Total 2026
         </td>
       </tr>
@@ -813,7 +815,7 @@ function TabelaChrome({
                 return (
                   <th
                     key={mes}
-                    className={`sticky top-0 z-40 bg-table-header text-table-header-foreground h-auto font-medium px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums ${
+                    className={`sticky top-0 z-40 bg-table-header text-table-header-foreground h-auto font-medium px-2 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums whitespace-nowrap ${
                       isTransition ? "border-l-2 border-l-accent" : ""
                     }`}
                     title={
@@ -837,7 +839,7 @@ function TabelaChrome({
                   </th>
                 );
               })}
-              <th className="sticky top-0 z-40 bg-accent/15 text-accent h-auto px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border">
+              <th className="sticky top-0 z-40 bg-accent/15 text-accent h-auto px-2 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border whitespace-nowrap">
                 {totalLabel}
               </th>
             </tr>
@@ -946,7 +948,7 @@ function Cell({
       : "text-muted-foreground";
   return (
     <td
-      className={`px-3 py-2 text-xs text-right tabular-nums ${fechado ? "bg-info/5" : ""} ${cor}`}
+      className={`px-2 py-2 text-[11px] text-right tabular-nums whitespace-nowrap ${fechado ? "bg-info/5" : ""} ${cor}`}
       title={fechado ? "Mês fechado (realizado)" : undefined}
     >
       {valor === 0 ? "—" : formatar(valor, fmt)}
@@ -957,7 +959,7 @@ function Cell({
 function CellTotal({ valor, fmt, signed }: { valor: number; fmt: Fmt; signed?: boolean }) {
   const cor = signed ? signedColor(valor) : "text-foreground";
   return (
-    <td className={`px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-semibold ${cor} border-l-2 border-border`}>
+    <td className={`px-2 py-2 text-[11px] text-right tabular-nums whitespace-nowrap bg-accent/10 font-semibold ${cor} border-l-2 border-border`}>
       {valor === 0 ? "—" : formatar(valor, fmt)}
     </td>
   );

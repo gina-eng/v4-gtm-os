@@ -204,7 +204,7 @@ async function MatrizHome({ session }: { session: AuthSession }) {
       </div>
 
       {consolidado ? (
-        <ResumoTable resumo={consolidado.resumo} />
+        <ResumoTable resumo={consolidado.resumo} dense />
       ) : (
         <div className="bg-card border border-border rounded p-4">
           <p className="text-sm text-muted-foreground">

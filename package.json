@@ -15,6 +15,7 @@
     "load:realizado": "tsx --env-file=.env.local scripts/load-realizado-import.ts",
     "load:investimento": "tsx --env-file=.env.local scripts/load-realizado-investimento.ts",
     "derive:realizado": "tsx --env-file=.env.local scripts/derive-realizado-funil.ts",
+    "report:realizado": "tsx --env-file=.env.local scripts/report-realizado.ts",
     "hash-password": "tsx scripts/hash-password.ts"
   },
   "dependencies": {

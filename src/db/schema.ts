@@ -64,6 +64,10 @@ export const subcanalMidiaEnum = pgEnum("subcanal_midia", [
 ]);
 
 export const userStatusEnum = pgEnum("user_status", ["pending", "active", "inactive"]);
+// Sub-escopo da visão "matriz" do seletor global. Só é relevante quando
+// activeOrganizationId IS NULL (matriz_propria/unidade usam o próprio org id).
+// NULL = retrocompat = comporta-se como 'todas_unidades'. Ver docs/escopo-seletor-4-modos.md.
+export const matrizScopeEnum = pgEnum("matriz_scope", ["geral", "todas_unidades"]);
 export const roleEnum = pgEnum("role", ["admin", "gerente", "coordenador"]);
 export const membershipStatusEnum = pgEnum("membership_status", ["active", "inactive"]);
 
@@ -124,6 +128,9 @@ export const users = pgTable(
     passwordHash: varchar("password_hash", { length: 255 }),
     status: userStatusEnum("status").notNull().default("active"),
     activeOrganizationId: uuid("active_organization_id").references(() => organizations.id),
+    /** Sub-escopo da visão matriz (só usado quando activeOrganizationId é null).
+     *  NULL = retrocompat = 'todas_unidades'. Ver matrizScopeEnum. */
+    matrizScope: matrizScopeEnum("matriz_scope"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     /** Auth real (adendo): token de ativação por email. */
     activationToken: varchar("activation_token", { length: 255 }),
@@ -735,3 +742,66 @@ export const realizadoImportInvestimento = pgTable(
 
 export type RealizadoImportInvestimentoRow = typeof realizadoImportInvestimento.$inferSelect;
 export type NewRealizadoImportInvestimentoRow = typeof realizadoImportInvestimento.$inferInsert;
+
+// ============================================================
+// realizado_nao_classificado — o "balde" do realizado que NÃO encaixa no grid
+//
+// `realizado_funil` só guarda o que é comparável ao projetado (unidade real ×
+// subcanal das 8 chaves × tier das 5 chaves × 2026). Tudo que acontece mas não
+// classifica — tenant sem unidade, canal fora do de-para, tier inválido, venda
+// sem tier_venda — cai AQUI, etiquetado por `motivo`, em vez de ser descartado.
+//
+// Regra de ouro: realizado TOTAL = realizado_funil (classificado) + este
+// (não-classificado). Garante reconciliação 100% sem poluir o grid nem mexer no
+// projetado. NÃO é lido pela comparação do bowtie — é exibido à parte ("fora de
+// meta") e serve de fila de trabalho: cada motivo é dado recuperável (cadastrar a
+// unidade, estender o de-para, preencher o tier no extrato).
+//
+// `organizationId` é NULL quando o motivo é tenant sem unidade; preenchido quando
+// a unidade existe mas outra dimensão falhou. `rotuloCru` guarda o valor que
+// causou o descarte (id_tenant / canal / tier), pra drill-down e pro de-para.
+// ============================================================
+
+export const motivoNaoClassificado = pgEnum("motivo_nao_classificado", [
+  "tenant_nao_cadastrado",
+  "canal_nao_mapeado",
+  "tier_lead_invalido",
+  "venda_sem_tier",
+]);
+
+export const realizadoNaoClassificado = pgTable(
+  "realizado_nao_classificado",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "set null",
+    }),
+    idTenant: varchar("id_tenant", { length: 120 }),
+    // Competência mensal por data do evento (YYYY-MM). Mesmo escopo 2026 do grid.
+    mes: varchar("mes", { length: 7 }).notNull(),
+    motivo: motivoNaoClassificado("motivo").notNull(),
+    // Valor cru que causou o descarte (id_tenant, canal_aquisicao ou tier).
+    rotuloCru: varchar("rotulo_cru", { length: 120 }).notNull().default(""),
+    leads: doublePrecision("leads").notNull().default(0),
+    mql: doublePrecision("mql").notNull().default(0),
+    sql: doublePrecision("sql").notNull().default(0),
+    sal: doublePrecision("sal").notNull().default(0),
+    won: doublePrecision("won").notNull().default(0),
+    faturamento: doublePrecision("faturamento").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_nao_classif_unique").on(
+      table.idTenant,
+      table.mes,
+      table.motivo,
+      table.rotuloCru,
+    ),
+    index("idx_nao_classif_org").on(table.organizationId),
+    index("idx_nao_classif_motivo").on(table.motivo),
+    index("idx_nao_classif_mes").on(table.mes),
+  ],
+);
+
+export type RealizadoNaoClassificadoRow = typeof realizadoNaoClassificado.$inferSelect;
+export type NewRealizadoNaoClassificadoRow = typeof realizadoNaoClassificado.$inferInsert;

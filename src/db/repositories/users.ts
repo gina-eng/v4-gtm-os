@@ -90,10 +90,24 @@ export async function updateUserLastLogin(id: string): Promise<void> {
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, id));
 }
 
-export async function updateUserActiveOrg(id: string, orgId: string | null): Promise<void> {
+/**
+ * Grava o escopo ativo do user: activeOrganizationId + matrizScope (atômico).
+ * - geral           → { activeOrganizationId: null, matrizScope: 'geral' }
+ * - todas_unidades  → { activeOrganizationId: null, matrizScope: 'todas_unidades' }
+ * - matriz_propria  → { activeOrganizationId: <org matriz>, matrizScope: null }
+ * - unidade         → { activeOrganizationId: <unidade>, matrizScope: null }
+ */
+export async function updateUserActiveOrg(
+  id: string,
+  scope: { activeOrganizationId: string | null; matrizScope: "geral" | "todas_unidades" | null },
+): Promise<void> {
   await db
     .update(users)
-    .set({ activeOrganizationId: orgId, updatedAt: new Date() })
+    .set({
+      activeOrganizationId: scope.activeOrganizationId,
+      matrizScope: scope.matrizScope,
+      updatedAt: new Date(),
+    })
     .where(eq(users.id, id));
 }
 

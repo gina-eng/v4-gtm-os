@@ -64,7 +64,11 @@ async function main() {
         email: GINA_EMAIL,
         name: "Gina",
         status: "active",
-        activeOrganizationId: matriz.id,
+        // Consolidado por padrão: null + matriz_scope='todas_unidades' (= visão de
+        // rede de hoje). NÃO apontar pra matriz.id, que no modelo de escopos viraria
+        // 'matriz_propria' (só a holding). Ver docs/escopo-seletor-4-modos.md.
+        activeOrganizationId: null,
+        matrizScope: "todas_unidades",
       })
       .returning();
     console.log(`[seed] criado user admin gina (${gina.id})`);

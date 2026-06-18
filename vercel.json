@@ -1,3 +1,6 @@
 {
-  "regions": ["gru1"]
+  "regions": ["gru1"],
+  "crons": [
+    { "path": "/api/realizado/derive", "schedule": "0 6 * * *" }
+  ]
 }

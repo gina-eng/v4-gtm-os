@@ -7,17 +7,24 @@ type Props = {
   resumo: ResumoCompleto;
   /** Título do cabeçalho. Default: "Resumo do funil 2026". */
   title?: string;
+  /** Visão consolidada da rede (matriz): valores chegam à casa dos bilhões.
+   *  Eleva o piso de largura pra os números caberem em uma linha (senão a
+   *  coluna estreita força a quebra e o valor "empilha"). */
+  dense?: boolean;
 };
 
-// Larguras em % — tabela cresce/encolhe com a viewport. Label e Total
-// ficam mais largos que cada mês (precisam acomodar nomes longos /
-// valores totais). Soma: 14 + 12·6 + 14 = 100%.
+// Larguras em % — tabela cresce/encolhe com a viewport. Label é o mais largo
+// (nomes longos); Total fica só um pouco acima do mês (acomoda o valor da
+// rede na casa dos bilhões sem sobrar espaço). Soma: 14 + 12·6.5 + 8 = 100%.
 const PCT_LABEL = "14%";
-const PCT_MES = "6%";
-const PCT_TOTAL = "14%";
+const PCT_MES = "6.5%";
+const PCT_TOTAL = "8%";
 // Piso pra evitar colunas ilegíveis em telas pequenas — abaixo disso o
 // section faz scroll horizontal interno via overflow-x-auto.
 const MIN_WIDTH = 1100;
+// Na visão consolidada da rede os valores chegam à casa dos bilhões; o piso
+// maior garante ~100px por coluna (6% · 1700) pra o número caber sem quebrar.
+const MIN_WIDTH_DENSE = 1700;
 const MESES = MESES_ANO_2026 as readonly string[];
 
 type Fmt = "money" | "int" | "pct" | "ratio";
@@ -77,7 +84,7 @@ function formatar(v: number, fmt: Fmt): string {
  * Linhas = métricas; colunas = 12 meses + Total 2026 (taxas/ROAS/CPL do total
  * são calculados das somas, não médias mensais).
  */
-export function ResumoTable({ resumo, title }: Props) {
+export function ResumoTable({ resumo, title, dense }: Props) {
   const byMes = new Map(resumo.meses.map((m) => [m.mes, m] as const));
   const headerTitle = title ?? "Resumo do funil 2026";
 
@@ -91,7 +98,7 @@ export function ResumoTable({ resumo, title }: Props) {
 
       <table
         className="text-sm border-collapse table-fixed w-full"
-        style={{ minWidth: MIN_WIDTH }}
+        style={{ minWidth: dense ? MIN_WIDTH_DENSE : MIN_WIDTH }}
       >
         <colgroup>
           <col style={{ width: PCT_LABEL }} />
@@ -106,13 +113,13 @@ export function ResumoTable({ resumo, title }: Props) {
             {MESES.map((mes) => (
               <th
                 key={mes}
-                className="bg-table-header text-table-header-foreground h-9 font-medium px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums"
+                className="bg-table-header text-table-header-foreground h-9 font-medium px-2 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums whitespace-nowrap"
                 title={formatMesPt(mes)}
               >
                 {mesCurto(mes)}
               </th>
             ))}
-            <th className="bg-accent/15 text-accent h-9 px-3 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border">
+            <th className="bg-accent/15 text-accent h-9 px-2 py-2 text-right text-[10px] uppercase tracking-wider tabular-nums font-semibold border-l-2 border-border whitespace-nowrap">
               Total 2026
             </th>
           </tr>
@@ -148,7 +155,7 @@ export function ResumoTable({ resumo, title }: Props) {
                     return (
                       <td
                         key={mes}
-                        className={`px-3 py-2 text-xs text-right tabular-nums ${
+                        className={`px-2 py-2 text-[11px] text-right tabular-nums whitespace-nowrap ${
                           fechado ? "bg-info/5" : ""
                         } ${v === 0 ? "text-muted-foreground/40" : "text-muted-foreground"}`}
                         title={fechado ? "Mês fechado (realizado)" : undefined}
@@ -157,7 +164,7 @@ export function ResumoTable({ resumo, title }: Props) {
                       </td>
                     );
                   })}
-                  <td className="px-3 py-2 text-xs text-right tabular-nums bg-accent/10 font-semibold text-foreground border-l-2 border-border">
+                  <td className="px-2 py-2 text-[11px] text-right tabular-nums whitespace-nowrap bg-accent/10 font-semibold text-foreground border-l-2 border-border">
                     {totalValue === 0 ? "—" : formatar(totalValue, m.fmt)}
                   </td>
                 </tr>

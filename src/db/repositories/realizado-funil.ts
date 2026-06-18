@@ -11,9 +11,9 @@
  * que casa 1-pra-1 com a projeção de `calcularPorSubCanalPorTier`.
  */
 
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { realizadoFunil } from "@/db/schema";
+import { realizadoFunil, realizadoNaoClassificado } from "@/db/schema";
 import type { SubCanalKey } from "@/lib/premissas/funil-reverso";
 import type { Tier } from "@/lib/premissas/matriz-defaults";
 
@@ -178,4 +178,130 @@ export async function replaceRealizadoFunilDaily(
       );
     }
   });
+}
+
+/**
+ * Remove o realizado de unidades que NÃO estão no conjunto derivado agora — ou
+ * seja, unidades que sumiram do extrato (ex.: dados de teste antigos). Mantém a
+ * `realizado_funil` espelhando exatamente a landing.
+ *
+ * ⚠️ Guarda crítica: se `orgIds` vier VAZIO, NÃO apaga nada. Isso evita zerar a
+ * tabela inteira numa derivação sem dados (landing vazia / falha de carga).
+ * Retorna quantas unidades órfãs foram limpas.
+ */
+export async function pruneRealizadoFunilExcept(orgIds: string[]): Promise<number> {
+  if (orgIds.length === 0) return 0;
+  const deleted = await db
+    .delete(realizadoFunil)
+    .where(notInArray(realizadoFunil.organizationId, orgIds))
+    .returning({ orgId: realizadoFunil.organizationId });
+  return new Set(deleted.map((d) => d.orgId)).size;
+}
+
+export type MotivoNaoClassificado =
+  | "tenant_nao_cadastrado"
+  | "canal_nao_mapeado"
+  | "tier_lead_invalido"
+  | "venda_sem_tier";
+
+/** Célula do balde não-classificado (grão: idTenant × mês × motivo × rótulo cru). */
+export type NaoClassificadoCelula = {
+  organizationId: string | null;
+  idTenant: string | null;
+  mes: string;
+  motivo: MotivoNaoClassificado;
+  rotuloCru: string;
+  leads: number;
+  mql: number;
+  sql: number;
+  sal: number;
+  won: number;
+  faturamento: number;
+};
+
+/**
+ * Substitui TODO o balde `realizado_nao_classificado` (delete + insert). Chamado
+ * pela derivação. Pula células zeradas. Idempotente.
+ *
+ * É replace GLOBAL (não por org) porque o balde tem linhas sem unidade (tenant não
+ * cadastrado). A guarda contra zerar tudo numa landing vazia fica no derive: só é
+ * chamado quando houve linhas pra processar.
+ */
+export async function replaceRealizadoNaoClassificado(
+  celulas: NaoClassificadoCelula[],
+): Promise<number> {
+  const naoZeradas = celulas.filter(
+    (c) => c.leads || c.mql || c.sql || c.sal || c.won || c.faturamento,
+  );
+  await db.transaction(async (tx) => {
+    await tx.delete(realizadoNaoClassificado);
+    const CHUNK = 500;
+    for (let i = 0; i < naoZeradas.length; i += CHUNK) {
+      await tx.insert(realizadoNaoClassificado).values(
+        naoZeradas.slice(i, i + CHUNK).map((c) => ({
+          organizationId: c.organizationId,
+          idTenant: c.idTenant,
+          mes: c.mes,
+          motivo: c.motivo,
+          rotuloCru: c.rotuloCru,
+          leads: c.leads,
+          mql: c.mql,
+          sql: c.sql,
+          sal: c.sal,
+          won: c.won,
+          faturamento: c.faturamento,
+        })),
+      );
+    }
+  });
+  return naoZeradas.length;
+}
+
+/** Balde agregado por mês (sem tier/subcanal — o balde não tem). NÃO traz `mql`
+ *  (convenção do bowtie: mql=leads) nem `invest` (balde não tem). */
+export type BaldeMes = {
+  mes: string;
+  leads: number;
+  sql: number;
+  sal: number;
+  won: number;
+  faturamento: number;
+};
+
+/**
+ * Lê o balde (realizado_nao_classificado) agregado por mês, pra somar no TOTAL do
+ * bowtie por escopo. `orgIds` = unidades/matriz do escopo; `incluiNulos` soma também
+ * as linhas sem unidade (tenant não cadastrado) — só no escopo "Resultado geral".
+ * Sem orgIds e sem nulos → [] (não lê nada).
+ */
+export async function getNaoClassificadoPorMes(
+  orgIds: string[],
+  incluiNulos: boolean,
+): Promise<BaldeMes[]> {
+  const conds = [];
+  if (orgIds.length > 0) conds.push(inArray(realizadoNaoClassificado.organizationId, orgIds));
+  if (incluiNulos) conds.push(isNull(realizadoNaoClassificado.organizationId));
+  if (conds.length === 0) return [];
+
+  const rows = await db
+    .select({
+      mes: realizadoNaoClassificado.mes,
+      leads: sql<number>`coalesce(sum(${realizadoNaoClassificado.leads}), 0)::float8`,
+      sqlStage: sql<number>`coalesce(sum(${realizadoNaoClassificado.sql}), 0)::float8`,
+      sal: sql<number>`coalesce(sum(${realizadoNaoClassificado.sal}), 0)::float8`,
+      won: sql<number>`coalesce(sum(${realizadoNaoClassificado.won}), 0)::float8`,
+      faturamento: sql<number>`coalesce(sum(${realizadoNaoClassificado.faturamento}), 0)::float8`,
+    })
+    .from(realizadoNaoClassificado)
+    .where(or(...conds))
+    .groupBy(realizadoNaoClassificado.mes);
+
+  return rows.map((r) => ({
+    mes: r.mes,
+    leads: r.leads,
+    sql: r.sqlStage,
+    sal: r.sal,
+    won: r.won,
+    faturamento: r.faturamento,
+  }));
 }

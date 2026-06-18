@@ -6,10 +6,11 @@ import { formatBRL, formatInt, formatPercent } from "@/components/premissas/form
 import type { LinhaSubCanalTier, SubCanalKey } from "@/lib/premissas/funil-reverso";
 import { SUB_CANAIS } from "@/lib/premissas/funil-reverso";
 import type { Horizonte, Tier } from "@/lib/premissas/matriz-defaults";
-import type { RealizadoFunilCelula } from "@/db/repositories/realizado-funil";
+import type { BaldeMes, RealizadoFunilCelula } from "@/db/repositories/realizado-funil";
 import {
   agregarProjetado,
   agregarRealizado,
+  agregarRealizadoComBalde,
   type BowtieFiltro,
   type CanalGrupo,
 } from "@/lib/realizado/bowtie";
@@ -25,6 +26,9 @@ type Props = {
   linhasSubCanalTier: LinhaSubCanalTier[];
   /** Realizado granular (mes × subcanal × tier). Vem da tabela `realizado_funil`. */
   realizadoCelulas: RealizadoFunilCelula[];
+  /** Não-classificado (balde) agregado por mês — somado SÓ no total (não nas linhas
+   *  por célula). Faz o total bater com a fonte. Ver agregarRealizadoComBalde. */
+  baldeRealizado: BaldeMes[];
   /** Tiers em que a unidade atua no horizonte atual (P4). Editor abre essas seções. */
   tiersAtivos?: Tier[];
   /** Sub-canais em que a unidade atua (P6 + P16). Editor abre essas seções. */
@@ -56,6 +60,7 @@ export function BowtieClient({
   horizonteAtual,
   linhasSubCanalTier,
   realizadoCelulas,
+  baldeRealizado,
   tiersAtivos,
   subcanaisAtivos,
 }: Props) {
@@ -91,10 +96,32 @@ export function BowtieClient({
     () => agregarProjetado(linhasSubCanalTier, filtro),
     [linhasSubCanalTier, filtro],
   );
+  // Total inclui o balde (não-classificado) → bate com a fonte. As linhas por
+  // célula (granularidade) seguem em agregarRealizado puro (só grid); a diferença
+  // entre a soma das linhas e o Total é exatamente o balde. Ver docs/escopo-seletor-4-modos.md.
   const realizado = useMemo(
+    () => agregarRealizadoComBalde(realizadoCelulas, baldeRealizado, filtro),
+    [realizadoCelulas, baldeRealizado, filtro],
+  );
+  // Só o grid (sem balde) — usado pra derivar o delta "não classificado" exibido
+  // na tabela, pra que linhas (grid) + não-classificado = Total (grid+balde).
+  const realizadoGridTotal = useMemo(
     () => agregarRealizado(realizadoCelulas, filtro),
     [realizadoCelulas, filtro],
   );
+  const naoClassif = useMemo(
+    () => ({
+      mql: realizado.mql - realizadoGridTotal.mql,
+      sql: realizado.sql - realizadoGridTotal.sql,
+      sal: realizado.sal - realizadoGridTotal.sal,
+      won: realizado.won - realizadoGridTotal.won,
+      faturamento: realizado.faturamento - realizadoGridTotal.faturamento,
+    }),
+    [realizado, realizadoGridTotal],
+  );
+  const temNaoClassif =
+    naoClassif.mql > 0 || naoClassif.sql > 0 || naoClassif.sal > 0 ||
+    naoClassif.won > 0 || naoClassif.faturamento > 0;
 
   // ---------- Granularidade (tabela com pivot) ----------
   const linhasGranularidade = useMemo(() => {
@@ -157,6 +184,7 @@ export function BowtieClient({
         linhas={linhasGranularidade}
         totalProj={projetado}
         totalReal={realizado}
+        naoClassif={temNaoClassif ? naoClassif : null}
       />
 
       {/* Detalhamento do realizado por sub-canal (só unidade, 1 mês no filtro) */}
@@ -970,12 +998,15 @@ function BowtieGranularidade({
   linhas,
   totalProj,
   totalReal,
+  naoClassif,
 }: {
   pivote: Pivote;
   setPivote: (p: Pivote) => void;
   linhas: LinhaGran[];
   totalProj: ReturnType<typeof agregarProjetado>;
   totalReal: ReturnType<typeof agregarProjetado>;
+  /** Delta do não-classificado (balde) — linhas (grid) + isto = Total. null = nada a mostrar. */
+  naoClassif: { mql: number; sql: number; sal: number; won: number; faturamento: number } | null;
 }) {
   return (
     <div className="rounded border border-border bg-card">
@@ -1041,6 +1072,21 @@ function BowtieGranularidade({
             {linhas.map((l) => (
               <LinhaGranularidade key={l.key} linha={l} />
             ))}
+            {naoClassif && (
+              <tr className="italic text-muted-foreground" title="Realizado sem atribuição de tier/sub-canal (ex.: venda sem tier, canal fora do de-para, tenant não cadastrado). Some no Total mas não tem meta comparável.">
+                <td className="px-3 py-2">Não classificado</td>
+                <td className="text-right px-2 py-2 tabular-nums">{formatInt(naoClassif.mql)}</td>
+                <td className="text-right px-2 py-2">—</td>
+                <td className="text-right px-2 py-2 tabular-nums">{formatInt(naoClassif.sql)}</td>
+                <td className="text-right px-2 py-2">—</td>
+                <td className="text-right px-2 py-2 tabular-nums">{formatInt(naoClassif.sal)}</td>
+                <td className="text-right px-2 py-2">—</td>
+                <td className="text-right px-2 py-2 tabular-nums">{formatInt(naoClassif.won)}</td>
+                <td className="text-right px-2 py-2">—</td>
+                <td className="text-right px-2 py-2 tabular-nums">{formatBRL(naoClassif.faturamento)}</td>
+                <td className="text-right px-2 py-2">—</td>
+              </tr>
+            )}
             <tr className="bg-muted/30 font-semibold">
               <td className="px-3 py-2">Total</td>
               <td className="text-right px-2 py-2 tabular-nums">
