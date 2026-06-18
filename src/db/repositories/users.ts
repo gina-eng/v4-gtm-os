@@ -10,6 +10,7 @@ import { db } from "@/db";
 import {
   memberships,
   organizations,
+  sessions,
   users,
   type Membership,
   type User,
@@ -296,11 +297,30 @@ export async function updateUser(
  * Operação irreversível — usar com confirmação na UI. Indicado pra users
  * criados por engano ou que nunca completaram o primeiro acesso.
  */
-export async function deleteUser(id: string): Promise<boolean> {
+/**
+ * Remove o ACESSO do usuário SEM apagar o registro — preserva o histórico de
+ * auditoria (audit_log.actor_user_id continua apontando pra ele, com nome/e-mail
+ * intactos). "Remover usuário" = revogar acesso:
+ *   - status = inactive  (a auth bloqueia: getCurrentSession/login exigem 'active')
+ *   - activeOrganizationId = null
+ *   - memberships → status inactive (deixa de ser membro ativo; registro preservado)
+ *   - sessions apagadas (logout imediato)
+ * NÃO é hard delete (esse perderia o "quem fez" do histórico). Reversível: basta
+ * reativar o usuário + reatribuir vínculos.
+ */
+export async function revokeUserAccess(id: string): Promise<boolean> {
   return db.transaction(async (tx) => {
-    await tx.delete(memberships).where(eq(memberships.userId, id));
-    const deleted = await tx.delete(users).where(eq(users.id, id)).returning({ id: users.id });
-    return deleted.length > 0;
+    await tx
+      .update(memberships)
+      .set({ status: "inactive", updatedAt: new Date() })
+      .where(eq(memberships.userId, id));
+    await tx.delete(sessions).where(eq(sessions.userId, id));
+    const [row] = await tx
+      .update(users)
+      .set({ status: "inactive", activeOrganizationId: null, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning({ id: users.id });
+    return !!row;
   });
 }
 

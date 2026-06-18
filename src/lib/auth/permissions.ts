@@ -30,8 +30,11 @@ export const PERMISSIONS = {
   "user.invite": { matriz: ["admin", "gerente"], unidade: ["admin"] },
   "user.update": { matriz: ["admin"], unidade: ["admin"] },
   "user.deactivate": { matriz: ["admin"], unidade: ["admin"] },
-  // Hard delete: remove user + todos os memberships (mesmo inativos). Só Matriz.
-  "user.delete": { matriz: ["admin"] },
+  // Remover acesso (soft): desativa o user + vínculos + derruba sessão, PRESERVANDO
+  // o registro e o histórico de auditoria (não é hard delete). Admin da Matriz
+  // (qualquer user) ou admin de Unidade (só usuários do escopo dela — o route exige
+  // permissão em TODAS as orgs do alvo).
+  "user.delete": { matriz: ["admin"], unidade: ["admin"] },
 
   // Memberships
   "membership.create": { matriz: ["admin"], unidade: ["admin"] },

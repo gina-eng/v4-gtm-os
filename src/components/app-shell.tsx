@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   Building2,
   ClipboardList,
@@ -80,7 +80,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [hovering, setHovering] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const pathname = usePathname();
-  const router = useRouter();
   const session = useSession();
 
   // Sidebar mostra labels quando: usuário deixou expandido, OU está em hover-expand.
@@ -98,8 +97,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setLoggingOut(true);
     try {
       await fetch("/api/auth/logout", { method: "POST" });
-      router.push("/login");
-      router.refresh();
+      // Full-nav (não router.push): o cookie acabou de ser limpo; soft-nav podia
+      // re-resolver a sessão antiga e dar tela branca no caminho logout→login.
+      window.location.href = "/login";
+      return;
     } finally {
       setLoggingOut(false);
     }

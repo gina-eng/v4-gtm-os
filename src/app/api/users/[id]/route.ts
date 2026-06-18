@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ZodError } from "zod";
 import {
-  deleteUser,
+  revokeUserAccess,
   getUserById,
   listMembershipsByUser,
   updateUser,
@@ -133,7 +133,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<Params> }) {
   try {
     const session = await requireAuth();
-    await requirePermission(session, "user.delete");
 
     const { id } = await ctx.params;
     if (id === session.user.id) {
@@ -148,9 +147,31 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<Params> }
       return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
     }
 
-    const ok = await deleteUser(id);
+    // Autorização por ESCOPO:
+    // - Matriz admin: pode excluir qualquer usuário.
+    // - Unidade admin: só usuários cujo vínculo está INTEIRAMENTE no escopo dela —
+    //   exige permissão user.delete em TODAS as orgs do alvo (se o alvo tiver
+    //   vínculo na matriz ou em outra unidade, a checagem falha e bloqueia).
+    if (session.isMatrizUser) {
+      await requirePermission(session, "user.delete");
+    } else {
+      const targetMemberships = await listMembershipsByUser(target.id);
+      const orgIds = targetMemberships
+        .map((m) => m.organizationId)
+        .filter((x): x is string => x !== null);
+      if (orgIds.length === 0) {
+        throw new ForbiddenError("Apenas a Matriz pode excluir usuários sem unidade.");
+      }
+      for (const orgId of orgIds) {
+        await requirePermission(session, "user.delete", orgId);
+      }
+    }
+
+    // Remove o ACESSO (desativa + revoga vínculos + derruba sessão), preservando
+    // o registro do usuário e o histórico de auditoria. Não é hard delete.
+    const ok = await revokeUserAccess(id);
     if (!ok) {
-      return NextResponse.json({ error: "Falha ao excluir usuário" }, { status: 500 });
+      return NextResponse.json({ error: "Falha ao remover o acesso do usuário" }, { status: 500 });
     }
     return NextResponse.json({ data: { id } });
   } catch (err) {

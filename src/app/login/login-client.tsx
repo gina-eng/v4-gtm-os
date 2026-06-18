@@ -1,10 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { V4Logo } from "@/design-system/components/V4Logo";
 import { ALLOWED_EMAIL_DOMAIN } from "@/lib/validations/auth";
+
+/** Destino pós-login: honra ?next= se for caminho INTERNO seguro (evita open
+ *  redirect via //host ou URL absoluta); senão Início. */
+function destinoPosLogin(): string {
+  if (typeof window === "undefined") return "/";
+  const next = new URLSearchParams(window.location.search).get("next");
+  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+  return "/";
+}
 
 /**
  * Fluxo de login em 2 passos:
@@ -15,7 +23,6 @@ import { ALLOWED_EMAIL_DOMAIN } from "@/lib/validations/auth";
 type Step = "email" | "password" | "setup";
 
 export function LoginClient() {
-  const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [userName, setUserName] = useState<string | null>(null);
@@ -83,8 +90,11 @@ export function LoginClient() {
         setError(body.error ?? "Não foi possível entrar.");
         return;
       }
-      router.push("/");
-      router.refresh();
+      // Navegação FULL (não router.push): força o servidor a re-resolver a sessão
+      // com o cookie recém-setado. Soft-nav causava tela branca no 1º login (a
+      // sessão ainda não estava resolvida no RSC). Mesmo padrão do OrgSwitcher.
+      window.location.href = destinoPosLogin();
+      return;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado.");
     } finally {
@@ -117,8 +127,11 @@ export function LoginClient() {
         setError(body.error ?? "Não foi possível criar a senha.");
         return;
       }
-      router.push("/");
-      router.refresh();
+      // Navegação FULL (não router.push): força o servidor a re-resolver a sessão
+      // com o cookie recém-setado. Soft-nav causava tela branca no 1º login (a
+      // sessão ainda não estava resolvida no RSC). Mesmo padrão do OrgSwitcher.
+      window.location.href = destinoPosLogin();
+      return;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado.");
     } finally {

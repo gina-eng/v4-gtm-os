@@ -90,7 +90,8 @@ export const organizations = pgTable(
     name: varchar("name", { length: 120 }).notNull(),
     status: orgStatusEnum("status").notNull().default("active"),
     horizonteAtual: horizonteEnum("horizonte_atual").notNull().default("H1"),
-    /** ID da unidade em sistema externo (ex: tenant corporativo V4). Solto, sem FK. */
+    /** ID da unidade em sistema externo (tenant corporativo V4). ÚNICO (constraint
+     *  abaixo) — é a chave de negócio usada pra linkar usuários/realizado à unidade. */
     idTenant: varchar("id_tenant", { length: 120 }),
     cnpj: varchar("cnpj", { length: 18 }),
     /** Franqueado responsável pela unidade (ex-`socio_executivo_nome`). */
@@ -107,7 +108,9 @@ export const organizations = pgTable(
     index("idx_unidades_parent").on(table.parentId),
     index("idx_unidades_type_status").on(table.type, table.status),
     index("idx_unidades_regional").on(table.regional),
-    index("idx_unidades_id_tenant").on(table.idTenant),
+    // UNIQUE: id_tenant é a chave de negócio (link de usuários/realizado). Nulos
+    // permitidos (Postgres permite múltiplos NULL num unique).
+    uniqueIndex("idx_unidades_id_tenant").on(table.idTenant),
   ],
 );
 
@@ -128,6 +131,11 @@ export const users = pgTable(
     passwordHash: varchar("password_hash", { length: 255 }),
     status: userStatusEnum("status").notNull().default("active"),
     activeOrganizationId: uuid("active_organization_id").references(() => organizations.id),
+    /** Staging de IMPORT: id_tenant da unidade do usuário. Preenchido na carga em
+     *  massa (a única chave que liga o user à unidade). Um job cruza id_tenant →
+     *  unidades.id e popula activeOrganizationId + cria o membership. Não é o
+     *  vínculo real (esse é o UUID); é a referência de negócio do import. */
+    idTenant: varchar("id_tenant", { length: 120 }),
     /** Sub-escopo da visão matriz (só usado quando activeOrganizationId é null).
      *  NULL = retrocompat = 'todas_unidades'. Ver matrizScopeEnum. */
     matrizScope: matrizScopeEnum("matriz_scope"),

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Pencil, Plus, Search, Trash2, UserX } from "lucide-react";
+import { Mail, Pencil, Plus, Search, UserX } from "lucide-react";
 import type { Membership, Organization, User } from "@/db/schema";
 import { PermissionGate } from "@/components/permission-gate";
 import { useSession } from "@/lib/auth/auth-context";
@@ -82,7 +82,7 @@ export function UsuariosClient({
   async function handleDeleteUser(userId: string, userName: string) {
     if (
       !confirm(
-        `Excluir permanentemente o usuário ${userName}? Essa ação é irreversível e apaga todo o histórico de vínculos.`,
+        `Remover o acesso de ${userName}? Ele perde o acesso e os vínculos ativos, mas o registro e o histórico de auditoria (quem fez o quê) são preservados. Reversível reativando o usuário.`,
       )
     ) {
       return;
@@ -391,9 +391,9 @@ function UsersTable({
                             onClick={() => onDeleteUser(u.id, u.name)}
                             disabled={deletingUser === u.id}
                             className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-muted text-muted-foreground hover:text-destructive disabled:opacity-50"
-                            title="Excluir usuário"
+                            title="Remover acesso (preserva histórico)"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <UserX className="h-3.5 w-3.5" />
                           </button>
                         </PermissionGate>
                       </div>
