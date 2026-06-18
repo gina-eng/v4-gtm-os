@@ -661,8 +661,6 @@ export function applyStepToBlocks(base: PremissasBlocks, input: SaveStepInput): 
       return { ...base, conversoesOutbound: input.data };
     case "mix-subcanais":
       return { ...base, mixSubcanais: input.data };
-    case "realizado-historico":
-      return base;
   }
 }
 

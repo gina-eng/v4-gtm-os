@@ -53,8 +53,10 @@ export default async function PremissasUnidadePage() {
   // CAC dinâmico: investido/won do último mês fechado da própria unidade
   // (mesma regra de /premissas, mas sem somar rede — aqui é uma unidade só).
   const linha = setup.realizadoHistorico?.find((r) => r.mes === ULTIMO_MES_FECHADO);
+  // CAC realizado só com investido REAL (>0); hoje o derivado vem com investido=0
+  // (invest por unidade ainda não chega) → CAC oculto em vez de R$0 falso.
   const cacContext =
-    linha && (linha.investido > 0 || linha.won > 0)
+    linha && linha.investido > 0
       ? { investido: linha.investido, won: linha.won, faturamento: linha.faturamento, unidades: 1 }
       : null;
 

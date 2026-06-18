@@ -33,7 +33,6 @@ export const SETUP_STEPS = [
   "conversoes-inbound",
   "conversoes-outbound",
   "mix-subcanais",
-  "realizado-historico",
 ] as const;
 
 export type SetupStep = (typeof SETUP_STEPS)[number];
@@ -50,7 +49,6 @@ export const SETUP_STEP_LABEL: Record<SetupStep, string> = {
   "conversoes-inbound": "Conversões Inbound",
   "conversoes-outbound": "Conversões Outbound",
   "mix-subcanais": "Mix Subcanais",
-  "realizado-historico": "Realizado Histórico",
 };
 
 export type ConversoesInboundData = {
@@ -112,8 +110,7 @@ export type SaveStepInput =
     }
   | { step: "conversoes-inbound"; data: ConversoesInboundStepData }
   | { step: "conversoes-outbound"; data: ConversoesOutboundData }
-  | { step: "mix-subcanais"; data: MixOutboundHorizonte[] }
-  | { step: "realizado-historico"; data: RealizadoMensal[] };
+  | { step: "mix-subcanais"; data: MixOutboundHorizonte[] };
 
 /**
  * Função pura — pode ser usada em client e server. Decide qual é o próximo

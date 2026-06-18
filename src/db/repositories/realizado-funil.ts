@@ -15,7 +15,7 @@ import { eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { realizadoFunil, realizadoNaoClassificado } from "@/db/schema";
 import type { SubCanalKey } from "@/lib/premissas/funil-reverso";
-import type { Tier } from "@/lib/premissas/matriz-defaults";
+import type { RealizadoMensal, Tier } from "@/lib/premissas/matriz-defaults";
 
 /**
  * Célula MENSAL agregada (consumo do /bowtie). Mantém a forma histórica — sem
@@ -304,4 +304,109 @@ export async function getNaoClassificadoPorMes(
     won: r.won,
     faturamento: r.faturamento,
   }));
+}
+
+/** Balde por ORG × mês (Map). Exclui linhas sem unidade (org null) — essas só
+ *  entram no "Resultado geral", não no realizado de uma unidade específica. */
+export async function getNaoClassificadoMesByOrgIds(
+  orgIds: string[],
+): Promise<Map<string, BaldeMes[]>> {
+  const out = new Map<string, BaldeMes[]>();
+  if (orgIds.length === 0) return out;
+  const rows = await db
+    .select({
+      org: realizadoNaoClassificado.organizationId,
+      mes: realizadoNaoClassificado.mes,
+      leads: sql<number>`coalesce(sum(${realizadoNaoClassificado.leads}), 0)::float8`,
+      sqlStage: sql<number>`coalesce(sum(${realizadoNaoClassificado.sql}), 0)::float8`,
+      sal: sql<number>`coalesce(sum(${realizadoNaoClassificado.sal}), 0)::float8`,
+      won: sql<number>`coalesce(sum(${realizadoNaoClassificado.won}), 0)::float8`,
+      faturamento: sql<number>`coalesce(sum(${realizadoNaoClassificado.faturamento}), 0)::float8`,
+    })
+    .from(realizadoNaoClassificado)
+    .where(inArray(realizadoNaoClassificado.organizationId, orgIds))
+    .groupBy(realizadoNaoClassificado.organizationId, realizadoNaoClassificado.mes);
+  for (const r of rows) {
+    if (!r.org) continue;
+    const arr = out.get(r.org) ?? [];
+    arr.push({ mes: r.mes, leads: r.leads, sql: r.sqlStage, sal: r.sal, won: r.won, faturamento: r.faturamento });
+    out.set(r.org, arr);
+  }
+  return out;
+}
+
+// ============================================================
+// Adaptador: realizado_funil (+ balde) → RealizadoMensal[] (o que o forecast espera)
+//
+// Colapsa o grão subcanal×tier somando por MÊS, no shape RealizadoMensal:
+//  - faturamento: Σ won classificado + Σ balde (âncora "cheia" — decisão Gina).
+//  - won: idem (classificado + balde) — usado só pra display; o motor recalcula.
+//  - leadsIb: SÓ lead_broker + black_box (meeting_broker/eventos contam SQL, não
+//    lead de topo, então ficam de fora pra não inflar o override de meses fechados).
+//  - leadsOb: os 4 out_*.
+//  - investido: 0 — o invest do funil é da REDE e inflado (schema), e o realizado
+//    por unidade ainda não existe; mapear 0 faz o motor cair no investido planejado.
+// ============================================================
+
+const SUBCANAIS_LEADS_IB: ReadonlySet<SubCanalKey> = new Set<SubCanalKey>(["lead_broker", "black_box"]);
+const SUBCANAIS_LEADS_OB: ReadonlySet<SubCanalKey> = new Set<SubCanalKey>([
+  "out_indicacao",
+  "out_recovery",
+  "out_recomendacao",
+  "out_prospeccao",
+]);
+
+export function celulasParaRealizadoMensal(
+  celulas: RealizadoFunilCelula[],
+  balde: BaldeMes[] = [],
+): RealizadoMensal[] {
+  const byMes = new Map<string, RealizadoMensal>();
+  const get = (mes: string): RealizadoMensal => {
+    let m = byMes.get(mes);
+    if (!m) {
+      m = { mes, faturamento: 0, investido: 0, leadsIb: 0, leadsOb: 0, won: 0 };
+      byMes.set(mes, m);
+    }
+    return m;
+  };
+  for (const c of celulas) {
+    const m = get(c.mes);
+    m.faturamento += c.faturamento;
+    m.won += c.won;
+    if (SUBCANAIS_LEADS_IB.has(c.subcanal)) m.leadsIb += c.leads;
+    else if (SUBCANAIS_LEADS_OB.has(c.subcanal)) m.leadsOb += c.leads;
+    // meeting_broker/eventos: leads = SQL-first, fora de leadsIb/Ob. investido: 0.
+  }
+  for (const b of balde) {
+    const m = get(b.mes);
+    m.faturamento += b.faturamento; // âncora cheia (classificado + não-classificado)
+    m.won += b.won;
+    // balde sem subcanal → não entra em leadsIb/Ob; investido 0
+  }
+  return Array.from(byMes.values()).sort((a, b) => a.mes.localeCompare(b.mes));
+}
+
+/** Realizado mensal de UMA org, derivado do realizado_funil (+ balde). */
+export async function getRealizadoMensalFunil(orgId: string): Promise<RealizadoMensal[]> {
+  const [celulas, balde] = await Promise.all([
+    getRealizadoFunil(orgId),
+    getNaoClassificadoPorMes([orgId], false),
+  ]);
+  return celulasParaRealizadoMensal(celulas, balde);
+}
+
+/** Batch: realizado mensal por org (Map), derivado do realizado_funil (+ balde). */
+export async function getRealizadoMensalFunilByOrgIds(
+  ids: string[],
+): Promise<Map<string, RealizadoMensal[]>> {
+  const out = new Map<string, RealizadoMensal[]>();
+  if (ids.length === 0) return out;
+  const [gridByOrg, baldeByOrg] = await Promise.all([
+    getRealizadoFunilByOrgIds(ids),
+    getNaoClassificadoMesByOrgIds(ids),
+  ]);
+  for (const id of ids) {
+    out.set(id, celulasParaRealizadoMensal(gridByOrg.get(id) ?? [], baldeByOrg.get(id) ?? []));
+  }
+  return out;
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deriveRealizadoFunil } from "@/lib/realizado/derive";
+import { revalidateForecastTudo } from "@/lib/realizado/forecast-data";
 
 /**
  * GET /api/realizado/derive
@@ -32,6 +33,9 @@ export async function GET(request: Request) {
 
   try {
     const result = await deriveRealizadoFunil();
+    // O realizado_funil agora alimenta o forecast (cacheado por tags). Sem isto o
+    // /realizado/home/bowtie mostrariam realizado velho até outra edição/virada de mês.
+    revalidateForecastTudo();
     return NextResponse.json({ ok: true, result });
   } catch (e) {
     console.error("[derive] falhou:", e);

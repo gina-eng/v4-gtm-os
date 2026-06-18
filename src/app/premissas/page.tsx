@@ -37,7 +37,10 @@ async function loadCacContext(
   for (const setup of setups) {
     const linha = setup.realizadoHistorico?.find((r) => r.mes === ULTIMO_MES_FECHADO);
     if (!linha) continue;
-    if (linha.investido > 0 || linha.won > 0) temDado = true;
+    // CAC realizado só aparece com investido REAL (>0). Hoje o realizado vem do
+    // extrato derivado com investido=0 (invest por unidade ainda não chega), então
+    // o CAC fica oculto em vez de mostrar R$0 falso. Volta quando o invest chegar.
+    if (linha.investido > 0) temDado = true;
     investido += linha.investido;
     won += linha.won;
     faturamento += linha.faturamento;

@@ -9,6 +9,14 @@ import { AUTH_COOKIE_NAME } from "@/lib/auth/types";
  * (se o cookie aponta para um user existente e ativo) acontece nos handlers
  * server-side via getCurrentSession(). O proxy só faz o redirect rápido.
  */
+/** NextResponse.next() carregando o pathname num header, pra o layout server
+ *  (gate de setup) saber a rota atual — layouts não recebem o pathname direto. */
+function nextWithPath(req: NextRequest) {
+  const headers = new Headers(req.headers);
+  headers.set("x-pathname", req.nextUrl.pathname);
+  return NextResponse.next({ request: { headers } });
+}
+
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isAuthed = !!req.cookies.get(AUTH_COOKIE_NAME);
@@ -32,7 +40,7 @@ export function proxy(req: NextRequest) {
     if (isAuthed && pathname === "/login") {
       return NextResponse.redirect(new URL("/", req.url));
     }
-    return NextResponse.next();
+    return nextWithPath(req);
   }
 
   if (!isAuthed) {
@@ -42,7 +50,7 @@ export function proxy(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  return nextWithPath(req);
 }
 
 export const config = {

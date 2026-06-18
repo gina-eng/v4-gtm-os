@@ -196,15 +196,6 @@ export function ForecastClient({
                 ))}
             </div>
             <p className="text-sm text-muted-foreground">{subtitulo}</p>
-            {!isMatriz && (
-              <Link
-                href="/iniciar/realizado-historico"
-                className="self-start inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2.5 py-1"
-              >
-                Editar realizado mensal
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-            )}
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <SummaryCard label="Target do ano" value={formatBRLk(targetAno)} />

@@ -9,8 +9,10 @@ import {
   FlagTriangleRight,
   LayoutDashboard,
   LineChart,
+  Lock,
   LogOut,
   Network,
+  Rocket,
   PanelLeft,
   SlidersHorizontal,
   Target,
@@ -122,6 +124,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         : (session.activeOrganization?.name ?? displayedOrg?.name ?? "");
 
   const isUnidade = session.actingMode === "unidade";
+  // Unidade com setup incompleto: trava TODA a nav menos /usuarios (e o link
+  // "Concluir setup"). setupConcluido já é true pra matriz, então isto só afeta
+  // unidade. O bloqueio real é no layout server; aqui é a affordance visual.
+  const setupTravado = !session.setupConcluido;
 
   // Renderiza um item da nav (link ativo ou botão desabilitado "breve").
   // Extraído pra reaproveitar tanto na lista principal quanto no rodapé.
@@ -131,6 +137,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // matriz fica só "Premissas".
     const label =
       item.href === "/premissas" && isUnidade ? "Premissas Matriz" : item.label;
+    // Travado pelo setup: tudo menos /usuarios fica desabilitado até concluir.
+    if (setupTravado && item.href !== "/usuarios") {
+      return (
+        <li key={item.href}>
+          <button
+            disabled
+            title={`Conclua o setup da unidade pra liberar${!showLabels ? ` — ${label}` : ""}`}
+            className={`flex items-center gap-2 rounded-md h-8 w-full text-sidebar-foreground opacity-35 cursor-not-allowed whitespace-nowrap ${
+              showLabels ? "p-2 text-left" : "justify-center"
+            }`}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            {showLabels && (
+              <>
+                <span className="flex-1">{label}</span>
+                <Lock className="h-3 w-3 text-muted-foreground/60" />
+              </>
+            )}
+          </button>
+        </li>
+      );
+    }
     if (item.disabled) {
       return (
         <li key={item.href}>
@@ -236,6 +264,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className={showLabels ? "" : "invisible"}>Navegação</span>
             </div>
             <ul className="flex flex-col gap-1 text-sm">
+              {/* Caminho de volta ao wizard enquanto o setup não conclui — sempre
+                  liberado (o resto fica travado). */}
+              {setupTravado && (
+                <li>
+                  <Link
+                    href="/iniciar"
+                    title={!showLabels ? "Concluir setup" : undefined}
+                    className={`flex items-center gap-2 rounded-md h-8 whitespace-nowrap bg-accent/15 text-accent font-medium hover:bg-accent/25 ${
+                      showLabels ? "p-2" : "justify-center"
+                    }`}
+                  >
+                    <Rocket className="h-4 w-4 shrink-0" />
+                    {showLabels && <span>Concluir setup</span>}
+                  </Link>
+                </li>
+              )}
               {topNavItems.map(renderNavItem)}
             </ul>
           </nav>

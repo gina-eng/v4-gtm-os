@@ -54,7 +54,9 @@ export function StepMixSubcanais({ organizationId, initial, matriz, fromMatriz }
         setError(body.error ?? "Não foi possível salvar.");
         return;
       }
-      router.push("/iniciar/realizado-historico");
+      // Último passo do setup (a etapa "Realizado Histórico" foi removida — o
+      // realizado agora vem do extrato do time de dados). Segue pro resumo.
+      router.push("/iniciar/resumo");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado.");
@@ -155,6 +157,7 @@ export function StepMixSubcanais({ organizationId, initial, matriz, fromMatriz }
         onContinue={handleContinue}
         saving={saving}
         error={error}
+        isLast
       />
     </>
   );

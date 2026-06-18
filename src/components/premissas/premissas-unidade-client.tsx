@@ -33,13 +33,12 @@ type CacContext = {
   unidades: number;
 } | null;
 
-type Tab = "time-capacidade" | "premissas" | "conversoes" | "realizado";
+type Tab = "time-capacidade" | "premissas" | "conversoes";
 
 const TABS: Array<{ id: Tab; label: string; sub: string }> = [
   { id: "time-capacidade", label: "TIME & CAPACIDADE", sub: "Pessoas + capacidade" },
   { id: "premissas", label: "INVESTIMENTO, DISTRIBUIÇÃO DE TIERS & RECEITAS", sub: "Valores do modelo" },
   { id: "conversoes", label: "CONVERSÕES", sub: "CRs por canal" },
-  { id: "realizado", label: "REALIZADO", sub: "Histórico mensal" },
 ];
 
 type Props = {
@@ -195,13 +194,6 @@ export function PremissasUnidadeClient({
       {tab === "conversoes" && (
         <ConversoesTab canEdit blocks={blocks} persist={persistBlock} />
       )}
-      {tab === "realizado" && (
-        <RealizadoHistoricoEditable
-          organizationId={organizationId}
-          dataInicio={dataInicio}
-          initial={realizadoHistorico}
-        />
-      )}
     </>
   );
 }
@@ -332,182 +324,5 @@ function TimeCapacidadeEditable({
         </button>
       </div>
     </div>
-  );
-}
-
-// ============================================================
-// Realizado Histórico (editável) — único bloco do setup fora de /premissas;
-// mora no jsonb da unit_setups e persiste pelo PATCH /api/units/[id]/setup.
-// ============================================================
-
-/** PATCH do step realizado-historico. Retorna true em caso de sucesso. */
-async function persistRealizado(
-  organizationId: string,
-  rows: RealizadoMensal[],
-): Promise<boolean> {
-  try {
-    const res = await fetch(`/api/units/${organizationId}/setup`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ step: "realizado-historico", data: rows }),
-    });
-    if (!res.ok) console.error("[realizado] falha ao salvar", await res.text());
-    return res.ok;
-  } catch (err) {
-    console.error("[realizado] erro de rede ao salvar", err);
-    return false;
-  }
-}
-
-function emptyMes(mes: string): RealizadoMensal {
-  return { mes, faturamento: 0, investido: 0, leadsIb: 0, leadsOb: 0, won: 0 };
-}
-
-function RealizadoHistoricoEditable({
-  organizationId,
-  dataInicio,
-  initial,
-}: {
-  organizationId: string;
-  dataInicio: string | null;
-  initial: RealizadoMensal[];
-}) {
-  // Mesma regra do wizard: meses fechados do intervalo [mês-âncora, último
-  // fechado]. Reaproveita o valor salvo de cada mês ou entra zerado.
-  const mesAncora = useMemo(() => getMesAncora(dataInicio), [dataInicio]);
-  const skeleton = useMemo(() => {
-    const byMes = new Map(initial.map((r) => [r.mes, r]));
-    return MESES_ANO_2026.filter(
-      (mes) => mes <= ULTIMO_MES_FECHADO && mes >= mesAncora,
-    ).map((mes) => byMes.get(mes) ?? emptyMes(mes));
-  }, [initial, mesAncora]);
-
-  const [saved, setSaved] = useState<RealizadoMensal[]>(skeleton);
-  const [draft, setDraft] = useState<RealizadoMensal[]>(skeleton);
-  const [isEditing, setIsEditing] = useState(false);
-  const rows = isEditing ? draft : saved;
-  const total = rows.reduce((acc, r) => acc + r.faturamento, 0);
-
-  function patch<K extends keyof RealizadoMensal>(idx: number, k: K, v: RealizadoMensal[K]) {
-    setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [k]: v } : r)));
-  }
-
-  return (
-    <EditableSection
-      title="Realizado Histórico"
-      badge={<SectionBadge>Base do Forecast</SectionBadge>}
-      canEdit={rows.length > 0}
-      isEditing={isEditing}
-      onEdit={() => {
-        setDraft(saved);
-        setIsEditing(true);
-      }}
-      onSave={() => {
-        setSaved(draft);
-        setIsEditing(false);
-        void persistRealizado(organizationId, draft);
-      }}
-      onCancel={() => {
-        setDraft(saved);
-        setIsEditing(false);
-      }}
-    >
-      <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-b border-border/60">
-        Números reais dos meses fechados de 2026 — base para o cálculo de Forecast.
-      </div>
-      {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-          Ainda não há meses fechados para esta unidade no ano corrente.
-        </p>
-      ) : (
-        <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <Th>Mês</Th>
-                  <Th align="right">Faturamento</Th>
-                  <Th align="right">Investido</Th>
-                  <Th align="right">Leads IB</Th>
-                  <Th align="right">Leads OB</Th>
-                  <Th align="right">Won</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, idx) => (
-                  <tr
-                    key={r.mes}
-                    className={`${idx % 2 === 0 ? "bg-card" : "bg-muted/30"} border-b border-border/60`}
-                  >
-                    <td className="px-2 py-2 text-xs font-medium text-foreground">
-                      {formatMesPt(r.mes)}
-                    </td>
-                    <td className="px-2 py-2 text-xs text-right">
-                      <CurrencyCell
-                        isEditing={isEditing}
-                        value={r.faturamento}
-                        onChange={(v) => patch(idx, "faturamento", v)}
-                      />
-                    </td>
-                    <td className="px-2 py-2 text-xs text-right">
-                      <CurrencyCell
-                        isEditing={isEditing}
-                        value={r.investido}
-                        onChange={(v) => patch(idx, "investido", v)}
-                      />
-                    </td>
-                    <td className="px-2 py-2 text-xs text-right">
-                      <IntegerCell
-                        isEditing={isEditing}
-                        value={r.leadsIb}
-                        onChange={(v) => patch(idx, "leadsIb", v)}
-                      />
-                    </td>
-                    <td className="px-2 py-2 text-xs text-right">
-                      <IntegerCell
-                        isEditing={isEditing}
-                        value={r.leadsOb}
-                        onChange={(v) => patch(idx, "leadsOb", v)}
-                      />
-                    </td>
-                    <td className="px-2 py-2 text-xs text-right">
-                      <IntegerCell
-                        isEditing={isEditing}
-                        value={r.won}
-                        onChange={(v) => patch(idx, "won", v)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="px-4 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-              Acumulado do período
-            </span>
-            <span className="text-base font-bold text-accent tabular-nums">{formatBRL(total)}</span>
-          </div>
-        </>
-      )}
-    </EditableSection>
-  );
-}
-
-function Th({
-  children,
-  align = "left",
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right" | "center";
-}) {
-  const alignClass =
-    align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-  return (
-    <th
-      className={`bg-table-header text-table-header-foreground h-8 font-medium px-2 py-1.5 text-[10px] uppercase tracking-wider whitespace-nowrap ${alignClass}`}
-    >
-      {children}
-    </th>
   );
 }

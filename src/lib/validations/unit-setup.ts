@@ -308,7 +308,6 @@ export const saveStepBodySchema = z.discriminatedUnion("step", [
   z.object({ step: z.literal("conversoes-inbound"), data: conversoesInboundSchema }),
   z.object({ step: z.literal("conversoes-outbound"), data: conversoesOutboundSchema }),
   z.object({ step: z.literal("mix-subcanais"), data: mixSubcanaisSchema }),
-  z.object({ step: z.literal("realizado-historico"), data: realizadoHistoricoSchema }),
 ]);
 
 export type SaveStepBody = z.infer<typeof saveStepBodySchema>;

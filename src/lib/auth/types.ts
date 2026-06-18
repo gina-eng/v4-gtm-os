@@ -52,6 +52,10 @@ export type AuthSession = {
   actingMode: ActingMode;
   /** Escopo fino da visão (geral/todas_unidades/matriz_propria/unidade). Lido só por bowtie/realizado. */
   activeScope: ScopeMode;
+  /** Setup da unidade concluído. SEMPRE true pra matriz-user (nunca travado) e pra
+   *  visão consolidada; false só quando uma UNIDADE (não-matriz) não terminou o setup.
+   *  Usado pra travar a navegação até o setup (só /usuarios + /iniciar liberadas). */
+  setupConcluido: boolean;
 };
 
 /** Nome do cookie usado em dev para identificar o usuário "logado". */

@@ -24,6 +24,10 @@ import {
   savePremissas,
   type PremissasBlocks,
 } from "@/db/repositories/premissas";
+import {
+  getRealizadoMensalFunil,
+  getRealizadoMensalFunilByOrgIds,
+} from "@/db/repositories/realizado-funil";
 import type {
   MetricaOperacional,
   RealizadoMensal,
@@ -78,11 +82,14 @@ function blankMeta(): SetupMeta {
   return { completedSteps: [], completedAt: null, realizadoHistorico: null, updatedAt: new Date() };
 }
 
-/** Monta o UnitSetup expondo cada bloco só se a unidade "possui" o step. */
+/** Monta o UnitSetup expondo cada bloco só se a unidade "possui" o step.
+ *  `realizadoDerivado` vem do realizado_funil (extrato do time de dados) — não
+ *  mais do jsonb manual. Ver getRealizadoMensalFunil. */
 function assemble(
   organizationId: string,
   meta: SetupMeta,
   blocks: PremissasBlocks | null,
+  realizadoDerivado: RealizadoMensal[],
 ): UnitSetup {
   const s = meta.completedSteps;
   return {
@@ -99,7 +106,8 @@ function assemble(
     conversoesInbound: ownsConvInbound(s) ? blocks?.conversoesInbound ?? null : null,
     conversoesOutbound: ownsConvOutbound(s) ? blocks?.conversoesOutbound ?? null : null,
     mixSubcanais: ownsMix(s) ? blocks?.mixSubcanais ?? null : null,
-    realizadoHistorico: meta.realizadoHistorico,
+    // Fonte = realizado_funil derivado (extrato), não mais o jsonb manual.
+    realizadoHistorico: realizadoDerivado,
     updatedAt: meta.updatedAt,
   };
 }
@@ -120,11 +128,12 @@ async function readMeta(organizationId: string): Promise<SetupMeta> {
 }
 
 export async function getUnitSetup(organizationId: string): Promise<UnitSetup> {
-  const [meta, blocks] = await Promise.all([
+  const [meta, blocks, realizado] = await Promise.all([
     readMeta(organizationId),
     getPremissas(organizationId),
+    getRealizadoMensalFunil(organizationId),
   ]);
-  return assemble(organizationId, meta, blocks);
+  return assemble(organizationId, meta, blocks, realizado);
 }
 
 /**
@@ -133,9 +142,10 @@ export async function getUnitSetup(organizationId: string): Promise<UnitSetup> {
  */
 export async function getUnitSetupsByOrgIds(ids: string[]): Promise<UnitSetup[]> {
   if (ids.length === 0) return [];
-  const [rows, blocksById] = await Promise.all([
+  const [rows, blocksById, realizadoById] = await Promise.all([
     db.select().from(unitSetups).where(inArray(unitSetups.organizationId, ids)),
     getPremissasByEntityIds(ids),
+    getRealizadoMensalFunilByOrgIds(ids),
   ]);
   const metaById = new Map<string, SetupMeta>(
     rows.map((r) => [
@@ -149,7 +159,7 @@ export async function getUnitSetupsByOrgIds(ids: string[]): Promise<UnitSetup[]>
     ]),
   );
   return ids.map((id) =>
-    assemble(id, metaById.get(id) ?? blankMeta(), blocksById.get(id) ?? null),
+    assemble(id, metaById.get(id) ?? blankMeta(), blocksById.get(id) ?? null, realizadoById.get(id) ?? []),
   );
 }
 
@@ -159,32 +169,29 @@ export async function getUnitSetupsByOrgIds(ids: string[]): Promise<UnitSetup[]>
  * alimentar o motor — evita o custo de `getUnitSetup` carregar todos os blocos.
  */
 export async function getRealizado(organizationId: string): Promise<RealizadoMensal[] | null> {
-  const [row] = await db
-    .select({ realizadoHistorico: unitSetups.realizadoHistorico })
-    .from(unitSetups)
-    .where(eq(unitSetups.organizationId, organizationId))
-    .limit(1);
-  return (row?.realizadoHistorico as RealizadoMensal[] | null) ?? null;
+  // Fonte = realizado_funil derivado (extrato), não mais o jsonb manual.
+  return getRealizadoMensalFunil(organizationId);
 }
 
-/** Batch do realizado por org — 1 query, sem premissas (ver `getRealizado`). */
+/** Batch do realizado por org — derivado do realizado_funil (ver `getRealizado`). */
 export async function getRealizadoByOrgIds(
   ids: string[],
 ): Promise<Map<string, RealizadoMensal[]>> {
-  const result = new Map<string, RealizadoMensal[]>();
-  if (ids.length === 0) return result;
-  const rows = await db
-    .select({
-      organizationId: unitSetups.organizationId,
-      realizadoHistorico: unitSetups.realizadoHistorico,
-    })
+  return getRealizadoMensalFunilByOrgIds(ids);
+}
+
+/**
+ * True se a unidade concluiu o setup. Critério = `completedAt` setado (estável a
+ * mudanças no array de steps). Query enxuta (1 coluna) — usada pelo gate de nav.
+ * Org sem linha em unit_setups → false (setup não iniciado).
+ */
+export async function getSetupConcluido(organizationId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ completedAt: unitSetups.completedAt })
     .from(unitSetups)
-    .where(inArray(unitSetups.organizationId, ids));
-  for (const r of rows) {
-    const rh = r.realizadoHistorico as RealizadoMensal[] | null;
-    if (rh) result.set(r.organizationId, rh);
-  }
-  return result;
+    .where(eq(unitSetups.organizationId, organizationId))
+    .limit(1);
+  return row?.completedAt != null;
 }
 
 // ============================================================
@@ -265,11 +272,6 @@ export async function getStepValues(
       const unit = setup.mixSubcanais;
       return { values: unit ?? matriz.mixSubcanais, matrizDefault: matriz.mixSubcanais, fromMatriz: unit === null };
     }
-    case "realizado-historico": {
-      const unit = setup.realizadoHistorico;
-      const matrizDefault: RealizadoMensal[] = [];
-      return { values: unit ?? matrizDefault, matrizDefault, fromMatriz: unit === null };
-    }
   }
 }
 
@@ -317,13 +319,12 @@ export async function saveStep(
   const now = new Date();
   const meta = await readMeta(organizationId);
 
-  // Persistência das premissas (todos os steps menos realizado-historico).
-  if (input.step !== "realizado-historico") {
-    const stored = await getPremissas(organizationId);
-    const base = stored ?? (await getMatrizBlocks());
-    const patched = applyStepToBlocks(base, input);
-    await savePremissas(organizationId, patched);
-  }
+  // Todos os steps restantes são premissa (a etapa realizado-historico foi
+  // removida — o realizado agora vem do extrato derivado, ver getRealizadoMensalFunil).
+  const stored = await getPremissas(organizationId);
+  const base = stored ?? (await getMatrizBlocks());
+  const patched = applyStepToBlocks(base, input);
+  await savePremissas(organizationId, patched);
 
   const completedSteps = meta.completedSteps.includes(input.step)
     ? meta.completedSteps
@@ -334,9 +335,6 @@ export async function saveStep(
       ? now
       : meta.completedAt;
 
-  const setRealizado =
-    input.step === "realizado-historico" ? { realizadoHistorico: input.data } : {};
-
   // UPSERT do meta por PK (organizationId). Premissas já foram gravadas acima.
   await db
     .insert(unitSetups)
@@ -345,11 +343,10 @@ export async function saveStep(
       completedSteps,
       completedAt,
       updatedAt: now,
-      ...setRealizado,
     })
     .onConflictDoUpdate({
       target: unitSetups.organizationId,
-      set: { completedSteps, completedAt, updatedAt: now, ...setRealizado },
+      set: { completedSteps, completedAt, updatedAt: now },
     });
 
   return getUnitSetup(organizationId);

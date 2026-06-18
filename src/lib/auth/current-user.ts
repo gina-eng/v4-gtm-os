@@ -5,6 +5,7 @@ import {
   getUserById,
   listMembershipsByUser,
 } from "@/db/repositories/users";
+import { getSetupConcluido } from "@/db/repositories/unit-setup";
 import type { Organization } from "@/db/schema";
 import {
   AUTH_COOKIE_NAME,
@@ -104,6 +105,13 @@ export const getCurrentSession = cache(async (): Promise<AuthSession | null> => 
           ? "geral"
           : "todas_unidades";
 
+  // Gate de setup: trava a nav SÓ pra uma UNIDADE (não-matriz) com setup incompleto.
+  // Matriz-user nunca trava (mesmo impersonando uma unidade via switcher).
+  const setupConcluido =
+    !isMatrizUser && activeOrganization?.type === "unidade"
+      ? await getSetupConcluido(activeOrganization.id)
+      : true;
+
   return {
     user,
     memberships,
@@ -112,6 +120,7 @@ export const getCurrentSession = cache(async (): Promise<AuthSession | null> => 
     availableOrganizations,
     actingMode,
     activeScope,
+    setupConcluido,
   };
 });
 
