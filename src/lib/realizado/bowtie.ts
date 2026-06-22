@@ -190,11 +190,20 @@ export function agregarRealizado(
  * O filtro de meses É aplicado ao balde (default-allow). Assim o TOTAL bate com a
  * fonte (grid + balde), enquanto as linhas por célula (que sempre têm dimensão
  * setada) seguem usando `agregarRealizado` puro (só grid). Ver docs/escopo-seletor-4-modos.md.
+ *
+ * `wonBancoPorMes` (opcional) é a contagem OFICIAL de WON da `realizado_won`, por
+ * mês. Quando fornecida E não há recorte de tier/canal/subcanal, o WON do total
+ * passa a ser esse número oficial (ignorando o WON do grid e do balde) — é o que
+ * "bate com a realidade". Como `realizado_won` não tem tier/subcanal, num recorte
+ * por dimensão caímos no WON do grid (a forma), igual ao balde. As demais métricas
+ * (leads/sql/sal/faturamento) seguem do grid+balde. Ticket (fat÷won) e CAC
+ * (invest÷won) passam a usar o WON oficial.
  */
 export function agregarRealizadoComBalde(
   celulas: RealizadoFunilCelula[],
   balde: BaldeMes[],
   filtro: BowtieFiltro,
+  wonBancoPorMes?: Map<string, number> | null,
 ): BowtieAgg {
   let leads = 0, sql = 0, sal = 0, won = 0, faturamento = 0, invest = 0;
   for (const c of celulas) {
@@ -219,6 +228,15 @@ export function agregarRealizadoComBalde(
       won += b.won;
       faturamento += b.faturamento;
       // invest do balde não existe (fica 0).
+    }
+  }
+  // WON oficial (realizado_won): substitui o WON do grid+balde quando há a fonte e
+  // o recorte permite (sem dimensão que o banco não tem). Respeita o filtro de meses.
+  if (wonBancoPorMes && semRecorteDimensao) {
+    won = 0;
+    for (const [mes, w] of wonBancoPorMes) {
+      if (!isEmpty(filtro.meses) && !filtro.meses!.includes(mes)) continue;
+      won += w;
     }
   }
   return finalize({ leads, mql: leads, sql, sal, won, faturamento, invest });

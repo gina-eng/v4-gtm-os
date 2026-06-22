@@ -10,6 +10,7 @@ import {
   getRealizadoFunilByOrgIds,
   getNaoClassificadoPorMes,
 } from "@/db/repositories/realizado-funil";
+import { getWonBancoPorMes } from "@/db/repositories/realizado-won";
 import { REALIZADO_HISTORICO_DEFAULT } from "@/lib/premissas/matriz-defaults";
 import {
   agregarPorSubCanalPorTierMatriz,
@@ -48,11 +49,12 @@ export default async function BowtiePage() {
     const unitOrg = scope.unidadeOrg;
     if (!unitOrg) return <BowtieEmpty mode="unidade-sem-org" />;
 
-    const [blocks, setup, realizado, balde] = await Promise.all([
+    const [blocks, setup, realizado, balde, wonBanco] = await Promise.all([
       getPremissas(unitOrg.id).then((b) => b ?? matrizBlocks),
       getUnitSetup(unitOrg.id),
       getRealizadoFunil(unitOrg.id),
       getNaoClassificadoPorMes([unitOrg.id], false),
+      getWonBancoPorMes([unitOrg.id], false),
     ]);
     const realizadoHistorico = setup.realizadoHistorico ?? REALIZADO_HISTORICO_DEFAULT;
     const atuacao = calcularAtuacao(blocks, unitOrg.horizonteAtual);
@@ -68,6 +70,7 @@ export default async function BowtiePage() {
         })}
         realizadoCelulas={realizado}
         baldeRealizado={balde}
+        wonBancoPorMes={Object.fromEntries(wonBanco)}
         tiersAtivos={Array.from(atuacao.tiersAtivos)}
         subcanaisAtivos={Array.from(atuacao.subcanaisAtivos)}
       />
@@ -79,11 +82,12 @@ export default async function BowtiePage() {
     return <BowtieEmpty mode="matriz-sem-unidades" />;
   }
   const projIds = scope.projetadoOrgs.map((o) => o.id);
-  const [blocksById, setups, realizadoByOrg, balde] = await Promise.all([
+  const [blocksById, setups, realizadoByOrg, balde, wonBanco] = await Promise.all([
     getPremissasByEntityIds(projIds),
     getUnitSetupsByOrgIds(projIds),
     getRealizadoFunilByOrgIds(scope.gridOrgIds),
     getNaoClassificadoPorMes(scope.baldeOrgIds, scope.baldeIncluiNulos),
+    getWonBancoPorMes(scope.gridOrgIds, scope.baldeIncluiNulos),
   ]);
   const setupByOrgId = new Map(setups.map((s) => [s.organizationId, s] as const));
   const projetadoUnidades = scope.projetadoOrgs.map((u) => {
@@ -103,6 +107,7 @@ export default async function BowtiePage() {
       linhasSubCanalTier={agregarPorSubCanalPorTierMatriz(projetadoUnidades)}
       realizadoCelulas={concatRealizadoMatriz(realizadoByOrg.values())}
       baldeRealizado={balde}
+      wonBancoPorMes={Object.fromEntries(wonBanco)}
     />
   );
 }

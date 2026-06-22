@@ -29,6 +29,9 @@ type Props = {
   /** Não-classificado (balde) agregado por mês — somado SÓ no total (não nas linhas
    *  por célula). Faz o total bater com a fonte. Ver agregarRealizadoComBalde. */
   baldeRealizado: BaldeMes[];
+  /** WON oficial da `realizado_won` por mês (YYYY-MM → won), já no recorte do escopo.
+   *  É o número de WON exibido no total/gravata/CAC. Ver agregarRealizadoComBalde. */
+  wonBancoPorMes?: Record<string, number>;
   /** Tiers em que a unidade atua no horizonte atual (P4). Editor abre essas seções. */
   tiersAtivos?: Tier[];
   /** Sub-canais em que a unidade atua (P6 + P16). Editor abre essas seções. */
@@ -61,10 +64,18 @@ export function BowtieClient({
   linhasSubCanalTier,
   realizadoCelulas,
   baldeRealizado,
+  wonBancoPorMes,
   tiersAtivos,
   subcanaisAtivos,
 }: Props) {
   const isMatriz = mode === "matriz";
+
+  // WON oficial (realizado_won) → Map pra agregação. Memoizado pela identidade do
+  // objeto vindo do server (estável por render do servidor).
+  const wonBancoMap = useMemo(
+    () => (wonBancoPorMes ? new Map(Object.entries(wonBancoPorMes)) : null),
+    [wonBancoPorMes],
+  );
 
   // ---------- Estado dos filtros ----------
   // Default: mês vigente já selecionado pra facilitar o uso. O usuário pode
@@ -100,8 +111,8 @@ export function BowtieClient({
   // célula (granularidade) seguem em agregarRealizado puro (só grid); a diferença
   // entre a soma das linhas e o Total é exatamente o balde. Ver docs/escopo-seletor-4-modos.md.
   const realizado = useMemo(
-    () => agregarRealizadoComBalde(realizadoCelulas, baldeRealizado, filtro),
-    [realizadoCelulas, baldeRealizado, filtro],
+    () => agregarRealizadoComBalde(realizadoCelulas, baldeRealizado, filtro, wonBancoMap),
+    [realizadoCelulas, baldeRealizado, filtro, wonBancoMap],
   );
   // Só o grid (sem balde) — usado pra derivar o delta "não classificado" exibido
   // na tabela, pra que linhas (grid) + não-classificado = Total (grid+balde).
